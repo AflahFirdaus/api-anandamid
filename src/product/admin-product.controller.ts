@@ -20,11 +20,15 @@ import { findOneParams } from './dto/find-one.params';
 // import { Product } from './entities/product.entity'; // <-- Boleh dihapus kalau tidak dipakai lagi di file ini
 import { JwtAuthGuard } from '../auth/guards/jwt.guards';
 // import { CreateProductResponse } from '../../src/product/interface/product.interface'; 
+import { GoogleMerchantService } from './google-merchant.service';
 
 @Controller('admin/products') 
 @UseGuards(JwtAuthGuard)      
 export class AdminProductController {
-  constructor(private readonly productService: ProductService) {}
+  constructor(
+    private readonly productService: ProductService,
+    private readonly googleMerchantService: GoogleMerchantService,
+  ) {}
 
   @Get()
   async findAll(@Query() query: any) {
@@ -88,5 +92,18 @@ export class AdminProductController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteImage(@Param('imageId') imageId: string): Promise<void> {
     await this.productService.deleteProductImage(imageId);
+  }
+
+  // ============================================================
+  // GOOGLE MERCHANT CENTER
+  // ============================================================
+
+  @Post('google-merchant/bulk-sync')
+  async bulkSyncToGoogleMerchant() {
+    const result = await this.googleMerchantService.bulkSyncAllProducts();
+    return {
+      message: `Bulk sync selesai: ${result.success} berhasil, ${result.failed} gagal dari ${result.total} produk`,
+      ...result,
+    };
   }
 }

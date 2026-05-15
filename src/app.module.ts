@@ -1,4 +1,4 @@
-import { Module } from "@nestjs/common";
+import { Module, NestModule, MiddlewareConsumer } from "@nestjs/common";
 import { AppController } from "./app.controller";
 import { AppService } from "./app.service";
 import { ProductModule } from "./product/product.module";
@@ -25,6 +25,7 @@ import { UserModule } from './user/user.module';
 import { CartModule } from './cart/cart.module';
 import { OrderModule } from './order/order.module';
 import { ProductVariantModule } from "./product/product-variant.module";
+import { HotlinkProtectionMiddleware } from "./middleware/hotlink-protection.middleware";
 
 @Module({
   imports: [
@@ -56,4 +57,10 @@ import { ProductVariantModule } from "./product/product-variant.module";
   controllers: [AppController], 
   providers: [AppService],     
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer
+      .apply(HotlinkProtectionMiddleware)
+      .forRoutes('*');
+  }
+}

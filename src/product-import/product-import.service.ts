@@ -612,7 +612,6 @@ export class ProductImportService {
               }
             }
 
-            // Hapus gambar variasi yang udah didelete di excel
             for (const leftOver of varImages) {
               await this.productService.deletePhysicalImage(leftOver.image_url);
               if(leftOver.thumbnail_url) await this.productService.deletePhysicalImage(leftOver.thumbnail_url);
@@ -620,7 +619,6 @@ export class ProductImportService {
             }
           }
 
-          // Cleanup gambar umum (kalau produk tiba-tiba diganti jadi punya variasi)
           const oldGeneralImages = existingImages.filter(img => !img.variant_id);
           for (const oldImg of oldGeneralImages) {
             await this.productService.deletePhysicalImage(oldImg.image_url);

@@ -11,6 +11,7 @@ import { Brand } from 'src/brand/entities/brand.entity';
 import { ProductImage } from 'src/product-image/entities/product-image.entity';
 import { ProductVariant } from './entities/product-variant.entity';
 import { ProductView } from './entities/product-view.entity';
+import { GoogleMerchantService } from './google-merchant.service';
 
 import { Repository, Brackets, In } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -70,6 +71,8 @@ export class ProductService {
 
     @InjectRepository(ProductView)
     private productViewRepository: Repository<ProductView>,
+
+    private readonly googleMerchantService: GoogleMerchantService,
   ) {}
 
   private uploadBasePath = path.join(process.cwd(), 'uploads', 'products');
@@ -281,6 +284,11 @@ export class ProductService {
     });
 
     const savedProduct = await this.productRepository.save(product);
+
+    // Fire-and-forget: sync ke Google Merchant Center tanpa memblokir response
+    this.googleMerchantService.syncProduct(savedProduct).catch((err) =>
+      console.error('[GoogleMerchant] Gagal sync produk baru:', err.message)
+    );
 
     return {
       product: savedProduct,
@@ -844,7 +852,14 @@ export class ProductService {
       }
     }
 
-    return this.findOneByParams(id, false);
+    const updatedProduct = await this.findOneByParams(id, false);
+
+    // Fire-and-forget: sync ke Google Merchant Center
+    this.googleMerchantService.syncProduct(updatedProduct).catch((err) =>
+      console.error('[GoogleMerchant] Gagal sync produk update:', err.message)
+    );
+
+    return updatedProduct;
   }
 
   async deleteProductByParams(id: string): Promise<void> {
@@ -861,6 +876,11 @@ export class ProductService {
       this.deleteFileIfExists(img.image_url);
       this.deleteFileIfExists(img.thumbnail_url);
     }
+
+    // Hapus dari Google Merchant Center sebelum delete dari DB
+    this.googleMerchantService.deleteProduct(id).catch((err) =>
+      console.error('[GoogleMerchant] Gagal hapus produk:', err.message)
+    );
 
     await this.productRepository.remove(product);
   }

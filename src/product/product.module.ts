@@ -9,13 +9,14 @@ import { PublicProductController } from './public-product.controller';
 import { Brand } from 'src/brand/entities/brand.entity';
 import { ProductVariant } from './entities/product-variant.entity';
 import { ProductView } from './entities/product-view.entity';
+import { GoogleMerchantService } from './google-merchant.service';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Product, Category, ProductImage, Brand, ProductVariant, ProductView]) 
   ],
   controllers: [AdminProductController, PublicProductController],
-  providers: [ProductService],
+  providers: [ProductService, GoogleMerchantService],
   exports: [ProductService],
 })
 export class ProductModule {}
