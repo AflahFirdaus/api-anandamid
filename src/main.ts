@@ -10,9 +10,9 @@ async function bootstrap() {
   app.enableCors({
     origin: [
       'http://localhost:5173',
-      'http://192.168.1.177:5173',
-      "https://staging.anandam.id",
-      "https://anandam.id",
+      'http://192.168.1.178:5173',
+      'https://staging.anandam.id',
+      'https://anandam.id',
     ],
     credentials: true,
   });
@@ -29,9 +29,7 @@ async function bootstrap() {
     }),
   );
 
-  app.useGlobalInterceptors(
-    new ClassSerializerInterceptor(app.get(Reflector)),
-  );
+  app.useGlobalInterceptors(new ClassSerializerInterceptor(app.get(Reflector)));
 
   app.useStaticAssets(join(process.cwd(), 'uploads'), {
     prefix: '/uploads/',

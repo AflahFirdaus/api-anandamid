@@ -26,6 +26,7 @@ import { CartModule } from './cart/cart.module';
 import { OrderModule } from './order/order.module';
 import { ProductVariantModule } from "./product/product-variant.module";
 import { HotlinkProtectionMiddleware } from "./middleware/hotlink-protection.middleware";
+import { ChatModule } from './chat/chat.module';
 
 @Module({
   imports: [
@@ -53,6 +54,7 @@ import { HotlinkProtectionMiddleware } from "./middleware/hotlink-protection.mid
     CartModule,
     OrderModule,
     ProductVariantModule,
+    ChatModule,
   ],
   controllers: [AppController], 
   providers: [AppService],     
@@ -63,4 +65,4 @@ export class AppModule implements NestModule {
       .apply(HotlinkProtectionMiddleware)
       .forRoutes('*');
   }
-}
+}
