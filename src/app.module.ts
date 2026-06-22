@@ -27,6 +27,7 @@ import { OrderModule } from './order/order.module';
 import { ProductVariantModule } from "./product/product-variant.module";
 import { HotlinkProtectionMiddleware } from "./middleware/hotlink-protection.middleware";
 import { ChatModule } from './chat/chat.module';
+import { SitemapModule } from './sitemap/sitemap.module';
 
 @Module({
   imports: [
@@ -55,6 +56,7 @@ import { ChatModule } from './chat/chat.module';
     OrderModule,
     ProductVariantModule,
     ChatModule,
+    SitemapModule,
   ],
   controllers: [AppController], 
   providers: [AppService],     
