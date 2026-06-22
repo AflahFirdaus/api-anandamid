@@ -4,9 +4,11 @@ import {
   Param,
   Query,
   NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
 
 import { ProductService } from './product.service';
+import { Product } from './entities/product.entity';
 
 @Controller('products')
 export class PublicProductController {
@@ -29,13 +31,33 @@ export class PublicProductController {
 
   @Get(':id/recommendations')
   getRecommendations(@Param('id') id: string) {
+    // Validate UUID format
+    const uuidRegex =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(id)) {
+      throw new BadRequestException(
+        'Invalid product ID format. Expected a valid UUID.',
+      );
+    }
     return this.productService.getRecommendations(id);
   }
 
   @Get(':id')
   async findOne(@Param('id') id: string) {
-    const product = await this.productService.findOneByParams(id, true); 
-    
+    // Validate UUID format
+    const uuidRegex =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(id)) {
+      throw new BadRequestException(
+        'Invalid product ID format. Expected a valid UUID.',
+      );
+    }
+
+    const product = (await this.productService.findOneByParams(
+      id,
+      true,
+    )) as Product;
+
     if (!product.is_active) {
       throw new NotFoundException('Product not found');
     }
