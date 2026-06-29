@@ -5,11 +5,9 @@ import { ProductVariantService } from './product-variant.service';
 import { ProductVariantController } from './product-variant.controller';
 
 @Module({
-  imports: [
-    TypeOrmModule.forFeature([ProductVariant]),
-  ],
+  imports: [TypeOrmModule.forFeature([ProductVariant])],
   controllers: [ProductVariantController],
   providers: [ProductVariantService],
-  exports: [ProductVariantService], // export kalau nanti dipakai ProductService
+  exports: [ProductVariantService],
 })
 export class ProductVariantModule {}
