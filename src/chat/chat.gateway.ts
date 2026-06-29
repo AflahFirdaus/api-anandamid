@@ -39,6 +39,16 @@ export class ChatGateway implements OnGatewayInit {
     return { status: 'joined', room: 'room_admins' };
   }
 
+  // Event untuk leave room (saat admin pindah ke room lain)
+  @SubscribeMessage('leave_room')
+  handleLeaveRoom(
+    @MessageBody() payload: { roomId: string },
+    @ConnectedSocket() client: Socket,
+  ) {
+    client.leave(`room_${payload.roomId}`);
+    return { status: 'left', room: payload.roomId };
+  }
+
   // Fungsi publik ini akan dipanggil oleh Controller setelah HTTP POST sukses
   broadcastNewMessage(roomId: string, message: any) {
     // 1. Sebarkan pesan ke User & Admin yang sedang berada di room tersebut
