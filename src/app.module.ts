@@ -28,6 +28,8 @@ import { ProductVariantModule } from "./product/product-variant.module";
 import { HotlinkProtectionMiddleware } from "./middleware/hotlink-protection.middleware";
 import { ChatModule } from './chat/chat.module';
 import { SitemapModule } from './sitemap/sitemap.module';
+import { ThrottlerModule } from '@nestjs/throttler';
+import { throttlerConfig } from './config/throttler.config';
 
 @Module({
   imports: [
@@ -55,6 +57,7 @@ import { SitemapModule } from './sitemap/sitemap.module';
     CartModule,
     OrderModule,
     ProductVariantModule,
+    ThrottlerModule.forRoot(throttlerConfig),
     ChatModule,
     SitemapModule,
   ],
