@@ -1,11 +1,12 @@
 import { Injectable, NotFoundException, BadRequestException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Repository, LessThan } from "typeorm";
+import { Repository, LessThan, In } from "typeorm";
 
 
 import { ChatRoom } from "./entities/chat-room.entity";
 import { ChatMessage, ChatMessageType } from "./entities/chat-message.entity";
 import { CreateMessageDto } from "./dto/create-message.dto";
+import { User } from "../user/entities/user.entity";
 
 @Injectable()
 export class ChatService {
@@ -15,6 +16,9 @@ export class ChatService {
 
     @InjectRepository(ChatMessage)
     private messageRepository: Repository<ChatMessage>,
+
+    @InjectRepository(User)
+    private userRepository: Repository<User>,
   ) {}
 
   // 1. Inisialisasi atau ambil room user
@@ -37,16 +41,32 @@ export class ChatService {
     const isAdmin = userPayload?.username !== undefined || userPayload?.role === 'admin' || (userPayload?.role !== 'USER' && !userPayload?.email);
 
     if (isAdmin) {
-      return this.roomRepository.find({
+      // Admin: ambil semua room beserta nama pembeli
+      const rooms = await this.roomRepository.find({
         order: { last_message_at: "DESC" },
       });
+
+      // Ambil data user untuk setiap room
+      const buyerIds = rooms.map(room => room.buyer_id);
+      const users = buyerIds.length > 0 ? await this.userRepository.findBy({ id: In(buyerIds) }) : [];
+      const userMap = new Map(users.map(u => [u.id, u.full_name]));
+
+      return rooms.map(room => ({
+        ...room,
+        buyer_name: userMap.get(room.buyer_id) || null,
+      }));
     } else {
       // Jika user biasa, ambil hanya room miliknya
       const userId = userPayload?.sub || userPayload?.id;
-      return this.roomRepository.find({
+      const rooms = await this.roomRepository.find({
         where: { buyer_id: userId },
         order: { last_message_at: "DESC" },
       });
+
+      return rooms.map(room => ({
+        ...room,
+        buyer_name: null,
+      }));
     }
   }
 

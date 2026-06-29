@@ -6,14 +6,15 @@ import { ChatMessage } from "./entities/chat-message.entity";
 import { ChatService } from "./chat.service";
 import { ChatController } from "./chat.controller";
 import { ChatGateway } from "./chat.gateway";
+import { User } from "../user/entities/user.entity";
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([ChatRoom, ChatMessage]),
+    TypeOrmModule.forFeature([ChatRoom, ChatMessage, User]),
     JwtModule.register({ secret: 'AditPrabowoAnisJokowiCrazyKiller9999+' }),
   ],
   controllers: [ChatController],
   providers: [ChatService, ChatGateway],
-  exports: [ChatService], // Export jika Gateway (WebSockets) butuh service ini nantinya
+  exports: [ChatService],
 })
 export class ChatModule {}
