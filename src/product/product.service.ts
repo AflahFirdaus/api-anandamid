@@ -1063,7 +1063,8 @@ export class ProductService {
     const cpuQuery = this.productRepository
       .createQueryBuilder("product")
       .leftJoinAndSelect("product.category", "category")
-      .leftJoinAndSelect("product.variants", "variant") // 🔥 Tambah variant
+      .leftJoinAndSelect("product.variants", "variant")
+      .leftJoinAndSelect("product.images", "images")
       .where("LOWER(category.name) LIKE :cat", { cat: "%processor%" });
 
     if (requiredSocket) {
@@ -1077,7 +1078,8 @@ export class ProductService {
     const moboQuery = this.productRepository
       .createQueryBuilder("product")
       .leftJoinAndSelect("product.category", "category")
-      .leftJoinAndSelect("product.variants", "variant") // 🔥 Tambah variant
+      .leftJoinAndSelect("product.variants", "variant")
+      .leftJoinAndSelect("product.images", "images")
       .where("LOWER(category.name) LIKE :cat", { cat: "%motherboard%" });
 
     if (requiredSocket) {
@@ -1097,7 +1099,8 @@ export class ProductService {
     const ramQuery = this.productRepository
       .createQueryBuilder("product")
       .leftJoinAndSelect("product.category", "category")
-      .leftJoinAndSelect("product.variants", "variant") // 🔥 Tambah variant
+      .leftJoinAndSelect("product.variants", "variant")
+      .leftJoinAndSelect("product.images", "images")
       .where("LOWER(category.name) LIKE :cat", { cat: "%ram%" });
 
     if (requiredRamType) {
