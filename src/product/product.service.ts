@@ -20,7 +20,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import axios from 'axios';
 import sharp from 'sharp';
-import crypto from "crypto";
+import crypto from 'crypto';
 
 @Injectable()
 export class ProductService {
