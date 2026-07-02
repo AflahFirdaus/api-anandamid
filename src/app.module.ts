@@ -30,6 +30,8 @@ import { ChatModule } from './chat/chat.module';
 import { SitemapModule } from './sitemap/sitemap.module';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { throttlerConfig } from './config/throttler.config';
+import { PaymentModule } from './payment/payment.module';
+import { ShippingModule } from './shipping/shipping.module';
 
 @Module({
   imports: [
@@ -60,6 +62,8 @@ import { throttlerConfig } from './config/throttler.config';
     ThrottlerModule.forRoot(throttlerConfig),
     ChatModule,
     SitemapModule,
+    PaymentModule,
+    ShippingModule,
   ],
   controllers: [AppController], 
   providers: [AppService],     

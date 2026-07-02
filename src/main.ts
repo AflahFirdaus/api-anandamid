@@ -3,6 +3,7 @@ import { AppModule } from './app.module';
 import { ValidationPipe, ClassSerializerInterceptor } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { join } from 'path';
+import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -34,6 +35,30 @@ async function bootstrap() {
   app.useStaticAssets(join(process.cwd(), 'uploads'), {
     prefix: '/uploads/',
   });
+
+  // Swagger / OpenAPI Setup
+  const config = new DocumentBuilder()
+    .setTitle('AnandamID API')
+    .setDescription('API documentation for AnandamID e-commerce backend')
+    .setVersion('1.0')
+    .addBearerAuth(
+      {
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
+        name: 'JWT',
+        description: 'Enter JWT token',
+        in: 'header',
+      },
+      'JWT-auth',
+    )
+    .addServer('http://localhost:3030/api/v1', 'Local Development')
+    .addServer('https://staging.anandam.id/api/v1', 'Staging')
+    .addServer('https://anandam.id/api/v1', 'Production')
+    .build();
+
+  const document = SwaggerModule.createDocument(app, config);
+  SwaggerModule.setup('api/docs', app, document);
 
   await app.listen(3030, '0.0.0.0');
 }

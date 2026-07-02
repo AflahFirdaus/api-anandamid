@@ -6,8 +6,11 @@ import { OrderItem } from './entities/order-item.entity';
 import { Cart } from '../cart/entities/cart.entity';
 import { Product } from '../product/entities/product.entity';
 import { ProductVariant } from '../product/entities/product-variant.entity'; // 🔥 Import Variant
-import { CheckoutCartDto, CheckoutDirectDto } from './dto/checkout.dto';
+import { User } from '../user/entities/user.entity';
+import { UserAddress } from '../user/entities/user-address.entity';
+import { CheckoutCartDto, CheckoutDirectDto, CreateCheckoutDto } from './dto/checkout.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
+import { PaymentService } from '../payment/payment.service';
 
 @Injectable()
 export class OrderService {
@@ -17,6 +20,9 @@ export class OrderService {
         @InjectRepository(Cart) private cartRepo: Repository<Cart>,
         @InjectRepository(Product) private productRepo: Repository<Product>,
         @InjectRepository(ProductVariant) private variantRepo: Repository<ProductVariant>, // 🔥 Inject Variant Repo
+        @InjectRepository(User) private userRepo: Repository<User>,
+        @InjectRepository(UserAddress) private addressRepo: Repository<UserAddress>,
+        private readonly paymentService: PaymentService,
     ) {}
 
     // ====================== GENERATOR INVOICE ======================
@@ -384,6 +390,167 @@ export class OrderService {
         return {
             message: 'Checkout Rakitan PC berhasil',
             order: savedOrder,
+        };
+    }
+
+    // ====================== CHECKOUT + MIDTRANS PAYMENT ======================
+    async createCheckout(userId: string, dto: CreateCheckoutDto) {
+        // 1. Fetch user data for Midtrans customer_details
+        const user = await this.userRepo.findOne({ where: { id: userId } });
+        if (!user) {
+            throw new NotFoundException('User tidak ditemukan');
+        }
+
+        let totalPrice = 0;
+        const orderItems: Partial<OrderItem>[] = [];
+
+        // 2. Process cart-based checkout
+        if (dto.cart_ids && dto.cart_ids.length > 0) {
+            const cartItems = await this.cartRepo.find({
+                where: {
+                    id: In(dto.cart_ids),
+                    user_id: userId,
+                },
+                relations: ['product', 'product.variants'],
+            });
+
+            if (cartItems.length === 0) {
+                throw new BadRequestException('Item keranjang tidak ditemukan atau sudah dihapus.');
+            }
+
+            for (const cart of cartItems) {
+                if (!cart.product) continue;
+
+                let matchedVariant = cart.product.variants?.find(
+                    (v) => v.variant_name === cart.selected_variasi,
+                );
+                if (!matchedVariant && cart.product.variants?.length > 0) {
+                    matchedVariant = cart.product.variants[0];
+                }
+                if (!matchedVariant) {
+                    throw new BadRequestException(`Data variasi produk ${cart.product.name} tidak valid.`);
+                }
+                if (matchedVariant.stock < cart.quantity) {
+                    throw new BadRequestException(`Stok produk ${cart.product.name} (${matchedVariant.variant_name}) tidak mencukupi.`);
+                }
+
+                const priceNormal = Number(matchedVariant.price_normal || 0);
+                const priceDiscount = Number(matchedVariant.price_discount || 0);
+                const finalPrice = priceDiscount > 0 ? priceNormal - priceDiscount : priceNormal;
+
+                totalPrice += finalPrice * cart.quantity;
+
+                orderItems.push({
+                    product: { id: cart.product.id } as Product,
+                    product_name: cart.product.name,
+                    variasi: matchedVariant.variant_name,
+                    quantity: cart.quantity,
+                    price: finalPrice,
+                });
+            }
+
+            // Delete cart items after processing
+            await this.cartRepo.delete(dto.cart_ids);
+        }
+
+        // 3. Process direct buy checkout (single product)
+        if (dto.direct_item) {
+            const directItem = dto.direct_item;
+            const product = await this.productRepo.findOne({
+                where: { id: directItem.product_id },
+                relations: ['variants'],
+            });
+
+            if (!product) {
+                throw new NotFoundException('Produk tidak ditemukan');
+            }
+
+            let matchedVariant = product.variants?.find(
+                (v) => v.variant_name === directItem.variasi,
+            );
+            if (!matchedVariant && product.variants?.length > 0) {
+                matchedVariant = product.variants[0];
+            }
+            if (!matchedVariant) {
+                throw new BadRequestException(`Data variasi produk ${product.name} tidak valid.`);
+            }
+            if (matchedVariant.stock < directItem.quantity) {
+                throw new BadRequestException(`Stok produk ${product.name} (${matchedVariant.variant_name}) hanya tersisa ${matchedVariant.stock}`);
+            }
+
+            const priceNormal = Number(matchedVariant.price_normal || 0);
+            const priceDiscount = Number(matchedVariant.price_discount || 0);
+            const finalPrice = priceDiscount > 0 ? priceNormal - priceDiscount : priceNormal;
+
+            const itemTotal = finalPrice * directItem.quantity;
+            totalPrice += itemTotal;
+
+            orderItems.push({
+                product: { id: product.id } as Product,
+                product_name: product.name,
+                variasi: matchedVariant.variant_name,
+                quantity: directItem.quantity,
+                price: finalPrice,
+            });
+        }
+
+        if (orderItems.length === 0) {
+            throw new BadRequestException('Tidak ada item yang bisa diproses. Kirim cart_ids atau direct_item.');
+        }
+
+        // 4. Calculate grossAmount (items total + shipping cost)
+        const shippingCost = dto.shipping_cost || 0;
+        const grossAmount = totalPrice + shippingCost;
+        const invoiceNumber = this.generateInvoiceNumber();
+
+        // 5. Save order to database with PENDING status
+        const newOrder = this.orderRepo.create({
+            user: { id: userId },
+            invoice_number: invoiceNumber,
+            total_price: grossAmount,
+            status: 'PENDING',
+            notes: dto.notes,
+            items: orderItems as OrderItem[],
+        });
+
+        const savedOrder = await this.orderRepo.save(newOrder);
+
+        // 6. Build customer_details for Midtrans
+        const customerDetails: any = {
+            first_name: user.full_name || 'Customer',
+            email: user.email,
+            phone: user.phone_number || '',
+        };
+
+        // Fetch selected address if address_id is provided
+        if (dto.address_id) {
+            const address = await this.addressRepo.findOne({
+                where: { id: dto.address_id, user: { id: userId } },
+            });
+            if (address) {
+                customerDetails.shipping_address = {
+                    first_name: address.recipient_name || user.full_name,
+                    phone: address.phone_number || user.phone_number,
+                    address: address.full_address,
+                };
+            }
+        }
+
+        // 7. Generate Midtrans payment token
+        const transaction = await this.paymentService.createTransaction(
+            invoiceNumber, // orderId for Midtrans
+            grossAmount,
+            customerDetails,
+        );
+
+        // 8. Return order data + Midtrans token & redirect_url
+        return {
+            message: 'Checkout berhasil, silakan lanjutkan pembayaran',
+            order: savedOrder,
+            payment: {
+                token: transaction.token,
+                redirect_url: transaction.redirect_url,
+            },
         };
     }
 }
