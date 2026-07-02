@@ -5,11 +5,11 @@ export class ShippingService {
   private readonly logger = new Logger(ShippingService.name);
   private readonly biteshipBaseUrl = 'https://api.biteship.com/v1';
   private readonly apiKey = process.env.BITESHIP_API_KEY;
-  private readonly defaultOriginPostalCode = process.env.STORE_POSTAL_CODE || '55283';
+  private readonly defaultOriginPostalCode = Number(process.env.STORE_POSTAL_CODE) || 55283;
 
   async checkRates(
-    originPostalCode: string,
-    destinationPostalCode: string,
+    originPostalCode: number | undefined,
+    destinationPostalCode: number,
     couriers: string = 'jne,jnt,sicepat,tiki,pos',
     items: any[] = [],
   ) {
@@ -23,7 +23,7 @@ export class ShippingService {
     };
 
     this.logger.log(
-      `Biteship request (origin: ${origin}): ${JSON.stringify(requestBody)}`,
+      `Biteship request: ${JSON.stringify(requestBody)}`,
     );
 
     try {
