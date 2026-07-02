@@ -449,8 +449,7 @@ export class OrderService {
                 });
             }
 
-            // Delete cart items after processing
-            await this.cartRepo.delete(dto.cart_ids);
+            // Cart will be deleted AFTER successful Midtrans transaction (see step 7)
         }
 
         // 3. Process direct buy checkout (single product)
@@ -542,6 +541,11 @@ export class OrderService {
             grossAmount,
             customerDetails,
         );
+
+        // 7b. NOW delete cart items — only after successful transaction
+        if (dto.cart_ids && dto.cart_ids.length > 0) {
+            await this.cartRepo.delete(dto.cart_ids);
+        }
 
         // 8. Return order data + Midtrans token & redirect_url
         return {

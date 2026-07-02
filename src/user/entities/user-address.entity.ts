@@ -18,6 +18,9 @@ export class UserAddress {
     @Column({ type: 'text' })
     full_address: string; 
 
+    @Column({ type: 'varchar', length: 10, nullable: true })
+    postal_code: string | null;
+
     @Column({ type: 'decimal', precision: 10, scale: 8, nullable: true })
     latitude: number;
 

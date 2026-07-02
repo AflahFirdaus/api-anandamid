@@ -1,11 +1,13 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import * as midtransClient from 'midtrans-client';
 
 @Injectable()
 export class PaymentService {
+  private readonly logger = new Logger(PaymentService.name);
   private snap: any;
 
   constructor() {
+    this.logger.log(`Initializing Midtrans with serverKey: ${process.env.MIDTRANS_SERVER_KEY ? 'SET' : 'NOT SET'}, isProduction: ${process.env.MIDTRANS_IS_PRODUCTION}`);
     this.snap = new midtransClient.Snap({
       isProduction: process.env.MIDTRANS_IS_PRODUCTION === 'true',
       serverKey: process.env.MIDTRANS_SERVER_KEY,
@@ -19,15 +21,20 @@ export class PaymentService {
       customer_details: customerDetails || {}, 
       credit_card: { secure: true },
     };
+    this.logger.log(`Creating Midtrans transaction for ${orderId} amount ${grossAmount}`);
     try {
-      return await this.snap.createTransaction(parameter);
-    } catch (error) {
+      const result = await this.snap.createTransaction(parameter);
+      this.logger.log(`Midtrans transaction created: ${orderId}`);
+      return result;
+    } catch (error: any) {
+      this.logger.error(`Midtrans Error for ${orderId}: ${error.message}`, error?.apiResponse || error?.response || '');
       throw new Error(`Midtrans Error: ${error.message}`);
     }
   }
 
   async handleNotification(notificationBody: any) {
     try {
+      this.logger.log(`Midtrans notification received: ${JSON.stringify(notificationBody)}`);
       // Midtrans SDK verifies the notification signature
       const statusResponse = await this.snap.transaction.notification(notificationBody);
       
@@ -35,23 +42,24 @@ export class PaymentService {
       const transactionStatus = statusResponse.transaction_status;
       const fraudStatus = statusResponse.fraud_status;
 
-      console.log(`Transaction notification received. Order ID: ${orderId}. Transaction status: ${transactionStatus}. Fraud status: ${fraudStatus}`);
+      this.logger.log(`Transaction notification processed. Order ID: ${orderId}. Status: ${transactionStatus}. Fraud: ${fraudStatus}`);
 
       // Here is where we will update the database later based on the transactionStatus
       // Expected statuses: 'capture', 'settlement', 'pending', 'deny', 'cancel', 'expire'
       if (transactionStatus === 'capture' || transactionStatus === 'settlement') {
         // TODO: Update order status to PAID in database
-        console.log(`Order ${orderId} is successfully PAID.`);
+        this.logger.log(`Order ${orderId} is successfully PAID.`);
       } else if (transactionStatus === 'cancel' || transactionStatus === 'deny' || transactionStatus === 'expire') {
         // TODO: Update order status to FAILED/EXPIRED in database
-        console.log(`Order ${orderId} payment failed or expired.`);
+        this.logger.log(`Order ${orderId} payment failed or expired.`);
       } else if (transactionStatus === 'pending') {
         // TODO: Update order status to PENDING in database
-        console.log(`Order ${orderId} is waiting for payment.`);
+        this.logger.log(`Order ${orderId} is waiting for payment.`);
       }
 
       return { status: 'success', message: 'Notification processed' };
-    } catch (error) {
+    } catch (error: any) {
+      this.logger.error(`Failed to process Midtrans notification: ${error.message}`);
       throw new Error(`Failed to process Midtrans notification: ${error.message}`);
     }
   }
