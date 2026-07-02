@@ -68,6 +68,7 @@ export class ProductImportService {
       'price_normal', 'price_discount', 'stock', 'sku_seller',
       'warranty', 'brand_name', 'category_name', 'category_code',
       'socket_type', 'ram_type', 
+      'weight_gram', 'panjang_cm', 'lebar_cm', 'tinggi_cm', // 🔥 Kolom Fisik Barang
       'is_active', 'is_popular',
       'image_1', 'image_2', 'image_3', 'image_4', 'image_5', 'image_6', 'image_7', 'image_8', 'image_9', 'image_10'
     ];
@@ -79,6 +80,7 @@ export class ProductImportService {
       2125000, 100000, 48, '1102127',
       'Garansi Produsen', 'Canon', 'Printer & Scanner', '830984',
       '', '', 
+      3500, 45, 34, 20, // 🔥 Berat 3.5kg, PxLxT dalam cm
       true, false,
       'https://example.com/image1.jpg', '', '', '', '', '', '', '', '', ''
     ];
@@ -90,6 +92,7 @@ export class ProductImportService {
       150000, 0, 10, 'MS-LOG-MERAH',
       'Garansi 1 Tahun', 'Logitech', 'Aksesoris Komputer', 'AK001',
       '', '', 
+      120, 13, 7, 5, // 🔥 Berat 120 gram, PxLxT dalam cm
       true, true,
       'https://example.com/mouse-merah-depan.jpg', 'https://example.com/mouse-merah-samping.jpg', '', '', '', '', '', '', '', ''
     ];
@@ -100,6 +103,7 @@ export class ProductImportService {
       150000, 0, 15, 'MS-LOG-BIRU',
       '', '', '', '', 
       '', '', 
+      120, 13, 7, 5, // 🔥 Dimensi sama
       '', '',
       'https://example.com/mouse-biru.jpg', '', '', '', '', '', '', '', '', ''
     ];
@@ -216,6 +220,10 @@ export class ProductImportService {
             price_discount: Number(vRow.price_discount) || 0,
             stock: Number(vRow.stock) || 0,
             sku_seller: String(vRow.sku_seller).trim(),
+            weight: Number(vRow.weight_gram) || 0,
+            length: Number(vRow.panjang_cm) || 0,
+            width: Number(vRow.lebar_cm) || 0,
+            height: Number(vRow.tinggi_cm) || 0,
           });
         });
 

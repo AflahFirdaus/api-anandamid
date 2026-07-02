@@ -35,6 +35,26 @@ class UpdateVariantItemDto {
   @IsOptional()
   @IsString()
   sku_seller?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  weight?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  length?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  width?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  height?: number;
 }
 
 export class UpdateProductDto {
@@ -79,6 +99,26 @@ export class UpdateProductDto {
   @IsOptional()
   @IsBoolean()
   is_popular?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  weight?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  length?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  width?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  height?: number;
 
   @IsOptional()
   @IsString()

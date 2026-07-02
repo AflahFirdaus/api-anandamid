@@ -35,6 +35,18 @@ export class ProductVariant {
     @Column({ type: 'integer', default: 0 })
     stock: number;
 
+    @Column({ type: 'int', default: 0 })
+    weight: number;
+
+    @Column({ type: 'int', default: 0 })
+    length: number;
+
+    @Column({ type: 'int', default: 0 })
+    width: number;
+
+    @Column({ type: 'int', default: 0 })
+    height: number;
+
     @Expose()
     get final_price(): number {
         const normal = Number(this.price_normal ?? 0);

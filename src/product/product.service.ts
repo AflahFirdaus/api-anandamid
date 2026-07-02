@@ -262,6 +262,10 @@ export class ProductService {
         price_normal: v.price_normal || 0,
         price_discount: v.price_discount || 0,
         stock: v.stock || 0,
+        weight: v.weight || 0,
+        length: v.length || 0,
+        width: v.width || 0,
+        height: v.height || 0,
       }));
     } else {
       finalVariants = [
@@ -271,6 +275,10 @@ export class ProductService {
           price_normal: dto.price_normal || 0,
           price_discount: dto.price_discount || 0,
           stock: dto.stock || 0,
+          weight: dto.weight || 0,
+          length: dto.length || 0,
+          width: dto.width || 0,
+          height: dto.height || 0,
         }
       ];
     }
@@ -816,6 +824,10 @@ export class ProductService {
       price_discount: v.price_discount,
       stock: v.stock,
       sku_seller: v.sku_seller || null,
+      weight: v.weight || 0,
+      length: v.length || 0,
+      width: v.width || 0,
+      height: v.height || 0,
     })) as any[];
     } else {
       // Mode simple product — pastikan hanya ada 1 variant Default
@@ -832,6 +844,10 @@ export class ProductService {
       defVariant.price_discount = price_discount ?? 0;
       defVariant.stock = stock ?? 0;
       defVariant.sku_seller = sku_seller || null;
+      defVariant.weight = dto.weight || 0;
+      defVariant.length = dto.length || 0;
+      defVariant.width = dto.width || 0;
+      defVariant.height = dto.height || 0;
 
       product.variants = [defVariant];
     }

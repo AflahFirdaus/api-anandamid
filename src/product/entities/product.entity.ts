@@ -88,4 +88,16 @@ export class Product {
 
     @Column({ type: 'varchar', length: 50, nullable: true })
     ram_type: string | null;
+
+    @Column({ type: 'int', default: 0 })
+    weight: number;
+
+    @Column({ type: 'int', default: 0 })
+    length: number;
+
+    @Column({ type: 'int', default: 0 })
+    width: number;
+
+    @Column({ type: 'int', default: 0 })
+    height: number;
 }

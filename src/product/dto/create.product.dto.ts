@@ -33,6 +33,26 @@ class CreateVariantItemDto {
   @IsOptional()
   @IsString()
   sku_seller?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  weight?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  length?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  width?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  height?: number;
 }
 
 export class CreateProductDto {
@@ -84,6 +104,26 @@ export class CreateProductDto {
   @IsOptional()
   @IsBoolean()
   is_popular?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  weight?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  length?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  width?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  height?: number;
 
   @IsOptional()
   brand_id?: string;
