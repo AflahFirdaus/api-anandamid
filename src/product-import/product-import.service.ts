@@ -320,7 +320,8 @@ export class ProductImportService {
       'id', 'variant_id',
       'name', 'description', 'variant_type_name', 'variant_name', 
       'price_normal', 'price_discount', 'stock', 'sku_seller',
-      'warranty', 'brand_name', 'category_name', 'category_code'
+      'warranty', 'brand_name', 'category_name', 'category_code',
+      'weight_gram', 'panjang_cm', 'lebar_cm', 'tinggi_cm'
     ];
 
     if (includeHardwareCols) headers.push('socket_type', 'ram_type');
@@ -361,7 +362,8 @@ export class ProductImportService {
           variant.price_normal || 0, variant.price_discount || 0, variant.stock || 0,
           clean(variant.sku_seller),
           isFirst ? product.warranty : '', isFirst ? (product.brand?.name || '') : '',
-          isFirst ? product.category?.name : '', isFirst ? product.category?.code : ''
+          isFirst ? product.category?.name : '', isFirst ? product.category?.code : '',
+          variant.weight || 0, variant.length || 0, variant.width || 0, variant.height || 0
         ];
 
         if (includeHardwareCols) rowData.push(isFirst ? (product.socket_type || '') : '', isFirst ? (product.ram_type || '') : '');
@@ -502,6 +504,10 @@ export class ProductImportService {
           if (vRow.price_discount !== "") variantData.price_discount = Number(vRow.price_discount);
           if (vRow.stock !== "") variantData.stock = Number(vRow.stock);
           if (vRow.sku_seller !== "") variantData.sku_seller = String(vRow.sku_seller).trim();
+          if (vRow.weight_gram !== "") variantData.weight = Number(vRow.weight_gram);
+          if (vRow.panjang_cm !== "") variantData.length = Number(vRow.panjang_cm);
+          if (vRow.lebar_cm !== "") variantData.width = Number(vRow.lebar_cm);
+          if (vRow.tinggi_cm !== "") variantData.height = Number(vRow.tinggi_cm);
 
           updatedVariants.push(variantData);
         }
