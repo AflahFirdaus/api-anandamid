@@ -88,6 +88,11 @@ export class CartService {
                     price_discount: Number(matchedVariant?.price_discount || 0),
                     stock: Number(matchedVariant?.stock || 0),
                     thumbnail: mainImage?.thumbnail_url || null,
+                    // 🔥 Dimensi dan berat untuk perhitungan ongkir
+                    weight: item.product.weight || 0,
+                    length: item.product.length || 0,
+                    width: item.product.width || 0,
+                    height: item.product.height || 0,
                 },
             };
         });
