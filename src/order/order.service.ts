@@ -191,7 +191,39 @@ export class OrderService {
     }
 
     // ====================== USER BATALKAN PESANAN ======================
-    async cancelOrderUser(userId: string, orderId: string) {
+  async retryPayment(orderId: string, userId: string) {
+    const order = await this.orderRepo.findOne({
+      where: { id: orderId, user: { id: userId } },
+      relations: ['user'],
+    });
+
+    if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
+    if (order.status !== 'PENDING') {
+      throw new BadRequestException('Hanya pesanan PENDING yang bisa dibayar ulang');
+    }
+
+    const user = order.user;
+
+    const transaction = await this.paymentService.createTransaction(
+      order.invoice_number,
+      order.total_price,
+      {
+        first_name: user.full_name || 'Customer',
+        email: user.email,
+        phone: user.phone_number || '',
+      },
+    );
+
+    return {
+      message: 'Token pembayaran berhasil dibuat',
+      payment: {
+        token: transaction.token,
+        redirect_url: transaction.redirect_url,
+      },
+    };
+  }
+
+  async cancelOrderUser(userId: string, orderId: string) {
         const order = await this.orderRepo.findOne({
             where: { id: orderId, user: { id: userId } },
         });

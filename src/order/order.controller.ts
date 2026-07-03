@@ -45,6 +45,16 @@ export class OrderController {
   }
 
   @UseGuards(JwtUserGuard)
+  @Post(':id/retry-payment')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Retry payment', description: 'Generate new Snap payment token for PENDING order.' })
+  @ApiResponse({ status: 200, description: 'Payment token generated' })
+  @ApiResponse({ status: 400, description: 'Only PENDING orders can be paid' })
+  async retryPayment(@Req() req: any, @Param('id') orderId: string) {
+    return this.orderService.retryPayment(orderId, req.user.id);
+  }
+
+  @UseGuards(JwtUserGuard)
   @Patch(':id/cancel')
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Cancel order', description: 'Cancel a PENDING order (user only).' })
