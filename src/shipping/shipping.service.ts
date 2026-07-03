@@ -15,11 +15,17 @@ export class ShippingService {
   ) {
     const origin = originPostalCode || this.defaultOriginPostalCode;
 
+    // Biteship API expects weight in kilograms, but our DTO receives weight in grams
+    const itemsInKg = items.map((item) => ({
+      ...item,
+      weight: item.weight / 1000, // grams → kg
+    }));
+
     const requestBody = {
       origin_postal_code: origin,
       destination_postal_code: destinationPostalCode,
       couriers,
-      items,
+      items: itemsInKg,
     };
 
     this.logger.log(
