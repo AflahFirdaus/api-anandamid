@@ -232,6 +232,66 @@ export class OrderService {
     };
   }
 
+  async checkPaymentStatus(orderId: string, userId: string) {
+    const order = await this.orderRepo.findOne({
+      where: { id: orderId, user: { id: userId } },
+    });
+
+    if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
+    if (order.status !== 'PENDING') {
+      return { message: `Status pesanan sudah ${order.status}`, status: order.status };
+    }
+
+    // Query Midtrans API langsung
+    const serverKey = process.env.MIDTRANS_SERVER_KEY || '';
+    const isProduction = process.env.MIDTRANS_IS_PRODUCTION === 'true';
+    const baseUrl = isProduction 
+      ? 'https://api.midtrans.com/v2'
+      : 'https://api.sandbox.midtrans.com/v2';
+
+    try {
+      const auth = Buffer.from(`${serverKey}:`).toString('base64');
+      const response = await fetch(`${baseUrl}/${order.invoice_number}/status`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Basic ${auth}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error_messages?.[0] || 'Failed to check status');
+      }
+
+      const transactionStatus = data.transaction_status;
+      const fraudStatus = data.fraud_status;
+
+      let newStatus: string = order.status;
+
+      if (transactionStatus === 'capture' && fraudStatus === 'accept') {
+        newStatus = 'LUNAS';
+      } else if (transactionStatus === 'settlement') {
+        newStatus = 'LUNAS';
+      } else if (transactionStatus === 'cancel' || transactionStatus === 'deny' || transactionStatus === 'expire') {
+        newStatus = 'BATAL';
+      } else if (transactionStatus === 'pending') {
+        newStatus = 'PENDING';
+      }
+
+      if (order.status !== newStatus) {
+        order.status = newStatus;
+        await this.orderRepo.save(order);
+        return { message: `Status diperbarui: ${order.status} → ${newStatus}`, status: newStatus };
+      }
+
+      return { message: `Status masih ${order.status}`, status: order.status };
+    } catch (err: any) {
+      throw new BadRequestException(`Gagal mengecek status: ${err.message}`);
+    }
+  }
+
   async cancelOrderUser(userId: string, orderId: string) {
         const order = await this.orderRepo.findOne({
             where: { id: orderId, user: { id: userId } },
