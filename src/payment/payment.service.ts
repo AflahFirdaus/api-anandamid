@@ -1,12 +1,19 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import * as midtransClient from 'midtrans-client';
+import * as crypto from 'crypto';
+import { Order } from '../order/entities/order.entity';
 
 @Injectable()
 export class PaymentService {
   private readonly logger = new Logger(PaymentService.name);
   private snap: any;
 
-  constructor() {
+  constructor(
+    @InjectRepository(Order)
+    private readonly orderRepo: Repository<Order>,
+  ) {
     this.logger.log(`Initializing Midtrans with serverKey: ${process.env.MIDTRANS_SERVER_KEY ? 'SET' : 'NOT SET'}, isProduction: ${process.env.MIDTRANS_IS_PRODUCTION}`);
     this.snap = new midtransClient.Snap({
       isProduction: process.env.MIDTRANS_IS_PRODUCTION === 'true',
@@ -32,29 +39,62 @@ export class PaymentService {
     }
   }
 
+  /**
+   * Handle Midtrans webhook notification
+   * Updates order status based on payment result
+   */
   async handleNotification(notificationBody: any) {
     try {
       this.logger.log(`Midtrans notification received: ${JSON.stringify(notificationBody)}`);
-      // Midtrans SDK verifies the notification signature
-      const statusResponse = await this.snap.transaction.notification(notificationBody);
-      
-      const orderId = statusResponse.order_id;
-      const transactionStatus = statusResponse.transaction_status;
-      const fraudStatus = statusResponse.fraud_status;
 
-      this.logger.log(`Transaction notification processed. Order ID: ${orderId}. Status: ${transactionStatus}. Fraud: ${fraudStatus}`);
+      // 1. Verify signature to prevent unauthorized notifications
+      const serverKey = process.env.MIDTRANS_SERVER_KEY || '';
+      const orderId = notificationBody.order_id;
+      const statusCode = notificationBody.status_code;
+      const grossAmount = notificationBody.gross_amount;
+      const inputSignature = notificationBody.signature_key;
+      const calculatedSignature = crypto
+        .createHash('sha512')
+        .update(orderId + statusCode + grossAmount + serverKey)
+        .digest('hex');
 
-      // Here is where we will update the database later based on the transactionStatus
-      // Expected statuses: 'capture', 'settlement', 'pending', 'deny', 'cancel', 'expire'
-      if (transactionStatus === 'capture' || transactionStatus === 'settlement') {
-        // TODO: Update order status to PAID in database
-        this.logger.log(`Order ${orderId} is successfully PAID.`);
+      if (inputSignature !== calculatedSignature) {
+        this.logger.warn(`Invalid Midtrans signature for order ${orderId}`);
+        throw new Error('Invalid signature');
+      }
+
+      const transactionStatus = notificationBody.transaction_status;
+      const fraudStatus = notificationBody.fraud_status;
+
+      this.logger.log(`Order ${orderId}: status=${transactionStatus}, fraud=${fraudStatus}`);
+
+      // 2. Find order in database
+      const order = await this.orderRepo.findOne({ where: { invoice_number: orderId } });
+      if (!order) {
+        // Order might not exist yet (race condition) or invalid orderId
+        this.logger.warn(`Order ${orderId} not found in database`);
+        return { status: 'error', message: 'Order not found' };
+      }
+
+      // 3. Update order status based on payment result
+      let newStatus: string = order.status;
+
+      if (transactionStatus === 'capture' && fraudStatus === 'accept') {
+        newStatus = 'LUNAS';
+      } else if (transactionStatus === 'settlement') {
+        newStatus = 'LUNAS';
       } else if (transactionStatus === 'cancel' || transactionStatus === 'deny' || transactionStatus === 'expire') {
-        // TODO: Update order status to FAILED/EXPIRED in database
-        this.logger.log(`Order ${orderId} payment failed or expired.`);
+        newStatus = 'BATAL';
       } else if (transactionStatus === 'pending') {
-        // TODO: Update order status to PENDING in database
-        this.logger.log(`Order ${orderId} is waiting for payment.`);
+        newStatus = 'PENDING';
+      }
+
+      if (order.status !== newStatus) {
+        order.status = newStatus;
+        await this.orderRepo.save(order);
+        this.logger.log(`Order ${orderId} status updated: ${order.status} → ${newStatus}`);
+      } else {
+        this.logger.log(`Order ${orderId} already at status ${newStatus}`);
       }
 
       return { status: 'success', message: 'Notification processed' };
