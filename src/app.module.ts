@@ -32,6 +32,7 @@ import { ThrottlerModule } from '@nestjs/throttler';
 import { throttlerConfig } from './config/throttler.config';
 import { PaymentModule } from './payment/payment.module';
 import { ShippingModule } from './shipping/shipping.module';
+import { LocationModule } from './location/location.module';
 
 @Module({
   imports: [
@@ -64,6 +65,7 @@ import { ShippingModule } from './shipping/shipping.module';
     SitemapModule,
     PaymentModule,
     ShippingModule,
+    LocationModule,
   ],
   controllers: [AppController], 
   providers: [AppService],     

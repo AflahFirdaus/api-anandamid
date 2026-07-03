@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, CreateDateColumn, UpdateDateColumn, JoinColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, CreateDateColumn, UpdateDateColumn, DeleteDateColumn, JoinColumn } from 'typeorm';
 import { User } from './user.entity';
 
 @Entity('user_addresses')
@@ -18,13 +18,28 @@ export class UserAddress {
     @Column({ type: 'text' })
     full_address: string; 
 
+    @Column({ type: 'varchar', length: 100, nullable: true })
+    province: string | null;
+
+    @Column({ type: 'varchar', length: 100, nullable: true })
+    city: string | null;
+
+    @Column({ type: 'varchar', length: 100, nullable: true })
+    district: string | null;
+
+    @Column({ type: 'varchar', length: 100, nullable: true })
+    subdistrict: string | null;
+
     @Column({ type: 'varchar', length: 10, nullable: true })
     postal_code: string | null;
 
-    @Column({ type: 'decimal', precision: 10, scale: 8, nullable: true })
+    @Column({ type: 'varchar', length: 255, nullable: true })
+    area_id: string | null;
+
+    @Column({ type: 'decimal', precision: 10, scale: 7, nullable: true })
     latitude: number;
 
-    @Column({ type: 'decimal', precision: 11, scale: 8, nullable: true })
+    @Column({ type: 'decimal', precision: 10, scale: 7, nullable: true })
     longitude: number;
 
     @Column({ default: false })
@@ -39,4 +54,7 @@ export class UserAddress {
 
     @UpdateDateColumn()
     updated_at: Date;
+
+    @DeleteDateColumn()
+    deleted_at: Date | null;
 }
