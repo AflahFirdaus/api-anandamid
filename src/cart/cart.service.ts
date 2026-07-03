@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, IsNull } from 'typeorm'; 
+import { Repository, IsNull } from 'typeorm';
 import { Cart } from './entities/cart.entity';
 
 @Injectable()
@@ -12,10 +12,10 @@ export class CartService {
 
     async addToCart(userId: string, productId: string, quantity: number, variasi?: string) {
         const cartItem = await this.cartRepo.findOne({
-            where: { 
-                user_id: userId, 
-                product_id: productId, 
-                selected_variasi: variasi ? variasi : IsNull() 
+            where: {
+                user_id: userId,
+                product_id: productId,
+                selected_variasi: variasi ? variasi : IsNull()
             }
         });
 
@@ -36,7 +36,7 @@ export class CartService {
     async getMyCart(userId: string) {
         const carts = await this.cartRepo.find({
             where: { user_id: userId },
-            relations: ['product', 'product.images', 'product.variants'], // 🔥 Load relasi variants
+            relations: ['product', 'product.images', 'product.variants'],
             select: {
                 id: true,
                 quantity: true,
@@ -44,13 +44,16 @@ export class CartService {
                 product: {
                     id: true,
                     name: true,
-                    // 🔥 Kolom harga dan stok produk dihapus dari select
+                    weight: true,
+                    length: true,
+                    width: true,
+                    height: true,
                     images: {
                         id: true,
                         thumbnail_url: true,
                         sort_order: true,
                     },
-                    variants: { // 🔥 Tambahkan select untuk variant
+                    variants: {
                         id: true,
                         variant_name: true,
                         price_normal: true,
@@ -63,15 +66,13 @@ export class CartService {
         });
 
         return carts.map((item) => {
-            const mainImage = item.product.images?.find((img) => img.sort_order === 0) 
+            const mainImage = item.product.images?.find((img) => img.sort_order === 0)
                             || item.product.images?.[0];
 
-            // 🔥 LOGIC BARU: Cocokkan variasi keranjang dengan data di database
             let matchedVariant = item.product.variants?.find(
                 (v) => v.variant_name === item.selected_variasi
             );
 
-            // Kalau gak ketemu cocokannya (atau produk simple tanpa variasi), pakai variasi Default/pertama
             if (!matchedVariant && item.product.variants && item.product.variants.length > 0) {
                 matchedVariant = item.product.variants[0];
             }
@@ -83,16 +84,14 @@ export class CartService {
                 product: {
                     id: item.product.id,
                     name: item.product.name,
-                    // 🔥 Ambil harga dan stok dari matchedVariant
                     price_normal: Number(matchedVariant?.price_normal || 0),
                     price_discount: Number(matchedVariant?.price_discount || 0),
                     stock: Number(matchedVariant?.stock || 0),
                     thumbnail: mainImage?.thumbnail_url || null,
-                    // 🔥 Dimensi dan berat untuk perhitungan ongkir
-                    weight: item.product.weight || 0,
-                    length: item.product.length || 0,
-                    width: item.product.width || 0,
-                    height: item.product.height || 0,
+                    weight: Number(item.product.weight) || 0,
+                    length: Number(item.product.length) || 0,
+                    width: Number(item.product.width) || 0,
+                    height: Number(item.product.height) || 0,
                 },
             };
         });
@@ -101,7 +100,7 @@ export class CartService {
     async updateQuantity(userId: string, cartId: string, quantity: number) {
         const cartItem = await this.cartRepo.findOne({ where: { id: cartId, user_id: userId } });
         if (!cartItem) throw new NotFoundException('Item keranjang tidak ditemukan');
-        
+
         if (quantity <= 0) {
             return this.removeFromCart(userId, cartId);
         }
@@ -113,7 +112,7 @@ export class CartService {
     async removeFromCart(userId: string, cartId: string) {
         const cartItem = await this.cartRepo.findOne({ where: { id: cartId, user_id: userId } });
         if (!cartItem) throw new NotFoundException('Item keranjang tidak ditemukan');
-        
+
         await this.cartRepo.remove(cartItem);
         return { message: 'Produk dihapus dari keranjang' };
     }
