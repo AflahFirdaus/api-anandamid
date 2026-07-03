@@ -204,8 +204,13 @@ export class OrderService {
 
     const user = order.user;
 
+    // Generate new invoice number agar Midtrans tidak reject (order_id must be unique)
+    const invDate = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const invNum = Math.floor(1000 + Math.random() * 9000);
+    const retryInvoice = `${order.invoice_number}-R${invDate}-${invNum}`;
+
     const transaction = await this.paymentService.createTransaction(
-      order.invoice_number,
+      retryInvoice,
       order.total_price,
       {
         first_name: user.full_name || 'Customer',
