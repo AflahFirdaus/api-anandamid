@@ -209,6 +209,10 @@ export class OrderService {
     const invNum = Math.floor(1000 + Math.random() * 9000);
     const retryInvoice = `${order.invoice_number}-R${invDate}-${invNum}`;
 
+    // Update invoice_number di database agar webhook Midtrans bisa menemukan order ini
+    order.invoice_number = retryInvoice;
+    await this.orderRepo.save(order);
+
     const transaction = await this.paymentService.createTransaction(
       retryInvoice,
       order.total_price,
