@@ -66,6 +66,19 @@ export class OrderController {
   }
 
   @UseGuards(JwtUserGuard)
+  @Get(':id/detail')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'User Order detail' })
+  async getUserOrderDetail(@Req() req: any, @Param('id') orderId: string) {
+    // Only fetch detail if order belongs to user
+    const order = await this.orderService.findOneOrder(orderId);
+    if (order.user_id !== req.user.id) {
+      throw new HttpException('Akses ditolak', HttpStatus.FORBIDDEN);
+    }
+    return order;
+  }
+
+  @UseGuards(JwtUserGuard)
   @Post(':id/retry-payment')
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Retry payment' })
@@ -188,6 +201,19 @@ export class OrderController {
   @ApiResponse({ status: 400, description: 'Only DIKEMAS orders' })
   async markDelivered(@Param('id') orderId: string) {
     return this.orderService.markDelivered(orderId);
+  }
+
+  // ====================== ADMIN PRINT AWB LABEL ======================
+  @UseGuards(JwtAuthGuard)
+  @Get(':id/label')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Print / get AWB shipping label URL (Admin)' })
+  async printAwbLabel(@Param('id') orderId: string) {
+    const order = await this.orderService.findOneOrder(orderId);
+    if (!order.awb_url) {
+      throw new HttpException('Label AWB belum tersedia untuk pesanan ini', HttpStatus.BAD_REQUEST);
+    }
+    return { awb_url: order.awb_url };
   }
 
   // ====================== ADMIN AUTO-COMPLETE ======================

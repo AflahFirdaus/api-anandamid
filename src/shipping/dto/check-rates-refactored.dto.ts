@@ -136,6 +136,13 @@ export class CheckRatesRefactoredDto {
   @IsString()
   couriers?: string;
 
+  @ApiPropertyOptional({
+    description: 'Fallback destination postal code if address ID has no area_id',
+    example: '55283',
+  })
+  @IsOptional()
+  destinationPostalCode?: string | number;
+
   @ApiProperty({
     description: 'Array of items with dimensions, weight, and value',
     type: [RateItemDto],

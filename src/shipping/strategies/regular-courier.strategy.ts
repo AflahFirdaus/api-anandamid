@@ -23,11 +23,12 @@ export class RegularCourierStrategy implements ShippingRateStrategy {
       weight: item.weight / 1000, // grams → kg
     }));
 
-    return {
-      origin_area_id: request.originAreaId,
-      destination_area_id: request.destinationAreaId,
+    const payload: any = {
       couriers: request.couriers,
       items: itemsInKg,
     };
+    if (request.originAreaId) payload.origin_area_id = request.originAreaId;
+    if (request.destinationAreaId) payload.destination_area_id = request.destinationAreaId;
+    return payload;
   }
 }

@@ -105,7 +105,7 @@ export class ShippingService {
 
       const request: ShippingRateRequest = {
         originAreaId,
-        destinationAreaId,
+        destinationAreaId: destinationAreaId || undefined,
         originLatitude: originLat,
         originLongitude: originLng,
         destinationLatitude: destLat,
@@ -115,6 +115,19 @@ export class ShippingService {
       };
 
       const requestBody = strategy.buildRequest(request);
+      
+      // Fallback: If regular courier strategy but area_id is missing, inject postal codes
+      if (strategy.getEndpoint() === '/rates/couriers' && !requestBody.origin_area_id && !requestBody.destination_area_id) {
+        // Let's resolve postal codes from DB or DTO
+        const destAddr = destinationAddressId ? await this.addressRepo.findOne({ where: { id: destinationAddressId } }) : null;
+        requestBody.origin_postal_code = parseInt(this.defaultOriginPostalCode, 10) || 55283;
+        if (destAddr && destAddr.postal_code) {
+          requestBody.destination_postal_code = parseInt(destAddr.postal_code, 10);
+        } else if (dto.destinationPostalCode) {
+          requestBody.destination_postal_code = parseInt(dto.destinationPostalCode.toString(), 10);
+        }
+      }
+
       const endpoint = strategy.getEndpoint();
 
       try {

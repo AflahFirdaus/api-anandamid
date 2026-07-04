@@ -5,16 +5,20 @@ import {
   Param,
   HttpException,
   HttpStatus,
+  UseGuards,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiBearerAuth } from '@nestjs/swagger';
 import { PaymentService } from './payment.service';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
+import { JwtUserGuard } from '../user/guards/jwt-user.guard';
 
 @ApiTags('Payment')
 @Controller('payment')
 export class PaymentController {
   constructor(private readonly paymentService: PaymentService) {}
 
+  @UseGuards(JwtUserGuard)
+  @ApiBearerAuth('JWT-auth')
   @Post('create-transaction')
   @ApiOperation({ summary: 'Create Midtrans transaction', description: 'Generate a Snap payment token and redirect URL for the given order.' })
   @ApiBody({ type: CreateTransactionDto })

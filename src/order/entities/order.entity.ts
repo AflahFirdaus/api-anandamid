@@ -80,6 +80,12 @@ export class Order {
   @Column({ type: 'json', nullable: true })
   shipping_details: Record<string, any>; // Detail pengiriman tambahan (rate, duration, dll)
 
+  @Column({ type: 'jsonb', nullable: true })
+  shipping_address_snapshot: Record<string, any>;
+
+  @Column({ nullable: true })
+  payment_token: string;
+
   // Relasi ke order_items
   @OneToMany(() => OrderItem, (item) => item.order, { cascade: true })
   items: OrderItem[];

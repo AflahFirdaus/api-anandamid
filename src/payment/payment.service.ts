@@ -105,7 +105,39 @@ export class PaymentService {
         newStatus = 'PENDING';
       }
 
+      if (notificationBody.payment_type) {
+        order.payment_method = notificationBody.payment_type;
+      }
+
       if (order.status !== newStatus) {
+        // Stock deduction on transitioning to LUNAS
+        if (order.status === 'PENDING' && newStatus === 'LUNAS') {
+          // Dynamically load variant repo to prevent circular dependencies if any (already injected though)
+          // Let's call the helper method to deduct stock
+          try {
+            // We need to deduct stock. We can do it by finding variants.
+            const fullOrder = await this.orderRepo.findOne({ 
+              where: { id: order.id }, 
+              relations: ['items', 'items.product', 'items.product.variants'] 
+            });
+            if (fullOrder) {
+              for (const item of fullOrder.items) {
+                if (!item.product) continue;
+                let mv = item.product.variants?.find((v) => v.variant_name === item.variasi);
+                if (!mv && item.product.variants?.length > 0) mv = item.product.variants[0];
+                if (mv) {
+                  if (mv.stock >= item.quantity) {
+                    mv.stock -= item.quantity;
+                    await this.variantRepo.save(mv);
+                    this.logger.log(`[Webhook] Deducted stock for ${item.product_name} by ${item.quantity}`);
+                  }
+                }
+              }
+            }
+          } catch (e: any) {
+            this.logger.error(`[Webhook] Error deducting stock: ${e.message}`);
+          }
+        }
         order.status = newStatus;
         await this.orderRepo.save(order);
         this.logger.log(`Order ${orderId} status updated: ${order.status} → ${newStatus}`);

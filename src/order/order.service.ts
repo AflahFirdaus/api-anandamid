@@ -139,7 +139,9 @@ export class OrderService {
         const order = await this.orderRepo.findOne({ where: { id: orderId, user_id: userId } as any, relations: ['user'] });
         if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
         if (order.status !== 'PENDING') throw new BadRequestException('Hanya pesanan PENDING yang bisa dibayar ulang');
-        const tx = await this.paymentService.createTransaction(`${order.invoice_number}-R${order.id.slice(0, 8)}`, order.total_price, { first_name: order.user.full_name || 'Customer', email: order.user.email, phone: order.user.phone_number || '' });
+        const tx = await this.paymentService.createTransaction(`${order.invoice_number}-R${order.id.slice(0, 8)}`, Math.round(order.total_price), { first_name: order.user.full_name || 'Customer', email: order.user.email, phone: order.user.phone_number || '' });
+        order.payment_token = tx.token;
+        await this.orderRepo.save(order);
         return { message: 'Token pembayaran berhasil dibuat', payment: { token: tx.token, redirect_url: tx.redirect_url } };
     }
 
@@ -150,26 +152,44 @@ export class OrderService {
         const sk = process.env.MIDTRANS_SERVER_KEY || ''; const isProd = process.env.MIDTRANS_IS_PRODUCTION === 'true';
         const base = isProd ? 'https://api.midtrans.com/v2' : 'https://api.sandbox.midtrans.com/v2';
         const auth = Buffer.from(`${sk}:`).toString('base64');
-        const res = await fetch(`${base}/${order.invoice_number}/status`, { headers: { Authorization: `Basic ${auth}`, 'Content-Type': 'application/json' } });
-        const data = await res.json(); if (!res.ok) throw new BadRequestException(data.error_messages?.[0] || 'Failed');
+        
+        let res = await fetch(`${base}/${order.invoice_number}/status`, { headers: { Authorization: `Basic ${auth}`, 'Content-Type': 'application/json' } });
+        let data = await res.json();
+        
+        // If not found, try retry suffix order ID
+        if (!res.ok || res.status === 404) {
+            const retryId = `${order.invoice_number}-R${order.id.slice(0, 8)}`;
+            res = await fetch(`${base}/${retryId}/status`, { headers: { Authorization: `Basic ${auth}`, 'Content-Type': 'application/json' } });
+            data = await res.json();
+        }
+
+        if (!res.ok) throw new BadRequestException(data.error_messages?.[0] || 'Failed');
         const ts = data.transaction_status, fs = data.fraud_status; let ns = order.status;
         if (ts === 'capture' && fs === 'accept') ns = 'LUNAS'; else if (ts === 'settlement') ns = 'LUNAS';
         else if (['cancel', 'deny', 'expire'].includes(ts)) ns = 'BATAL'; else if (ts === 'pending') ns = 'PENDING';
-        if (order.status !== ns) { order.status = ns; await this.orderRepo.save(order); return { message: `→ ${ns}`, status: ns }; }
+        if (order.status !== ns) { 
+            order.status = ns; 
+            if (ns === 'LUNAS') {
+                await this.deductStock(order.id);
+            }
+            await this.orderRepo.save(order); 
+            return { message: `→ ${ns}`, status: ns }; 
+        }
         return { message: `Status masih ${order.status}`, status: order.status };
     }
 
     async getTrackingInfo(orderId: string, userId: string) {
         const order = await this.orderRepo.findOne({ where: { id: orderId, user_id: userId } as any });
         if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
-        if (!order.tracking_number) return { message: 'Nomor resi belum tersedia', tracking_number: null, status: order.status, courier_name: order.courier_name, courier_service: order.courier_service, history: [] };
+        const searchResi = order.awb_number || order.tracking_number;
+        if (!searchResi) return { message: 'Nomor resi belum tersedia', tracking_number: null, status: order.status, courier_name: order.courier_name, courier_service: order.courier_service, history: [] };
         try {
             const key = process.env.BITESHIP_API_KEY || '';
-            const res = await fetch(`https://api.biteship.com/v1/trackings/${order.tracking_number}`, { headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' } });
+            const res = await fetch(`https://api.biteship.com/v1/trackings/${searchResi}`, { headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' } });
             const data = await res.json();
-            if (!res.ok) return { message: 'Data tracking tidak tersedia', tracking_number: order.tracking_number, status: order.status, courier_name: order.courier_name, courier_service: order.courier_service, history: [], raw_error: data.message };
-            return { message: 'Data tracking berhasil diambil', tracking_number: order.tracking_number, status: data.status || order.status, courier_name: order.courier_name || data.courier?.name, courier_service: order.courier_service, history: (data.history || []).map((e: any) => ({ status: e.status, note: e.note, updated_at: e.updated_at, location: e.location || null })), waybill_url: data.waybill_url || null };
-        } catch (err: any) { return { message: 'Gagal mengambil data tracking', tracking_number: order.tracking_number, status: order.status, courier_name: order.courier_name, courier_service: order.courier_service, history: [], error: err.message }; }
+            if (!res.ok) return { message: 'Data tracking tidak tersedia', tracking_number: searchResi, status: order.status, courier_name: order.courier_name, courier_service: order.courier_service, history: [], raw_error: data.message };
+            return { message: 'Data tracking berhasil diambil', tracking_number: searchResi, status: data.status || order.status, courier_name: order.courier_name || data.courier?.name, courier_service: order.courier_service, history: (data.history || []).map((e: any) => ({ status: e.status, note: e.note, updated_at: e.updated_at, location: e.location || null })), waybill_url: data.waybill_url || null };
+        } catch (err: any) { return { message: 'Gagal mengambil data tracking', tracking_number: searchResi, status: order.status, courier_name: order.courier_name, courier_service: order.courier_service, history: [], error: err.message }; }
     }
 
     async cancelOrderUser(userId: string, orderId: string) {
@@ -207,8 +227,8 @@ export class OrderService {
         if (dto?.courier_name) order.courier_name = dto.courier_name;
         if (dto?.courier_service) order.courier_service = dto.courier_service;
 
-        await this.deductStock(orderId);
-        this.logger.log(`[PROCESS] Stock deducted`);
+        // Stock was already deducted when status became LUNAS (webhook or manual change)
+        this.logger.log(`[PROCESS] Stock deduction skipped (handled on payment)`);
 
         if (order.shipping_type === 'regular' && order.courier_name) {
             this.logger.log(`[PROCESS] Generating AWB via Biteship...`);
@@ -246,8 +266,16 @@ export class OrderService {
         let destPC = '';
         let destArea = '';
 
-        if (order.address_id) {
-            this.logger.log(`[AWB] Looking up address ${order.address_id}`);
+        if (order.shipping_address_snapshot) {
+            const snap = order.shipping_address_snapshot;
+            destName = snap.recipient_name || destName;
+            destPhone = snap.phone_number || destPhone;
+            destAddr = snap.full_address || '';
+            destPC = snap.postal_code || '';
+            destArea = snap.area_id || '';
+            this.logger.log(`[AWB] Loaded from address snapshot: PC=${destPC}, Area=${destArea}`);
+        } else if (order.address_id) {
+            this.logger.log(`[AWB] Snapshot empty. Looking up address ID ${order.address_id}`);
             const addr = await this.addressRepo.findOne({ where: { id: order.address_id } as any });
             if (addr) {
                 destName = addr.recipient_name || destName;
@@ -255,9 +283,9 @@ export class OrderService {
                 destAddr = addr.full_address || '';
                 destPC = addr.postal_code || '';
                 destArea = addr.area_id || '';
-                this.logger.log(`[AWB] Address found: PC=${destPC}, Area=${destArea}`);
+                this.logger.log(`[AWB] Address DB found: PC=${destPC}, Area=${destArea}`);
             } else { this.logger.warn(`[AWB] Address ${order.address_id} not found!`); }
-        } else { this.logger.warn(`[AWB] No address_id on order!`); }
+        } else { this.logger.warn(`[AWB] No address_id or address snapshot on order!`); }
 
         const courier = (order.courier_name || 'jne').toLowerCase();
         const svc = extractCourierType(courier, order.courier_service || '');
@@ -428,19 +456,48 @@ export class OrderService {
             tp += fp * di.quantity;
             oi.push({ product: { id: p.id } as Product, product_name: p.name, variasi: mv.variant_name, quantity: di.quantity, price: fp });
         }
-
-        if (oi.length === 0) throw new BadRequestException('Tidak ada item.');
-        const sc = dto.shipping_cost || 0; const ga = tp + sc; const inv = this.generateInvoiceNumber();
-        const no = this.orderRepo.create({ user_id: userId, invoice_number: inv, total_price: ga, status: 'PENDING', notes: dto.notes, items: oi as OrderItem[], shipping_cost: sc, shipping_type: dto.shipping_type || 'regular', courier_name: dto.courier_name || null, courier_service: dto.courier_service || null, address_id: dto.address_id || null, shipping_details: dto.shipping_details || null } as any);
-        const saved = await this.orderRepo.save(no);
-
+        let addressSnapshot: any = null;
         const cd: any = { first_name: user.full_name || 'Customer', email: user.email, phone: user.phone_number || '' };
         if (dto.address_id) {
             const addr = await this.addressRepo.findOne({ where: { id: dto.address_id } as any });
-            if (addr) cd.shipping_address = { first_name: addr.recipient_name || user.full_name, phone: addr.phone_number || user.phone_number, address: addr.full_address };
+            if (addr) {
+                addressSnapshot = {
+                    recipient_name: addr.recipient_name || user.full_name,
+                    phone_number: addr.phone_number || user.phone_number,
+                    full_address: addr.full_address,
+                    postal_code: addr.postal_code,
+                    latitude: addr.latitude,
+                    longitude: addr.longitude,
+                    area_id: addr.area_id
+                };
+                cd.shipping_address = { first_name: addr.recipient_name || user.full_name, phone: addr.phone_number || user.phone_number, address: addr.full_address };
+            }
         }
 
-        const tx = await this.paymentService.createTransaction(inv, ga, cd);
+        if (oi.length === 0) throw new BadRequestException('Tidak ada item.');
+        const sc = dto.shipping_cost || 0; const ga = tp + sc; const inv = this.generateInvoiceNumber();
+        const roundedAmount = Math.round(ga);
+        
+        const tx = await this.paymentService.createTransaction(inv, roundedAmount, cd);
+        
+        const no = this.orderRepo.create({ 
+            user_id: userId, 
+            invoice_number: inv, 
+            total_price: ga, 
+            status: 'PENDING', 
+            notes: dto.notes, 
+            items: oi as OrderItem[], 
+            shipping_cost: sc, 
+            shipping_type: dto.shipping_type || 'regular', 
+            courier_name: dto.courier_name || null, 
+            courier_service: dto.courier_service || null, 
+            address_id: dto.address_id || null, 
+            shipping_details: dto.shipping_details || null,
+            shipping_address_snapshot: addressSnapshot,
+            payment_token: tx.token
+        } as any);
+        const saved = await this.orderRepo.save(no);
+
         if (dto.cart_ids?.length) await this.cartRepo.delete(dto.cart_ids);
         return { message: 'Checkout berhasil', order: saved, payment: { token: tx.token, redirect_url: tx.redirect_url } };
     }
