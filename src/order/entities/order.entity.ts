@@ -31,10 +31,22 @@ export class Order {
   total_price: number;
 
   @Column({ default: 'PENDING' })
-  status: string; // PENDING, LUNAS, BATAL
+  status: string; // PENDING, LUNAS, DIKEMAS, DIKIRIM, SELESAI, BATAL
 
   @Column({ type: 'text', nullable: true })
   notes: string; // Opsional: Catatan dari pembeli
+
+  @Column({ nullable: true })
+  tracking_number: string; // Nomor resi / AWB dari kurir
+
+  @Column({ nullable: true })
+  courier_name: string; // Nama kurir yang dipilih (JNE, J&T, etc.)
+
+  @Column({ nullable: true })
+  courier_service: string; // Layanan kurir (REG, YES, OKE, etc.)
+
+  @Column('decimal', { precision: 10, scale: 2, nullable: true, default: 0 })
+  shipping_cost: number; // Ongkos kirim
 
   // Relasi ke order_items
   @OneToMany(() => OrderItem, (item) => item.order, { cascade: true })

@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Req, UseGuards, Patch, Param, Get, Query } from '@nestjs/common';
+import { Controller, Post, Body, Req, UseGuards, Patch, Param, Get, Query, HttpException, HttpStatus, Logger } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiBody } from '@nestjs/swagger';
 import { OrderService } from './order.service';
 import { CheckoutCartDto, CheckoutDirectDto, CheckoutBuilderDto, CreateCheckoutDto } from './dto/checkout.dto';
@@ -55,6 +55,14 @@ export class OrderController {
   }
 
   @UseGuards(JwtUserGuard)
+  @Post(':id/check-payment')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Check payment status', description: 'Directly query Midtrans API for payment status of PENDING order.' })
+  async checkPayment(@Req() req: any, @Param('id') orderId: string) {
+    return this.orderService.checkPaymentStatus(orderId, req.user.id);
+  }
+
+  @UseGuards(JwtUserGuard)
   @Patch(':id/cancel')
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Cancel order', description: 'Cancel a PENDING order (user only).' })
@@ -63,6 +71,14 @@ export class OrderController {
   @ApiResponse({ status: 404, description: 'Order not found' })
   async cancelMyOrder(@Req() req: any, @Param('id') orderId: string) {
     return this.orderService.cancelOrderUser(req.user.id, orderId);
+  }
+
+  @UseGuards(JwtUserGuard)
+  @Get(':id/tracking')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Track order shipment', description: 'Get real-time tracking info for a shipped order.' })
+  async getTracking(@Req() req: any, @Param('id') orderId: string) {
+    return this.orderService.getTrackingInfo(orderId, req.user.id);
   }
 
   // ====================== ENDPOINT ADMIN ======================

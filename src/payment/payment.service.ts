@@ -1,9 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as midtransClient from 'midtrans-client';
 import * as crypto from 'crypto';
 import { Order } from '../order/entities/order.entity';
+import { ProductVariant } from '../product/entities/product-variant.entity';
 
 @Injectable()
 export class PaymentService {
@@ -13,6 +14,8 @@ export class PaymentService {
   constructor(
     @InjectRepository(Order)
     private readonly orderRepo: Repository<Order>,
+    @InjectRepository(ProductVariant)
+    private readonly variantRepo: Repository<ProductVariant>,
   ) {
     this.logger.log(`Initializing Midtrans with serverKey: ${process.env.MIDTRANS_SERVER_KEY ? 'SET' : 'NOT SET'}, isProduction: ${process.env.MIDTRANS_IS_PRODUCTION}`);
     this.snap = new midtransClient.Snap({
@@ -68,10 +71,23 @@ export class PaymentService {
 
       this.logger.log(`Order ${orderId}: status=${transactionStatus}, fraud=${fraudStatus}`);
 
-      // 2. Find order in database
-      const order = await this.orderRepo.findOne({ where: { invoice_number: orderId } });
+      // 2. Find order in database — cari berdasarkan invoice_number
+      // Untuk retry payment, Midtrans mengirim order_id = "INV-xxx-Ruuid"
+      // Kita perlu cari order yang invoice_number-nya merupakan prefix dari orderId
+      let order = await this.orderRepo.findOne({ where: { invoice_number: orderId } });
+
+      // Jika tidak ditemukan, coba partial match (untuk retry payment)
+      if (!order && orderId && orderId.includes('-R')) {
+        const baseInvoice = orderId.split('-R')[0];
+        this.logger.log(`Trying partial match with base invoice: ${baseInvoice}`);
+        const orders = await this.orderRepo.find({ where: { invoice_number: baseInvoice } });
+        if (orders.length > 0) {
+          order = orders[0];
+          this.logger.log(`Order found via partial match: ${order.id}`);
+        }
+      }
+
       if (!order) {
-        // Order might not exist yet (race condition) or invalid orderId
         this.logger.warn(`Order ${orderId} not found in database`);
         return { status: 'error', message: 'Order not found' };
       }

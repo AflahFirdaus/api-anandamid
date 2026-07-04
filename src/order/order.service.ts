@@ -204,17 +204,12 @@ export class OrderService {
 
     const user = order.user;
 
-    // Generate new invoice number agar Midtrans tidak reject (order_id must be unique)
-    const invDate = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-    const invNum = Math.floor(1000 + Math.random() * 9000);
-    const retryInvoice = `${order.invoice_number}-R${invDate}-${invNum}`;
-
-    // Update invoice_number di database agar webhook Midtrans bisa menemukan order ini
-    order.invoice_number = retryInvoice;
-    await this.orderRepo.save(order);
+    // Gunakan order.id sebagai order_id untuk Midtrans agar unique
+    // Jangan ubah invoice_number karena webhook Midtrans mengirim invoice_number asli
+    const midtransOrderId = `${order.invoice_number}-R${order.id.slice(0, 8)}`;
 
     const transaction = await this.paymentService.createTransaction(
-      retryInvoice,
+      midtransOrderId,
       order.total_price,
       {
         first_name: user.full_name || 'Customer',
@@ -289,6 +284,80 @@ export class OrderService {
       return { message: `Status masih ${order.status}`, status: order.status };
     } catch (err: any) {
       throw new BadRequestException(`Gagal mengecek status: ${err.message}`);
+    }
+  }
+  async getTrackingInfo(orderId: string, userId: string) {
+    const order = await this.orderRepo.findOne({
+      where: { id: orderId, user: { id: userId } },
+    });
+
+    if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
+    if (!order.tracking_number) {
+      return { 
+        message: 'Nomor resi belum tersedia', 
+        tracking_number: null,
+        status: order.status,
+        courier_name: order.courier_name,
+        courier_service: order.courier_service,
+        history: [],
+      };
+    }
+
+    // Query Biteship tracking API
+    try {
+      const biteshipKey = process.env.BITESHIP_API_KEY || '';
+      const response = await fetch(
+        `https://api.biteship.com/v1/trackings/${order.tracking_number}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${biteshipKey}`,
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        // Fallback: return basic info tanpa history
+        return {
+          message: 'Data tracking tidak tersedia',
+          tracking_number: order.tracking_number,
+          status: order.status,
+          courier_name: order.courier_name,
+          courier_service: order.courier_service,
+          history: [],
+          raw_error: data.message || 'Unknown error',
+        };
+      }
+
+      // Map Biteship history ke format timeline
+      const history = (data.history || []).map((entry: any) => ({
+        status: entry.status,
+        note: entry.note,
+        updated_at: entry.updated_at,
+        location: entry.location || null,
+      }));
+
+      return {
+        message: 'Data tracking berhasil diambil',
+        tracking_number: order.tracking_number,
+        status: data.status || order.status,
+        courier_name: order.courier_name || data.courier?.name,
+        courier_service: order.courier_service,
+        history,
+        waybill_url: data.waybill_url || null,
+      };
+    } catch (err: any) {
+      return {
+        message: 'Gagal mengambil data tracking',
+        tracking_number: order.tracking_number,
+        status: order.status,
+        courier_name: order.courier_name,
+        courier_service: order.courier_service,
+        history: [],
+        error: err.message,
+      };
     }
   }
 
