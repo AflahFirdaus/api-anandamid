@@ -143,6 +143,38 @@ export class CreateCheckoutDto {
   address_id?: string;
 
   @ApiPropertyOptional({
+    description: 'Shipping type: "regular" or "instant"',
+    example: 'regular',
+    default: 'regular',
+  })
+  @IsOptional()
+  @IsString()
+  shipping_type?: string;
+
+  @ApiPropertyOptional({
+    description: 'Selected courier name (e.g., JNE, GoSend)',
+    example: 'jne',
+  })
+  @IsOptional()
+  @IsString()
+  courier_name?: string;
+
+  @ApiPropertyOptional({
+    description: 'Selected courier service (e.g., REG, YES)',
+    example: 'REG',
+  })
+  @IsOptional()
+  @IsString()
+  courier_service?: string;
+
+  @ApiPropertyOptional({
+    description: 'Shipping details (rate, duration, etc.)',
+    example: { rate: 15000, duration: '2-3 hari' },
+  })
+  @IsOptional()
+  shipping_details?: Record<string, any>;
+
+  @ApiPropertyOptional({
     description: 'Optional notes',
     example: 'Tolong kirim cepat ya',
   })
