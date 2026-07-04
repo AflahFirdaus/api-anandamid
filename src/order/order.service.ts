@@ -12,43 +12,74 @@ import { CheckoutCartDto, CheckoutDirectDto, CreateCheckoutDto } from './dto/che
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { PaymentService } from '../payment/payment.service';
 
+/**
+ * Normalize nama kurir ke kode yang diterima Biteship API.
+ * Misal: "j&t", "J&T Express", "jnt" → semua jadi "jnt"
+ */
+function normalizeCourierCode(courier: string): string {
+    const c = courier.toLowerCase().trim();
+    if (c.includes('j&t') || c.includes('j & t') || c === 'jnt' || c.includes('j&t express')) return 'jnt';
+    if (c === 'jne' || c.includes('jne')) return 'jne';
+    if (c.includes('sicepat') || c === 'scp') return 'sicepat';
+    if (c === 'tiki' || c.includes('tiki')) return 'tiki';
+    if (c === 'pos' || c.includes('pos indonesia')) return 'pos';
+    if (c.includes('anteraja') || c === 'anteraja') return 'anteraja';
+    if (c.includes('ninja') || c === 'ninjaxpress') return 'ninjaxpress';
+    if (c.includes('wahana') || c === 'wahana') return 'wahana';
+    if (c.includes('gosend') || c === 'gosend') return 'gosend';
+    if (c.includes('grab') || c === 'grabexpress') return 'grabexpress';
+    // Fallback: kembalikan lowercase tanpa spasi
+    return c.replace(/\s+/g, '');
+}
+
+/**
+ * Petakan nama layanan kurir (dari frontend/Biteship rates) ke courier_type
+ * yang diterima Biteship order API.
+ */
 function extractCourierType(courier: string, rawService: string): string {
     const svc = rawService.toLowerCase();
-    const c = courier.toLowerCase();
-    // Common Biteship short codes by courier
+    const c = normalizeCourierCode(courier);
+
     if (c === 'jne') {
         if (svc.includes('oke')) return 'oke';
         if (svc.includes('yes')) return 'yes';
         if (svc.includes('jtr')) return 'jtr';
+        if (svc.includes('ctc')) return 'ctc';
         return 'reg';
     }
     if (c === 'jnt') {
-        if (svc.includes('ez')) return 'ez';
-        if (svc.includes('jnd')) return 'jnd';
+        if (svc.includes('jnd') || svc.includes('next day')) return 'jnd';
+        // J&T hanya punya 'ez' sebagai layanan reguler di Biteship
         return 'ez';
     }
     if (c === 'sicepat') {
         if (svc.includes('best')) return 'best';
-        if (svc.includes('reg')) return 'reg';
-        if (svc.includes('sds')) return 'sds';
+        if (svc.includes('sds') || svc.includes('same day')) return 'sds';
+        if (svc.includes('gokil')) return 'gokil';
         return 'reg';
     }
     if (c === 'tiki') {
         if (svc.includes('eco')) return 'eco';
-        if (svc.includes('reg')) return 'reg';
-        if (svc.includes('ons')) return 'ons';
+        if (svc.includes('ons') || svc.includes('overnight')) return 'ons';
+        if (svc.includes('hds') || svc.includes('same day')) return 'hds';
         return 'reg';
     }
     if (c === 'pos') {
-        if (svc.includes('kilat')) return 'pos kilat khusus';
-        if (svc.includes('express')) return 'express next day';
+        if (svc.includes('express') || svc.includes('next day')) return 'express next day';
         return 'pos kilat khusus';
     }
-    // Default: just use whatever Biteship provides in rates response
+    if (c === 'anteraja') {
+        if (svc.includes('next day') || svc.includes('nd')) return 'next_day';
+        if (svc.includes('same day') || svc.includes('sd')) return 'same_day';
+        return 'reguler';
+    }
+    // Fallback generic mapping
     if (svc.includes('regular') || svc.includes('reguler')) return 'reg';
     if (svc.includes('express')) return 'express';
     if (svc.includes('instant')) return 'instant';
     if (svc.includes('same day') || svc.includes('sameday')) return 'same_day';
+    // Jika service sudah merupakan kode pendek (mis. "ez", "reg", "oke"), kembalikan langsung
+    if (/^[a-z_]+$/.test(svc) && svc.length <= 20) return svc;
     return 'reg';
 }
 
@@ -288,7 +319,7 @@ export class OrderService {
             } else { this.logger.warn(`[AWB] Address ${order.address_id} not found!`); }
         } else { this.logger.warn(`[AWB] No address_id or address snapshot on order!`); }
 
-        const courier = (order.courier_name || 'jne').toLowerCase();
+        const courier = normalizeCourierCode(order.courier_name || 'jne');
         const svc = extractCourierType(courier, order.courier_service || '');
 
         const body: any = {
@@ -333,7 +364,7 @@ export class OrderService {
         const key = process.env.BITESHIP_API_KEY || '';
         if (!key) throw new BadRequestException('API Key Biteship belum dikonfigurasi.');
 
-        const cc = (order.courier_name || 'jne').toLowerCase();
+        const cc = normalizeCourierCode(order.courier_name || 'jne');
         const pickupDate = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
 
         this.logger.log(`[PICKUP] Calling Biteship: biteshipOrderId=${order.biteship_order_id}, courier=${cc}, date=${pickupDate}`);
