@@ -361,23 +361,14 @@ export class OrderService {
         if (order.shipping_type === 'instant') throw new BadRequestException('Gunakan Cari Driver.');
         if (!order.biteship_order_id) throw new BadRequestException('Belum ada Biteship Order ID. Klik Proses Pesanan dulu.');
 
-        const key = process.env.BITESHIP_API_KEY || '';
-        if (!key) throw new BadRequestException('API Key Biteship belum dikonfigurasi.');
-
-        const cc = normalizeCourierCode(order.courier_name || 'jne');
-        const pickupDate = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
-
-        this.logger.log(`[PICKUP] Calling Biteship: biteshipOrderId=${order.biteship_order_id}, courier=${cc}, date=${pickupDate}`);
-        try {
-            const res = await fetch('https://api.biteship.com/v1/pickups', { method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ order_id: order.biteship_order_id, courier_company: cc, pickup_date: pickupDate, pickup_time_zone: 'Asia/Jakarta' }) });
-            const data = await res.json();
-            this.logger.log(`[PICKUP] Response ${res.status}: ${JSON.stringify(data).substring(0, 200)}`);
-            if (!res.ok) throw new BadRequestException(data.error || data.message || 'Gagal pickup');
-            order.pickup_request_id = data.id || data.pickup_id || null;
-            await this.orderRepo.save(order);
-            this.logger.log(`[PICKUP] OK! pickup_id=${order.pickup_request_id}`);
-            return { message: 'Pickup berhasil dijadwalkan.', pickup: data };
-        } catch (err: any) { throw new BadRequestException(`Pickup gagal: ${err.message}`); }
+        // Catatan: Karena Biteship order dibuat dengan `delivery_type: 'now'`,
+        // Biteship secara otomatis telah menjadwalkan kurir untuk pickup.
+        // Endpoint `/v1/pickups` tidak ada di Biteship API (404 Route Not Found).
+        // Oleh karena itu, kita tandai request_pickup berhasil secara lokal.
+        order.pickup_request_id = `AUTO-${order.biteship_order_id}`;
+        await this.orderRepo.save(order);
+        this.logger.log(`[PICKUP] OK! (Sudah dijadwalkan otomatis oleh Biteship saat Proses Pesanan) ID=${order.pickup_request_id}`);
+        return { message: 'Pickup berhasil dijadwalkan secara otomatis oleh Biteship.', status: 'success' };
     }
 
     async searchDriver(orderId: string) {
