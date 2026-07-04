@@ -237,8 +237,9 @@ export class OrderService {
                 if (awb) {
                     (order as any).awb_number = awb.awb_number;
                     (order as any).awb_url = awb.awb_url;
+                    (order as any).biteship_order_id = awb.biteship_order_id;
                     if (!order.tracking_number) (order as any).tracking_number = awb.awb_number;
-                    this.logger.log(`[PROCESS] AWB OK: ${awb.awb_number}`);
+                    this.logger.log(`[PROCESS] AWB OK: biteshipId=${awb.biteship_order_id}, awb=${awb.awb_number}`);
                 } else {
                     this.logger.warn(`[PROCESS] AWB FAILED - check [AWB] logs above`);
                 }
@@ -250,7 +251,7 @@ export class OrderService {
         return { message: 'Pesanan diproses.', order: saved };
     }
 
-    private async generateAwb(order: Order): Promise<{ awb_number: string; awb_url: string } | null> {
+    private async generateAwb(order: Order): Promise<{ biteship_order_id: string; awb_number: string; awb_url: string } | null> {
         const key = process.env.BITESHIP_API_KEY || '';
         if (!key) { this.logger.warn('[AWB] No API key'); return null; }
 
@@ -301,7 +302,7 @@ export class OrderService {
             destination_postal_code: parseInt(destPC, 10) || 55283,
             courier_company: courier,
             courier_type: svc,
-            delivery_type: 'later',
+            delivery_type: 'now',
             items: order.items.map((item) => ({ name: item.product_name || 'Product', value: Math.max(Number(item.price) || 1000, 100), quantity: item.quantity, weight: 1000, length: 20, width: 20, height: 20 })),
         };
         if (originArea) body.origin_area_id = originArea;
@@ -313,10 +314,11 @@ export class OrderService {
             const data = await res.json();
             this.logger.log(`[AWB] Response ${res.status}: ${JSON.stringify(data).substring(0, 300)}`);
             if (!res.ok) { this.logger.error(`[AWB] FAIL: ${JSON.stringify(data)}`); return null; }
-            const awb = data.waybill_id || data.id || '';
+            const biteshipOrderId = data.id || '';
+            const awb = data.waybill_id || data.courier?.waybill_id || '';
             const url = data.waybill_url || data.courier?.waybill_url || '';
-            this.logger.log(`[AWB] SUCCESS! AWB=${awb}`);
-            return { awb_number: awb, awb_url: url };
+            this.logger.log(`[AWB] SUCCESS! biteshipOrderId=${biteshipOrderId}, AWB=${awb}`);
+            return { biteship_order_id: biteshipOrderId, awb_number: awb, awb_url: url };
         } catch (e: any) { this.logger.error(`[AWB] Network error: ${e.message}`); return null; }
     }
 
@@ -326,24 +328,24 @@ export class OrderService {
         if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
         if (order.status !== 'DIKEMAS') throw new BadRequestException('Hanya DIKEMAS.');
         if (order.shipping_type === 'instant') throw new BadRequestException('Gunakan Cari Driver.');
-        if (!order.awb_number && !order.tracking_number) throw new BadRequestException('Belum ada AWB. Klik Proses Pesanan dulu.');
+        if (!order.biteship_order_id) throw new BadRequestException('Belum ada Biteship Order ID. Klik Proses Pesanan dulu.');
 
         const key = process.env.BITESHIP_API_KEY || '';
         if (!key) throw new BadRequestException('API Key Biteship belum dikonfigurasi.');
 
-        const ref = (order.awb_number || order.tracking_number || order.invoice_number) as string;
         const cc = (order.courier_name || 'jne').toLowerCase();
+        const pickupDate = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
 
-        this.logger.log(`[PICKUP] Calling Biteship: order=${ref}, courier=${cc}`);
+        this.logger.log(`[PICKUP] Calling Biteship: biteshipOrderId=${order.biteship_order_id}, courier=${cc}, date=${pickupDate}`);
         try {
-            const res = await fetch('https://api.biteship.com/v1/pickups', { method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ order_id: ref, courier_company: cc, pickup_date: new Date(Date.now() + 86400000).toISOString().slice(0, 10), pickup_time_zone: 'Asia/Jakarta' }) });
+            const res = await fetch('https://api.biteship.com/v1/pickups', { method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ order_id: order.biteship_order_id, courier_company: cc, pickup_date: pickupDate, pickup_time_zone: 'Asia/Jakarta' }) });
             const data = await res.json();
             this.logger.log(`[PICKUP] Response ${res.status}: ${JSON.stringify(data).substring(0, 200)}`);
             if (!res.ok) throw new BadRequestException(data.error || data.message || 'Gagal pickup');
             order.pickup_request_id = data.id || data.pickup_id || null;
             await this.orderRepo.save(order);
             this.logger.log(`[PICKUP] OK! pickup_id=${order.pickup_request_id}`);
-            return { message: 'Pickup berhasil.', pickup: data };
+            return { message: 'Pickup berhasil dijadwalkan.', pickup: data };
         } catch (err: any) { throw new BadRequestException(`Pickup gagal: ${err.message}`); }
     }
 

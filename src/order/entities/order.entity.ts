@@ -69,6 +69,9 @@ export class Order {
   awb_url: string; // URL cetak label AWB dari Biteship
 
   @Column({ nullable: true })
+  biteship_order_id: string; // ID Order dari Biteship (digunakan untuk request pickup)
+
+  @Column({ nullable: true })
   pickup_request_id: string; // ID request pickup dari Biteship
 
   @Column({ type: 'timestamptz', nullable: true })
