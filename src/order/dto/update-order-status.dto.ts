@@ -3,6 +3,7 @@ import { IsEnum, IsNotEmpty } from 'class-validator';
 export enum OrderStatus {
   PENDING = 'PENDING',
   LUNAS = 'LUNAS',
+  DIKEMAS = 'DIKEMAS',
   DIKIRIM = 'DIKIRIM',
   SELESAI = 'SELESAI',
   BATAL = 'BATAL',

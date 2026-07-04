@@ -33,6 +33,7 @@ import { throttlerConfig } from './config/throttler.config';
 import { PaymentModule } from './payment/payment.module';
 import { ShippingModule } from './shipping/shipping.module';
 import { LocationModule } from './location/location.module';
+import { ReviewModule } from './review/review.module';
 
 @Module({
   imports: [
@@ -66,6 +67,7 @@ import { LocationModule } from './location/location.module';
     PaymentModule,
     ShippingModule,
     LocationModule,
+    ReviewModule,
   ],
   controllers: [AppController], 
   providers: [AppService],     
