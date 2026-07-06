@@ -26,9 +26,6 @@ export class ShippingService {
     this.strategies = [this.regularStrategy, this.instantStrategy];
   }
 
-  /**
-   * Get the appropriate strategy for the requested couriers.
-   */
   private getStrategyForCourier(courier: string): ShippingRateStrategy | null {
     for (const strategy of this.strategies) {
       if (strategy.supports(courier)) {
@@ -39,9 +36,12 @@ export class ShippingService {
   }
 
   /**
-   * Resolve Biteship area_id from lat/lng coordinates.
+   * Resolve Biteship area_id from lat/lng coordinates via Maps API.
    */
-  private async resolveAreaIdFromCoords(latitude: number, longitude: number): Promise<string | null> {
+  private async resolveAreaIdFromCoords(
+    latitude: number,
+    longitude: number,
+  ): Promise<string | null> {
     try {
       const response = await fetch(
         `${this.biteshipBaseUrl}/maps/areas?latitude=${latitude}&longitude=${longitude}`,
@@ -53,18 +53,15 @@ export class ShippingService {
           },
         },
       );
-
       const data = await response.json();
-
       if (!response.ok) {
         this.logger.warn(`resolveAreaIdFromCoords error: ${JSON.stringify(data)}`);
         return null;
       }
-
       if (data.areas && data.areas.length > 0) {
+        this.logger.log(`Resolved area_id from coords: ${data.areas[0].id}`);
         return data.areas[0].id;
       }
-
       return null;
     } catch (e: any) {
       this.logger.warn(`resolveAreaIdFromCoords fetch error: ${e.message}`);
@@ -73,8 +70,76 @@ export class ShippingService {
   }
 
   /**
-   * Check shipping rates using the appropriate strategy (Area ID or Lat/Lng).
+   * Resolve area_id from postal_code for destination when lat/lng unavailable.
+   * Uses Biteship /maps/areas search by input (postal code / address text).
    */
+  private async resolveAreaIdFromPostalCode(
+    postalCode: string,
+  ): Promise<string | null> {
+    try {
+      const response = await fetch(
+        `${this.biteshipBaseUrl}/maps/areas?countries=ID&input=${encodeURIComponent(postalCode)}&type=single`,
+        {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${this.apiKey}`,
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+      const data = await response.json();
+      if (!response.ok) {
+        this.logger.warn(`resolveAreaIdFromPostalCode error: ${JSON.stringify(data)}`);
+        return null;
+      }
+      if (data.areas && data.areas.length > 0) {
+        this.logger.log(`Resolved area_id from postal_code ${postalCode}: ${data.areas[0].id}`);
+        return data.areas[0].id;
+      }
+      return null;
+    } catch (e: any) {
+      this.logger.warn(`resolveAreaIdFromPostalCode fetch error: ${e.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Resolve destination area_id by trying: 1) lat/lng, 2) postal_code, 3) null
+   */
+  private async ensureDestinationAreaId(
+    destLat: number | undefined,
+    destLng: number | undefined,
+    destinationPostalCode: string | number | undefined,
+    destinationAddressId: string | undefined,
+  ): Promise<string | undefined> {
+    // First: try lat/lng
+    if (destLat && destLng) {
+      const resolved = await this.resolveAreaIdFromCoords(destLat, destLng);
+      if (resolved) return resolved;
+    }
+
+    // Second: try postal_code from DTO
+    if (destinationPostalCode) {
+      const resolved = await this.resolveAreaIdFromPostalCode(
+        destinationPostalCode.toString(),
+      );
+      if (resolved) return resolved;
+    }
+
+    // Third: try DB address postal_code
+    if (destinationAddressId) {
+      const addr = await this.addressRepo.findOne({
+        where: { id: destinationAddressId },
+      });
+      if (addr && addr.postal_code) {
+        const resolved = await this.resolveAreaIdFromPostalCode(addr.postal_code);
+        if (resolved) return resolved;
+      }
+    }
+
+    return undefined;
+  }
+
   async checkRates(dto: CheckRatesRefactoredDto) {
     const {
       originAddressId,
@@ -87,13 +152,14 @@ export class ShippingService {
       items = [],
     } = dto;
 
-    // Resolve origin address if addressId is provided
     let originAreaId: string | undefined;
     let originLat: number | undefined = originLatitude;
     let originLng: number | undefined = originLongitude;
 
     if (originAddressId) {
-      const originAddr = await this.addressRepo.findOne({ where: { id: originAddressId } });
+      const originAddr = await this.addressRepo.findOne({
+        where: { id: originAddressId },
+      });
       if (originAddr) {
         originAreaId = originAddr.area_id || undefined;
         originLat = originAddr.latitude || originLat;
@@ -109,18 +175,29 @@ export class ShippingService {
       originLng = undefined;
     }
 
-    // Resolve destination address
     let destinationAreaId: string | undefined;
     let destLat: number | undefined = destinationLatitude;
     let destLng: number | undefined = destinationLongitude;
 
     if (destinationAddressId) {
-      const destAddr = await this.addressRepo.findOne({ where: { id: destinationAddressId } });
+      const destAddr = await this.addressRepo.findOne({
+        where: { id: destinationAddressId },
+      });
       if (destAddr) {
         destinationAreaId = destAddr.area_id || undefined;
         destLat = destAddr.latitude || destLat;
         destLng = destAddr.longitude || destLng;
       }
+    }
+
+    // If destination has no area_id, try to resolve it
+    if (!destinationAreaId) {
+      destinationAreaId = await this.ensureDestinationAreaId(
+        destLat,
+        destLng,
+        dto.destinationPostalCode,
+        destinationAddressId,
+      );
     }
 
     const courierList = couriers.split(',').map((c) => c.trim().toLowerCase());
@@ -144,55 +221,56 @@ export class ShippingService {
         items,
       };
 
-      /* eslint-disable no-unsafe-member-access, no-unsafe-assignment, no-unsafe-call */
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
       const requestBody = strategy.buildRequest(request);
-
-      // If /rates/couriers endpoint, ensure both area_ids; resolve from lat/lng if DB has none
-      if (strategy.getEndpoint() === '/rates/couriers') {
-        // Resolve origin area_id from coords if missing
-        if (!requestBody.origin_area_id && originLat && originLng) {
-          const resolved = await this.resolveAreaIdFromCoords(originLat, originLng);
-          if (resolved) {
-            requestBody.origin_area_id = resolved;
-          }
-        }
-
-        // Resolve destination area_id from coords if missing
-        if (!requestBody.destination_area_id && destLat && destLng) {
-          const resolved = await this.resolveAreaIdFromCoords(destLat, destLng);
-          if (resolved) {
-            requestBody.destination_area_id = resolved;
-          }
-        }
-
-        // If EITHER area_id is still missing, switch entirely to postal codes
-        if (!requestBody.origin_area_id || !requestBody.destination_area_id) {
-          delete requestBody.origin_area_id;
-          delete requestBody.destination_area_id;
-          requestBody.origin_postal_code = parseInt(this.defaultOriginPostalCode, 10) || 55283;
-
-          const dbDestAddr = destinationAddressId
-            ? await this.addressRepo.findOne({ where: { id: destinationAddressId } })
-            : null;
-
-          if (dbDestAddr && dbDestAddr.postal_code) {
-            requestBody.destination_postal_code = parseInt(dbDestAddr.postal_code, 10);
-          } else if (dto.destinationPostalCode) {
-            requestBody.destination_postal_code = parseInt(dto.destinationPostalCode.toString(), 10);
-          }
-        }
-      }
-      /* eslint-enable no-unsafe-member-access, no-unsafe-assignment, no-unsafe-call */
-
       const endpoint = strategy.getEndpoint();
 
+      // For /rates/couriers: if area_id missing on either side, fallback to postal codes
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+      if (endpoint === '/rates/couriers') {
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+        const hasOriginArea = !!requestBody.origin_area_id;
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+        const hasDestArea = !!requestBody.destination_area_id;
+
+        if (!hasOriginArea || !hasDestArea) {
+          // Fallback: use postal codes entirely (Biteship requires uniform approach)
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+          delete requestBody.origin_area_id;
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+          delete requestBody.destination_area_id;
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+          requestBody.origin_postal_code =
+            parseInt(this.defaultOriginPostalCode, 10) || 55283;
+
+          const dbDestAddr = destinationAddressId
+            ? await this.addressRepo.findOne({
+                where: { id: destinationAddressId },
+              })
+            : null;
+
+          const destPostal =
+            (dbDestAddr && dbDestAddr.postal_code) ||
+            dto.destinationPostalCode?.toString() ||
+            '';
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+          requestBody.destination_postal_code =
+            parseInt(destPostal, 10) || 0;
+        }
+      }
+
       try {
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
         const result = await this.callBiteshipApi(endpoint, requestBody);
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
         if (result.pricing) {
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
           allResults.push(...result.pricing);
         }
       } catch (error: any) {
-        this.logger.error(`Biteship error for courier ${courier}: ${error.message}`);
+        this.logger.error(
+          `Biteship error for courier ${courier}: ${error.message}`,
+        );
       }
     }
 
@@ -206,8 +284,12 @@ export class ShippingService {
     items: any[] = [],
   ) {
     const origin =
-      parseInt((originPostalCode || this.defaultOriginPostalCode).toString(), 10) || 55283;
-    const dest = parseInt((destinationPostalCode || '').toString(), 10) || undefined;
+      parseInt(
+        (originPostalCode || this.defaultOriginPostalCode).toString(),
+        10,
+      ) || 55283;
+    const dest =
+      parseInt((destinationPostalCode || '').toString(), 10) || undefined;
     const itemsInKg = items.map((item) => ({
       ...item,
       weight: item.weight / 1000,
@@ -225,8 +307,13 @@ export class ShippingService {
     return this.callBiteshipApi('/rates/couriers', requestBody);
   }
 
-  private async callBiteshipApi(endpoint: string, requestBody: any): Promise<any> {
-    this.logger.log(`Biteship request to ${endpoint}: ${JSON.stringify(requestBody)}`);
+  private async callBiteshipApi(
+    endpoint: string,
+    requestBody: any,
+  ): Promise<any> {
+    this.logger.log(
+      `Biteship request to ${endpoint}: ${JSON.stringify(requestBody)}`,
+    );
 
     try {
       const response = await fetch(`${this.biteshipBaseUrl}${endpoint}`, {
@@ -244,9 +331,13 @@ export class ShippingService {
       );
 
       if (!response.ok) {
-        this.logger.error(`Biteship error response: ${response.status} - ${JSON.stringify(data)}`);
+        this.logger.error(
+          `Biteship error response: ${response.status} - ${JSON.stringify(data)}`,
+        );
         throw new Error(
-          data.error || data.message || `Biteship returned status ${response.status}`,
+          data.error ||
+            data.message ||
+            `Biteship returned status ${response.status}`,
         );
       }
 
