@@ -154,18 +154,21 @@ export class ShippingService {
     couriers: string = 'jne,jnt,sicepat,tiki,pos',
     items: any[] = [],
   ) {
-    const origin = originPostalCode || this.defaultOriginPostalCode;
+    const origin = parseInt((originPostalCode || this.defaultOriginPostalCode).toString(), 10) || 55283;
+    const dest = parseInt((destinationPostalCode || '').toString(), 10) || undefined;
     const itemsInKg = items.map((item) => ({
       ...item,
       weight: item.weight / 1000,
     }));
 
-    const requestBody = {
+    const requestBody: any = {
       origin_postal_code: origin,
-      destination_postal_code: destinationPostalCode,
       couriers,
       items: itemsInKg,
     };
+    if (dest) {
+      requestBody.destination_postal_code = dest;
+    }
 
     return this.callBiteshipApi('/rates/couriers', requestBody);
   }

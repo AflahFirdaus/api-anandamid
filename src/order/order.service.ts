@@ -525,4 +525,69 @@ export class OrderService {
         if (dto.cart_ids?.length) await this.cartRepo.delete(dto.cart_ids);
         return { message: 'Checkout berhasil', order: saved, payment: { token: tx.token, redirect_url: tx.redirect_url } };
     }
+
+    async handleBiteshipWebhook(payload: any) {
+        this.logger.log(`[BITESHIP WEBHOOK] Event: ${payload?.event}, order_id: ${payload?.order_id}, status: ${payload?.status}`);
+        
+        if (!payload || payload.event !== 'order.status') {
+            return { message: 'Ignored: Event is not order.status' };
+        }
+
+        const biteshipOrderId = payload.order_id;
+        const biteshipStatus = payload.status;
+
+        if (!biteshipOrderId) {
+            throw new BadRequestException('order_id is required');
+        }
+
+        const order = await this.orderRepo.findOne({
+            where: { biteship_order_id: biteshipOrderId },
+            relations: ['items', 'items.product']
+        });
+
+        if (!order) {
+            this.logger.warn(`[BITESHIP WEBHOOK] Order not found for biteship_order_id: ${biteshipOrderId}`);
+            return { message: 'Order not found in database' };
+        }
+
+        let updated = false;
+
+        // Map status:
+        // Biteship statuses: picking_up, picked, in_transit, delivered, cancelled, rejected, etc.
+        if (biteshipStatus === 'picked' || biteshipStatus === 'in_transit') {
+            if (order.status !== 'DIKIRIM' && order.status !== 'SELESAI') {
+                order.status = 'DIKIRIM';
+                order.delivered_at = new Date();
+                updated = true;
+            }
+        } else if (biteshipStatus === 'delivered') {
+            if (order.status !== 'SELESAI') {
+                order.status = 'SELESAI';
+                order.completed_at = new Date();
+                updated = true;
+            }
+        } else if (biteshipStatus === 'cancelled' || biteshipStatus === 'rejected') {
+            if (order.status !== 'BATAL') {
+                order.status = 'BATAL';
+                updated = true;
+            }
+        }
+
+        // Simpan resi/AWB jika ada & belum tersimpan
+        if (payload.courier_waybill_id && !order.awb_number) {
+            order.awb_number = payload.courier_waybill_id;
+            if (!order.tracking_number) {
+                order.tracking_number = payload.courier_waybill_id;
+            }
+            updated = true;
+        }
+
+        if (updated) {
+            const saved = await this.orderRepo.save(order);
+            this.logger.log(`[BITESHIP WEBHOOK] SUCCESS: Updated INV ${order.invoice_number} status to ${saved.status}`);
+            return { message: 'Order status updated', status: saved.status };
+        }
+
+        return { message: 'No status update required', status: order.status };
+    }
 }

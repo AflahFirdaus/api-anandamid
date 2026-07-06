@@ -257,4 +257,16 @@ export class OrderController {
   async createCheckout(@Req() req: any, @Body() dto: CreateCheckoutDto) {
     return this.orderService.createCheckout(req.user.id, dto);
   }
+
+  // ====================== BITESHIP WEBHOOK ======================
+  @Post('webhook/biteship')
+  @ApiOperation({ summary: 'Biteship webhook for order status updates' })
+  @ApiResponse({ status: 200, description: 'OK' })
+  async handleBiteshipWebhook(@Body() payload: any) {
+    try {
+      return await this.orderService.handleBiteshipWebhook(payload);
+    } catch (err: any) {
+      throw new HttpException(err.message, HttpStatus.BAD_REQUEST);
+    }
+  }
 }
