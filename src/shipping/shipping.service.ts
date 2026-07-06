@@ -28,7 +28,6 @@ export class ShippingService {
 
   /**
    * Get the appropriate strategy for the requested couriers.
-   * If couriers list contains mixed types, splits into regular vs instant.
    */
   private getStrategyForCourier(courier: string): ShippingRateStrategy | null {
     for (const strategy of this.strategies) {
@@ -37,6 +36,40 @@ export class ShippingService {
       }
     }
     return null;
+  }
+
+  /**
+   * Resolve Biteship area_id from lat/lng coordinates.
+   */
+  private async resolveAreaIdFromCoords(latitude: number, longitude: number): Promise<string | null> {
+    try {
+      const response = await fetch(
+        `${this.biteshipBaseUrl}/maps/areas?latitude=${latitude}&longitude=${longitude}`,
+        {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${this.apiKey}`,
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        this.logger.warn(`resolveAreaIdFromCoords error: ${JSON.stringify(data)}`);
+        return null;
+      }
+
+      if (data.areas && data.areas.length > 0) {
+        return data.areas[0].id;
+      }
+
+      return null;
+    } catch (e: any) {
+      this.logger.warn(`resolveAreaIdFromCoords fetch error: ${e.message}`);
+      return null;
+    }
   }
 
   /**
@@ -68,12 +101,10 @@ export class ShippingService {
       }
     }
 
-    // If no origin area/coords resolved, fall back to defaults
     if (!originAreaId) {
       originAreaId = this.defaultOriginAreaId || undefined;
     }
     if (!originLat || !originLng) {
-      // Last resort: store postal code approach for backward compatibility
       originLat = undefined;
       originLng = undefined;
     }
@@ -92,7 +123,6 @@ export class ShippingService {
       }
     }
 
-    // Split couriers by type and process each group
     const courierList = couriers.split(',').map((c) => c.trim().toLowerCase());
     const allResults: any[] = [];
 
@@ -114,26 +144,45 @@ export class ShippingService {
         items,
       };
 
+      /* eslint-disable no-unsafe-member-access, no-unsafe-assignment, no-unsafe-call */
       const requestBody = strategy.buildRequest(request);
-      
-      // Fallback: If regular courier strategy but area_id(s) are missing,
-      // switch entirely to postal codes — Biteship rejects mixed area_id + postal_code
-      if (strategy.getEndpoint() === '/rates/couriers' && (!requestBody.origin_area_id || !requestBody.destination_area_id)) {
-        // Strip area_ids since we can't provide both
-        delete requestBody.origin_area_id;
-        delete requestBody.destination_area_id;
 
-        // Always set origin postal code
-        requestBody.origin_postal_code = parseInt(this.defaultOriginPostalCode, 10) || 55283;
+      // If /rates/couriers endpoint, ensure both area_ids; resolve from lat/lng if DB has none
+      if (strategy.getEndpoint() === '/rates/couriers') {
+        // Resolve origin area_id from coords if missing
+        if (!requestBody.origin_area_id && originLat && originLng) {
+          const resolved = await this.resolveAreaIdFromCoords(originLat, originLng);
+          if (resolved) {
+            requestBody.origin_area_id = resolved;
+          }
+        }
 
-        // Set destination postal code
-        const destAddr = destinationAddressId ? await this.addressRepo.findOne({ where: { id: destinationAddressId } }) : null;
-        if (destAddr && destAddr.postal_code) {
-          requestBody.destination_postal_code = parseInt(destAddr.postal_code, 10);
-        } else if (dto.destinationPostalCode) {
-          requestBody.destination_postal_code = parseInt(dto.destinationPostalCode.toString(), 10);
+        // Resolve destination area_id from coords if missing
+        if (!requestBody.destination_area_id && destLat && destLng) {
+          const resolved = await this.resolveAreaIdFromCoords(destLat, destLng);
+          if (resolved) {
+            requestBody.destination_area_id = resolved;
+          }
+        }
+
+        // If EITHER area_id is still missing, switch entirely to postal codes
+        if (!requestBody.origin_area_id || !requestBody.destination_area_id) {
+          delete requestBody.origin_area_id;
+          delete requestBody.destination_area_id;
+          requestBody.origin_postal_code = parseInt(this.defaultOriginPostalCode, 10) || 55283;
+
+          const dbDestAddr = destinationAddressId
+            ? await this.addressRepo.findOne({ where: { id: destinationAddressId } })
+            : null;
+
+          if (dbDestAddr && dbDestAddr.postal_code) {
+            requestBody.destination_postal_code = parseInt(dbDestAddr.postal_code, 10);
+          } else if (dto.destinationPostalCode) {
+            requestBody.destination_postal_code = parseInt(dto.destinationPostalCode.toString(), 10);
+          }
         }
       }
+      /* eslint-enable no-unsafe-member-access, no-unsafe-assignment, no-unsafe-call */
 
       const endpoint = strategy.getEndpoint();
 
@@ -144,24 +193,20 @@ export class ShippingService {
         }
       } catch (error: any) {
         this.logger.error(`Biteship error for courier ${courier}: ${error.message}`);
-        // Continue with other couriers instead of failing entirely
       }
     }
 
     return { pricing: allResults };
   }
 
-  /**
-   * Legacy method - kept for backward compatibility but internally uses new approach.
-   * Consider removing once frontend is updated.
-   */
   async checkRatesLegacy(
     originPostalCode: string | undefined,
     destinationPostalCode: string,
     couriers: string = 'jne,jnt,sicepat,tiki,pos',
     items: any[] = [],
   ) {
-    const origin = parseInt((originPostalCode || this.defaultOriginPostalCode).toString(), 10) || 55283;
+    const origin =
+      parseInt((originPostalCode || this.defaultOriginPostalCode).toString(), 10) || 55283;
     const dest = parseInt((destinationPostalCode || '').toString(), 10) || undefined;
     const itemsInKg = items.map((item) => ({
       ...item,
@@ -199,9 +244,7 @@ export class ShippingService {
       );
 
       if (!response.ok) {
-        this.logger.error(
-          `Biteship error response: ${response.status} - ${JSON.stringify(data)}`,
-        );
+        this.logger.error(`Biteship error response: ${response.status} - ${JSON.stringify(data)}`);
         throw new Error(
           data.error || data.message || `Biteship returned status ${response.status}`,
         );
