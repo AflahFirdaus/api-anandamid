@@ -116,18 +116,22 @@ export class ShippingService {
 
       const requestBody = strategy.buildRequest(request);
       
-      // Fallback: If regular courier strategy but area_id(s) are missing, inject postal codes
+      // Fallback: If regular courier strategy but area_id(s) are missing,
+      // switch entirely to postal codes — Biteship rejects mixed area_id + postal_code
       if (strategy.getEndpoint() === '/rates/couriers' && (!requestBody.origin_area_id || !requestBody.destination_area_id)) {
-        if (!requestBody.origin_area_id) {
-          requestBody.origin_postal_code = parseInt(this.defaultOriginPostalCode, 10) || 55283;
-        }
-        if (!requestBody.destination_area_id) {
-          const destAddr = destinationAddressId ? await this.addressRepo.findOne({ where: { id: destinationAddressId } }) : null;
-          if (destAddr && destAddr.postal_code) {
-            requestBody.destination_postal_code = parseInt(destAddr.postal_code, 10);
-          } else if (dto.destinationPostalCode) {
-            requestBody.destination_postal_code = parseInt(dto.destinationPostalCode.toString(), 10);
-          }
+        // Strip area_ids since we can't provide both
+        delete requestBody.origin_area_id;
+        delete requestBody.destination_area_id;
+
+        // Always set origin postal code
+        requestBody.origin_postal_code = parseInt(this.defaultOriginPostalCode, 10) || 55283;
+
+        // Set destination postal code
+        const destAddr = destinationAddressId ? await this.addressRepo.findOne({ where: { id: destinationAddressId } }) : null;
+        if (destAddr && destAddr.postal_code) {
+          requestBody.destination_postal_code = parseInt(destAddr.postal_code, 10);
+        } else if (dto.destinationPostalCode) {
+          requestBody.destination_postal_code = parseInt(dto.destinationPostalCode.toString(), 10);
         }
       }
 
