@@ -15,10 +15,10 @@ export class ShippingService {
   private readonly defaultOriginPostalCode = process.env.STORE_POSTAL_CODE || '55283';
   private readonly defaultOriginAreaId = process.env.STORE_AREA_ID || '';
   private get defaultOriginLatitude(): number | undefined {
-    return process.env.STORE_LATITUDE ? parseFloat(process.env.STORE_LATITUDE) : undefined;
+    return process.env.STORE_LATITUDE ? parseFloat(process.env.STORE_LATITUDE) : -7.8300;
   }
   private get defaultOriginLongitude(): number | undefined {
-    return process.env.STORE_LONGITUDE ? parseFloat(process.env.STORE_LONGITUDE) : undefined;
+    return process.env.STORE_LONGITUDE ? parseFloat(process.env.STORE_LONGITUDE) : 110.3870;
   }
 
   private strategies: ShippingRateStrategy[];
@@ -339,6 +339,8 @@ export class ShippingService {
         originLongitude: originLng,
         destinationLatitude: destLat,
         destinationLongitude: destLng,
+        originPostalCode: originPostalCode || this.defaultOriginPostalCode,
+        destinationPostalCode,
         couriers: courier,
         items,
       };

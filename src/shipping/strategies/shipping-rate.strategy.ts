@@ -5,6 +5,8 @@ export interface ShippingRateRequest {
   originLongitude?: number;
   destinationLatitude?: number;
   destinationLongitude?: number;
+  originPostalCode?: string | number;
+  destinationPostalCode?: string | number;
   couriers: string;
   items: any[];
 }

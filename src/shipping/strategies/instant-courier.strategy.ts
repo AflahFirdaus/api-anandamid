@@ -23,7 +23,7 @@ export class InstantCourierStrategy implements ShippingRateStrategy {
       weight: item.weight / 1000, // grams → kg
     }));
 
-    return {
+    const payload: any = {
       origin_latitude: request.originLatitude,
       origin_longitude: request.originLongitude,
       destination_latitude: request.destinationLatitude,
@@ -31,5 +31,14 @@ export class InstantCourierStrategy implements ShippingRateStrategy {
       couriers: request.couriers,
       items: itemsInKg,
     };
+
+    if (request.originPostalCode) {
+      payload.origin_postal_code = parseInt(request.originPostalCode.toString(), 10);
+    }
+    if (request.destinationPostalCode) {
+      payload.destination_postal_code = parseInt(request.destinationPostalCode.toString(), 10);
+    }
+
+    return payload;
   }
 }
