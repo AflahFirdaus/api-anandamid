@@ -14,8 +14,12 @@ export class ShippingService {
   private readonly apiKey = process.env.BITESHIP_API_KEY;
   private readonly defaultOriginPostalCode = process.env.STORE_POSTAL_CODE || '55283';
   private readonly defaultOriginAreaId = process.env.STORE_AREA_ID || '';
-  private readonly defaultOriginLatitude = process.env.STORE_LATITUDE ? parseFloat(process.env.STORE_LATITUDE) : undefined;
-  private readonly defaultOriginLongitude = process.env.STORE_LONGITUDE ? parseFloat(process.env.STORE_LONGITUDE) : undefined;
+  private get defaultOriginLatitude(): number | undefined {
+    return process.env.STORE_LATITUDE ? parseFloat(process.env.STORE_LATITUDE) : undefined;
+  }
+  private get defaultOriginLongitude(): number | undefined {
+    return process.env.STORE_LONGITUDE ? parseFloat(process.env.STORE_LONGITUDE) : undefined;
+  }
 
   private strategies: ShippingRateStrategy[];
 
@@ -344,8 +348,9 @@ export class ShippingService {
       const endpoint = strategy.getEndpoint();
 
       // For /rates/couriers: if BOTH area_ids missing, fallback to postal codes
+      // Only do this for regular couriers (not instant strategy, which uses coordinates)
       // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-      if (endpoint === '/rates/couriers') {
+      if (endpoint === '/rates/couriers' && !(strategy instanceof InstantCourierStrategy)) {
         // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
         const hasOriginArea = !!requestBody.origin_area_id;
         // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
