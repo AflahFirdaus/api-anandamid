@@ -28,8 +28,7 @@ import { ProductVariantModule } from "./product/product-variant.module";
 import { HotlinkProtectionMiddleware } from "./middleware/hotlink-protection.middleware";
 import { ChatModule } from './chat/chat.module';
 import { SitemapModule } from './sitemap/sitemap.module';
-import { ThrottlerModule } from '@nestjs/throttler';
-import { throttlerConfig } from './config/throttler.config';
+import { ThrottlerModule } from './common/throttler';
 import { PaymentModule } from './payment/payment.module';
 import { ShippingModule } from './shipping/shipping.module';
 import { LocationModule } from './location/location.module';
@@ -61,7 +60,7 @@ import { ReviewModule } from './review/review.module';
     CartModule,
     OrderModule,
     ProductVariantModule,
-    ThrottlerModule.forRoot(throttlerConfig),
+    ThrottlerModule,
     ChatModule,
     SitemapModule,
     PaymentModule,
