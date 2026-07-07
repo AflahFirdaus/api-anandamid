@@ -202,7 +202,10 @@ export class ShippingService {
   }
 
   /**
-   * Resolve origin area_id by trying: 1) lat/lng, 2) store default postal_code, 3) DB address
+   * Resolve origin area_id by trying: 1) store default postal_code, 2) postal_code from DTO, 3) DB address postal_code, 4) lat/lng fallback
+   * NOTE: postal_code is prioritized over lat/lng because Biteship's coordinate API returns
+   * area_id WITHOUT postal code suffix (IDZ), which causes error 40001010 for same-city routes.
+   * Postal code search returns precise area_id WITH IDZ suffix.
    */
   private async ensureOriginAreaId(
     originLat: number | undefined,
@@ -210,37 +213,33 @@ export class ShippingService {
     originPostalCode: string | number | undefined,
     originAddressId: string | undefined,
   ): Promise<string | undefined> {
-    // First: try lat/lng
-    if (originLat && originLng) {
-      const resolved = await this.resolveAreaIdFromCoords(originLat, originLng);
-      if (resolved) return resolved;
-    }
-
-    // Second: try store default postal_code
+    // First: try store default postal_code (highest precision — includes IDZ suffix)
     if (this.defaultOriginPostalCode) {
-      const resolved = await this.resolveAreaIdFromPostalCode(
-        this.defaultOriginPostalCode,
-      );
+      const resolved = await this.resolveAreaIdFromSearch(this.defaultOriginPostalCode);
       if (resolved) return resolved;
     }
 
-    // Third: try postal_code from DTO
+    // Second: try postal_code from DTO
     if (originPostalCode) {
-      const resolved = await this.resolveAreaIdFromPostalCode(
-        originPostalCode.toString(),
-      );
+      const resolved = await this.resolveAreaIdFromSearch(originPostalCode.toString());
       if (resolved) return resolved;
     }
 
-    // Fourth: try DB address postal_code
+    // Third: try DB address postal_code
     if (originAddressId) {
       const addr = await this.addressRepo.findOne({
         where: { id: originAddressId },
       });
       if (addr && addr.postal_code) {
-        const resolved = await this.resolveAreaIdFromPostalCode(addr.postal_code);
+        const resolved = await this.resolveAreaIdFromSearch(addr.postal_code);
         if (resolved) return resolved;
       }
+    }
+
+    // Fourth: lat/lng fallback — returns area_id WITHOUT IDZ suffix (imprecise)
+    if (originLat && originLng) {
+      const resolved = await this.resolveAreaIdFromCoords(originLat, originLng);
+      if (resolved) return resolved;
     }
 
     return undefined;
