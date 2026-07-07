@@ -1,6 +1,5 @@
 import type { ThrottlerStorage } from '@nestjs/throttler';
 import { ConfigService } from '@nestjs/config';
-import Redis from 'ioredis';
 import { ThrottlerRedisStorage } from './throttler-redis-storage';
 
 /**
@@ -15,6 +14,9 @@ import { ThrottlerRedisStorage } from './throttler-redis-storage';
  * - REDIS_PORT (default: 6379)
  * - REDIS_PASSWORD (optional)
  * - REDIS_DB (default: 0)
+ *
+ * NOTE: ioredis di-import secara dinamis (require) agar tidak gagal build
+ * jika package ioredis belum terinstall di server.
  */
 export function createThrottlerStorage(
   configService: ConfigService,
@@ -29,6 +31,10 @@ export function createThrottlerStorage(
   const redisPort = configService.get<number>('REDIS_PORT', 6379);
   const redisPassword = configService.get<string>('REDIS_PASSWORD');
   const redisDb = configService.get<number>('REDIS_DB', 0);
+
+  // Dynamic import agar tidak error saat build jika ioredis belum diinstall
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const Redis = require('ioredis');
 
   const redis = new Redis({
     host: redisHost,

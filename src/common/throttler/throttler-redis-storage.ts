@@ -1,6 +1,5 @@
 import type { ThrottlerStorage } from '@nestjs/throttler';
 import type { ThrottlerStorageRecord } from '@nestjs/throttler/dist/throttler-storage-record.interface';
-import Redis from 'ioredis';
 
 /**
  * Implementasi ThrottlerStorage menggunakan Redis.
@@ -16,9 +15,9 @@ import Redis from 'ioredis';
  * - Atomic operations (INCR) → thread-safe
  */
 export class ThrottlerRedisStorage implements ThrottlerStorage {
-  private redis: Redis;
+  private redis: any;
 
-  constructor(redis: Redis) {
+  constructor(redis: any) {
     this.redis = redis;
   }
 
@@ -35,9 +34,8 @@ export class ThrottlerRedisStorage implements ThrottlerStorage {
     // Cek apakah sedang dalam masa block
     const blockTtl = await this.redis.ttl(blockKey);
     if (blockTtl > 0) {
-      // Masih dalam masa block
       return {
-        totalHits: limit + 1, // Pastikan melebihi limit
+        totalHits: limit + 1,
         timeToExpire: blockTtl * 1000,
         isBlocked: true,
         timeToBlockExpire: blockTtl * 1000,
