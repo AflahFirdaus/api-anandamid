@@ -19,6 +19,12 @@ import { DEFAULT_FEATURE_LIMITS } from './throttler-feature-limits';
  * 2. Diferensiasi Guest (by IP) vs User (by user_id)
  * 3. Custom error message per feature
  * 4. Retry-After header yang informatif
+ *
+ * STRATEGI:
+ * - Config hanya punya 1 throttler 'default' dengan limit 100/menit sebagai safety net
+ * - Jika endpoint punya @ThrottleFeature(), guard akan mengecek limit spesifik fitur tersebut
+ *   dengan cara memanggil storage.increment() secara manual
+ * - Jika endpoint tidak punya @ThrottleFeature(), hanya kena limit default (100/menit)
  */
 @Injectable()
 export class ThrottlerFeatureGuard extends ThrottlerGuard {
@@ -32,10 +38,6 @@ export class ThrottlerFeatureGuard extends ThrottlerGuard {
 
   /**
    * Override getTracker untuk membedakan Guest vs User.
-   *
-   * - Jika request memiliki user yang terautentikasi (req.user?.id),
-   *   gunakan `user_${userId}` sebagai tracker.
-   * - Jika guest (tidak login), gunakan IP address.
    */
   protected async getTracker(req: Record<string, any>): Promise<string> {
     if (req.user?.id) {
@@ -53,62 +55,80 @@ export class ThrottlerFeatureGuard extends ThrottlerGuard {
   }
 
   /**
-   * Override generateKey untuk menyertakan nama fitur dalam key Redis.
-   * Format: `throttler:${feature}:${tracker}`
+   * Override handleRequest untuk menerapkan feature-based throttling.
+   *
+   * - Jika endpoint punya @ThrottleFeature(), hitung limit spesifik fitur
+   * - Jika tidak, gunakan limit default dari config
+   */
+  protected async handleRequest(requestProps: {
+    context: ExecutionContext;
+    limit: number;
+    ttl: number;
+    throttler: any;
+    blockDuration: number;
+    getTracker: any;
+    generateKey: any;
+  }): Promise<boolean> {
+    const { context } = requestProps;
+    const feature = this.getFeatureFromContext(context);
+
+    // Jika endpoint punya @ThrottleFeature(), gunakan limit spesifik fitur
+    if (feature && DEFAULT_FEATURE_LIMITS[feature]) {
+      const featureLimit = DEFAULT_FEATURE_LIMITS[feature];
+      const tracker = await this.getTracker(
+        this.getRequestResponse(context).req,
+      );
+      const key = this.generateKey(context, tracker, feature);
+
+      const { totalHits, timeToExpire } = await this.storageService.increment(
+        key,
+        featureLimit.ttl,
+        featureLimit.limit,
+        0,
+        feature,
+      );
+
+      // Set headers
+      const { res } = this.getRequestResponse(context);
+      res.header('X-RateLimit-Limit', featureLimit.limit);
+      res.header('X-RateLimit-Remaining', Math.max(0, featureLimit.limit - totalHits));
+      res.header('X-RateLimit-Reset', String(Date.now() + timeToExpire));
+
+      if (totalHits > featureLimit.limit) {
+        const retryAfter = Math.ceil(timeToExpire / 1000);
+        res.header('Retry-After', retryAfter.toString());
+
+        const message = featureLimit.errorMessage || 'Terlalu banyak permintaan. Silakan coba lagi nanti.';
+        throw new HttpException(
+          {
+            statusCode: HttpStatus.TOO_MANY_REQUESTS,
+            message,
+            error: 'Too Many Requests',
+            retryAfter,
+            feature,
+          },
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
+
+      return true;
+    }
+
+    // Tanpa @ThrottleFeature(), gunakan limit default
+    return super.handleRequest(requestProps);
+  }
+
+  /**
+   * Override generateKey untuk menyertakan nama fitur dalam key.
    */
   protected generateKey(
     context: ExecutionContext,
     suffix: string,
-    _name: string,
+    name: string,
   ): string {
     const feature = this.getFeatureFromContext(context);
     const prefix = feature ? `throttler:${feature}` : 'throttler';
     return `${prefix}:${suffix}`;
-  }
-
-  /**
-   * Override getErrorMessage untuk memberikan pesan error spesifik per fitur.
-   */
-  protected async getErrorMessage(
-    context: ExecutionContext,
-    _throttlerLimitDetail: ThrottlerLimitDetail,
-  ): Promise<string> {
-    const feature = this.getFeatureFromContext(context);
-
-    if (feature && DEFAULT_FEATURE_LIMITS[feature]?.errorMessage) {
-      return DEFAULT_FEATURE_LIMITS[feature].errorMessage;
-    }
-
-    return 'Terlalu banyak permintaan. Silakan coba lagi nanti.';
-  }
-
-  /**
-   * Override throwThrottlingException untuk menyertakan Retry-After header.
-   */
-  protected async throwThrottlingException(
-    context: ExecutionContext,
-    throttlerLimitDetail: ThrottlerLimitDetail,
-  ): Promise<void> {
-    const { res } = this.getRequestResponse(context);
-    const retryAfter = Math.ceil(throttlerLimitDetail.ttl / 1000);
-
-    res.header('Retry-After', retryAfter.toString());
-    res.header(
-      'X-RateLimit-Reset',
-      String(Date.now() + throttlerLimitDetail.ttl),
-    );
-
-    const message = await this.getErrorMessage(context, throttlerLimitDetail);
-    throw new HttpException(
-      {
-        statusCode: HttpStatus.TOO_MANY_REQUESTS,
-        message,
-        error: 'Too Many Requests',
-        retryAfter,
-        feature: this.getFeatureFromContext(context) || 'unknown',
-      },
-      HttpStatus.TOO_MANY_REQUESTS,
-    );
   }
 
   private getFeatureFromContext(context: ExecutionContext): ThrottlerFeature | null {

@@ -1,69 +1,24 @@
 import type { ThrottlerModuleOptions } from '@nestjs/throttler';
-import { ThrottlerFeature, DEFAULT_FEATURE_LIMITS } from '../common/throttler';
 
 /**
- * Konfigurasi ThrottlerModule dengan multiple throttlers per fitur.
+ * Konfigurasi ThrottlerModule.
  *
- * Setiap fitur memiliki throttler sendiri dengan nama yang sesuai.
- * Custom guard (ThrottlerFeatureGuard) akan membaca metadata @ThrottleFeature()
- * untuk menentukan throttler mana yang dipakai.
+ * STRATEGI:
+ * - Hanya 1 throttler default dengan limit besar sebagai safety net global
+ * - Custom guard (ThrottlerFeatureGuard) akan membaca metadata @ThrottleFeature()
+ *   dan hanya mengecek throttler yang sesuai dengan fitur yang ditandai
+ * - Endpoint tanpa @ThrottleFeature() hanya kena limit default (100/menit)
  *
- * Storage akan diisi oleh throttlerStorageRedisFactory jika Redis tersedia,
- * fallback ke in-memory jika tidak.
+ * Dengan pendekatan ini, endpoint yang berbeda tidak saling mempengaruhi
+ * karena masing-masing hanya dicek terhadap throttler fiturnya sendiri.
  */
 export const throttlerConfig: ThrottlerModuleOptions = {
-  // Error message default (akan di-override oleh feature-specific message)
   errorMessage: 'Terlalu banyak permintaan. Silakan coba lagi nanti.',
-
-  // Storage akan diisi via factory/provider di modul
-  // Jika tidak diset, @nestjs/throttler akan menggunakan in-memory storage
-
-  // Multiple throttlers: satu per fitur
   throttlers: [
     {
-      name: ThrottlerFeature.SEARCH,
-      ttl: DEFAULT_FEATURE_LIMITS[ThrottlerFeature.SEARCH].ttl,
-      limit: DEFAULT_FEATURE_LIMITS[ThrottlerFeature.SEARCH].limit,
-    },
-    {
-      name: ThrottlerFeature.CHECKOUT,
-      ttl: DEFAULT_FEATURE_LIMITS[ThrottlerFeature.CHECKOUT].ttl,
-      limit: DEFAULT_FEATURE_LIMITS[ThrottlerFeature.CHECKOUT].limit,
-    },
-    {
-      name: ThrottlerFeature.SHIPPING,
-      ttl: DEFAULT_FEATURE_LIMITS[ThrottlerFeature.SHIPPING].ttl,
-      limit: DEFAULT_FEATURE_LIMITS[ThrottlerFeature.SHIPPING].limit,
-    },
-    {
-      name: ThrottlerFeature.AUTH,
-      ttl: DEFAULT_FEATURE_LIMITS[ThrottlerFeature.AUTH].ttl,
-      limit: DEFAULT_FEATURE_LIMITS[ThrottlerFeature.AUTH].limit,
-    },
-    {
-      name: ThrottlerFeature.PUBLIC,
-      ttl: DEFAULT_FEATURE_LIMITS[ThrottlerFeature.PUBLIC].ttl,
-      limit: DEFAULT_FEATURE_LIMITS[ThrottlerFeature.PUBLIC].limit,
-    },
-    {
-      name: ThrottlerFeature.ADMIN,
-      ttl: DEFAULT_FEATURE_LIMITS[ThrottlerFeature.ADMIN].ttl,
-      limit: DEFAULT_FEATURE_LIMITS[ThrottlerFeature.ADMIN].limit,
-    },
-    {
-      name: ThrottlerFeature.REVIEW,
-      ttl: DEFAULT_FEATURE_LIMITS[ThrottlerFeature.REVIEW].ttl,
-      limit: DEFAULT_FEATURE_LIMITS[ThrottlerFeature.REVIEW].limit,
-    },
-    {
-      name: ThrottlerFeature.CHAT,
-      ttl: DEFAULT_FEATURE_LIMITS[ThrottlerFeature.CHAT].ttl,
-      limit: DEFAULT_FEATURE_LIMITS[ThrottlerFeature.CHAT].limit,
-    },
-    {
-      name: ThrottlerFeature.UPLOAD,
-      ttl: DEFAULT_FEATURE_LIMITS[ThrottlerFeature.UPLOAD].ttl,
-      limit: DEFAULT_FEATURE_LIMITS[ThrottlerFeature.UPLOAD].limit,
+      name: 'default',
+      ttl: 60_000, // 1 menit
+      limit: 100, // 100 request per menit sebagai safety net
     },
   ],
 };
