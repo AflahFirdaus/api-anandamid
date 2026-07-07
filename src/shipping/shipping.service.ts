@@ -113,13 +113,16 @@ export class ShippingService {
     destinationAddressId: string | undefined,
     storedAreaId?: string,
   ): Promise<string | undefined> {
-    // First: try lat/lng (most precise — resolves to kelurahan + postal code level)
-    if (destLat && destLng) {
-      const resolved = await this.resolveAreaIdFromCoords(destLat, destLng);
-      if (resolved) return resolved;
-    }
+    // PRIORITY ORDER NOTE:
+    // Biteship /maps/areas?latitude=&longitude= returns area_id WITHOUT postal code suffix (IDZ)
+    // e.g. "IDNP6IDNC147IDND829" → imprecise, fails for same-city routes (error 40001010)
+    //
+    // Biteship /maps/areas?input={postalCode} returns area_id WITH postal code suffix (IDZ)
+    // e.g. "IDNP6IDNC147IDND829IDZ52281" → precise, works for same-city routes
+    //
+    // Therefore: POSTAL CODE must be tried FIRST for regular courier area_id resolution.
 
-    // Second: try postal_code from DTO
+    // First: try postal_code from DTO (highest precision — includes IDZ suffix)
     if (destinationPostalCode) {
       const resolved = await this.resolveAreaIdFromPostalCode(
         destinationPostalCode.toString(),
@@ -127,7 +130,7 @@ export class ShippingService {
       if (resolved) return resolved;
     }
 
-    // Third: try DB address postal_code
+    // Second: try DB address postal_code (also precise — includes IDZ suffix)
     if (destinationAddressId) {
       const addr = await this.addressRepo.findOne({
         where: { id: destinationAddressId },
@@ -138,10 +141,17 @@ export class ShippingService {
       }
     }
 
-    // Last resort: use stored area_id from DB (may be imprecise for same-city routes)
+    // Third: try lat/lng — fallback only, returns area_id WITHOUT IDZ suffix (imprecise)
+    // May still fail for same-city routes if no postal_code is available
+    if (destLat && destLng) {
+      const resolved = await this.resolveAreaIdFromCoords(destLat, destLng);
+      if (resolved) return resolved;
+    }
+
+    // Last resort: use stored area_id from DB (also imprecise, no IDZ suffix)
     if (storedAreaId) {
       this.logger.warn(
-        `Using stored area_id as last resort (may be imprecise for same-city): ${storedAreaId}`,
+        `Using stored area_id as last resort (imprecise, no IDZ suffix — same-city may fail): ${storedAreaId}`,
       );
       return storedAreaId;
     }
