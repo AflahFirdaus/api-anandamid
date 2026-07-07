@@ -26,8 +26,8 @@ function normalizeCourierCode(courier: string): string {
     if (c.includes('anteraja') || c === 'anteraja') return 'anteraja';
     if (c.includes('ninja') || c === 'ninjaxpress') return 'ninjaxpress';
     if (c.includes('wahana') || c === 'wahana') return 'wahana';
-    if (c.includes('gosend') || c === 'gosend') return 'gosend';
-    if (c.includes('grab') || c === 'grabexpress') return 'grabexpress';
+    if (c.includes('gojek') || c.includes('gosend') || c === 'gojek') return 'gojek';
+    if (c.includes('grab') || c === 'grabexpress') return 'grab';
     // Fallback: kembalikan lowercase tanpa spasi
     return c.replace(/\s+/g, '');
 }
@@ -371,28 +371,131 @@ export class OrderService {
         return { message: 'Pickup berhasil dijadwalkan secara otomatis oleh Biteship.', status: 'success' };
     }
 
+    /**
+     * Booking driver instant (GoSend/Grab) via Biteship POST /v1/orders.
+     * Menggantikan implementasi sebelumnya yang hanya mengecek tarif (rates),
+     * bukan melakukan pemesanan driver yang sesungguhnya.
+     */
     async searchDriver(orderId: string) {
-        const order = await this.orderRepo.findOne({ where: { id: orderId }, relations: ['user'] });
+        this.logger.log(`[INSTANT] Booking driver for order ${orderId}`);
+        const order = await this.orderRepo.findOne({ where: { id: orderId }, relations: ['user', 'items', 'items.product'] });
         if (!order) throw new NotFoundException('Tidak ditemukan');
-        if (order.status !== 'DIKEMAS') throw new BadRequestException('Hanya DIKEMAS.');
-        if (order.shipping_type !== 'instant') throw new BadRequestException('Hanya instant.');
-        let dl = '', dlg = '';
-        if (order.address_id) {
+        if (order.status !== 'DIKEMAS') throw new BadRequestException('Hanya pesanan DIKEMAS yang bisa dipesan drivernya.');
+        if (order.shipping_type !== 'instant') throw new BadRequestException('Hanya pesanan instan.');
+
+        // Ambil koordinat tujuan
+        let destLat = '', destLng = '';
+        let destName = order.user?.full_name || 'Customer';
+        let destPhone = order.user?.phone_number || '08123456789';
+        let destAddr = '';
+        let destPC = '';
+
+        if (order.shipping_address_snapshot) {
+            const snap = order.shipping_address_snapshot as any;
+            destLat = String(snap.latitude || '');
+            destLng = String(snap.longitude || '');
+            destAddr = snap.full_address || '';
+            destName = snap.recipient_name || destName;
+            destPhone = snap.phone_number || destPhone;
+            destPC = snap.postal_code || '';
+        } else if (order.address_id) {
             const addr = await this.addressRepo.findOne({ where: { id: order.address_id } as any });
-            if (addr?.latitude && addr?.longitude) { dl = String(addr.latitude); dlg = String(addr.longitude); }
+            if (addr?.latitude && addr?.longitude) {
+                destLat = String(addr.latitude);
+                destLng = String(addr.longitude);
+                destAddr = addr.full_address || '';
+                destName = addr.recipient_name || destName;
+                destPhone = addr.phone_number || destPhone;
+                destPC = addr.postal_code || '';
+            }
         }
-        if (!dl || !dlg) throw new BadRequestException('Alamat tidak memiliki koordinat.');
+
+        if (!destLat || !destLng) {
+            throw new BadRequestException('Alamat tujuan tidak memiliki koordinat (pin lokasi). Minta pembeli untuk mengatur pin lokasi di profil alamat mereka.');
+        }
+
         const key = process.env.BITESHIP_API_KEY || '';
+        const originName = process.env.STORE_CONTACT_NAME || 'Anandam Computer';
+        const originPhone = process.env.STORE_PHONE || '6281228134747';
+        const originAddr = process.env.STORE_ADDRESS || 'Jl. Ringroad Selatan, Banguntapan, Bantul, Yogyakarta';
+        const originPC = process.env.STORE_POSTAL_CODE || '55283';
+        const originLat = parseFloat(process.env.STORE_LATITUDE || '-7.8300');
+        const originLng = parseFloat(process.env.STORE_LONGITUDE || '110.3870');
+
+        const courier = normalizeCourierCode(order.courier_name || 'gojek');
+        this.logger.log(`[INSTANT] courier_company=${courier}, origin=(${originLat},${originLng}), dest=(${destLat},${destLng})`);
+
+        const biteshipBody: any = {
+            origin_contact_name: originName,
+            origin_contact_phone: originPhone,
+            origin_address: originAddr,
+            origin_postal_code: parseInt(originPC, 10) || 55283,
+            origin_coordinate: { latitude: originLat, longitude: originLng },
+            destination_contact_name: destName,
+            destination_contact_phone: destPhone,
+            destination_address: destAddr || 'Alamat Tujuan',
+            destination_coordinate: { latitude: parseFloat(destLat), longitude: parseFloat(destLng) },
+            courier_company: courier,
+            courier_type: 'instant',
+            delivery_type: 'now',
+            items: order.items.map((item) => ({
+                name: item.product_name || 'Product',
+                value: Math.max(Number(item.price) || 1000, 100),
+                quantity: item.quantity,
+                weight: 1000,
+                length: 20,
+                width: 20,
+                height: 20,
+            })),
+        };
+        if (destPC) biteshipBody.destination_postal_code = parseInt(destPC, 10);
+
+        this.logger.log(`[INSTANT] POST /v1/orders: ${JSON.stringify(biteshipBody).substring(0, 400)}`);
         try {
-            const items = order.items.map((i) => ({ name: i.product_name, value: Number(i.price), quantity: i.quantity, weight: 1000 }));
-            const res = await fetch('https://api.biteship.com/v1/rates/couriers', { method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ origin_latitude: Number(process.env.STORE_LATITUDE || '-7.8300'), origin_longitude: Number(process.env.STORE_LONGITUDE || '110.3870'), destination_latitude: Number(dl), destination_longitude: Number(dlg), couriers: order.courier_name || 'gosend,grabexpress', items: items.map((i) => ({ ...i, weight: i.weight / 1000 })) }) });
+            const res = await fetch('https://api.biteship.com/v1/orders', {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify(biteshipBody),
+            });
             const data = await res.json();
-            if (!res.ok) throw new BadRequestException(data.error || data.message || 'Gagal');
-            if (!data.pricing?.length) return { message: 'Tidak ada driver.', driver_found: false, rates: [] };
-            order.tracking_number = `INSTANT-${order.invoice_number}`;
+            this.logger.log(`[INSTANT] Response ${res.status}: ${JSON.stringify(data).substring(0, 400)}`);
+
+            if (!res.ok) {
+                throw new BadRequestException(data.error || data.message || 'Gagal memesan driver instant dari Biteship');
+            }
+
+            // Simpan info driver ke shipping_details
+            const driverInfo = data.courier || {};
+            const liveTrackingUrl = data.live_tracking_url || driverInfo.tracking_url || null;
+
+            order.biteship_order_id = data.id || '';
+            order.tracking_number = data.waybill_id || `INSTANT-${order.invoice_number}`;
+            order.shipping_details = {
+                ...((order.shipping_details as any) || {}),
+                driver_name: driverInfo.name || driverInfo.driver_name || null,
+                driver_phone: driverInfo.phone || driverInfo.driver_phone || null,
+                driver_tracking_url: liveTrackingUrl,
+                driver_vehicle_type: driverInfo.vehicle_type || null,
+                driver_photo: driverInfo.photo_url || null,
+                instant_booked_at: new Date().toISOString(),
+            };
             await this.orderRepo.save(order);
-            return { message: 'Driver tersedia.', driver_found: true, rates: data.pricing };
-        } catch (err: any) { throw new BadRequestException(`Gagal: ${err.message}`); }
+
+            this.logger.log(`[INSTANT] ✅ Driver dipesan! biteshipId=${order.biteship_order_id}, driver=${driverInfo.name}`);
+            return {
+                message: 'Driver berhasil dipesan! Driver sedang dalam perjalanan menuju toko.',
+                driver_found: true,
+                driver: {
+                    name: driverInfo.name || driverInfo.driver_name || 'Driver',
+                    phone: driverInfo.phone || driverInfo.driver_phone || '-',
+                    tracking_url: liveTrackingUrl,
+                },
+                biteship_order_id: data.id,
+            };
+        } catch (err: any) {
+            if (err instanceof BadRequestException) throw err;
+            throw new BadRequestException(`Gagal memesan driver: ${err.message}`);
+        }
     }
 
     async markDelivered(orderId: string) {
