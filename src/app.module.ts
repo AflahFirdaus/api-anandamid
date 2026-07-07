@@ -33,6 +33,7 @@ import { PaymentModule } from './payment/payment.module';
 import { ShippingModule } from './shipping/shipping.module';
 import { LocationModule } from './location/location.module';
 import { ReviewModule } from './review/review.module';
+import { VoucherModule } from './voucher/voucher.module';
 
 @Module({
   imports: [
@@ -67,14 +68,13 @@ import { ReviewModule } from './review/review.module';
     ShippingModule,
     LocationModule,
     ReviewModule,
+    VoucherModule,
   ],
-  controllers: [AppController], 
-  providers: [AppService],     
+  controllers: [AppController],
+  providers: [AppService],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
-    consumer
-      .apply(HotlinkProtectionMiddleware)
-      .forRoutes('*');
+    consumer.apply(HotlinkProtectionMiddleware).forRoutes('*');
   }
 }

@@ -1,4 +1,4 @@
-import { ThrottlerFeature } from './throttler-feature.enum';
+ import { ThrottlerFeature } from './throttler-feature.enum';
 
 /**
  * Konfigurasi limit per fitur.
@@ -68,5 +68,11 @@ export const DEFAULT_FEATURE_LIMITS: FeatureLimitsMap = {
     limit: 5,
     errorMessage:
       'Terlalu banyak upload file. Silakan coba lagi dalam 1 menit.',
+  },
+  [ThrottlerFeature.VOUCHER]: {
+    ttl: 60_000, // 1 menit
+    limit: 5,
+    errorMessage:
+      'Terlalu banyak percobaan voucher. Silakan coba lagi dalam 1 menit.',
   },
 };
