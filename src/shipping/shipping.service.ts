@@ -261,8 +261,8 @@ export class ShippingService {
     } = dto;
 
     let originAreaId: string | undefined;
-    let originLat: number | undefined = originLatitude;
-    let originLng: number | undefined = originLongitude;
+    let originLat: number | undefined = originLatitude ? parseFloat(originLatitude.toString()) : undefined;
+    let originLng: number | undefined = originLongitude ? parseFloat(originLongitude.toString()) : undefined;
 
     if (originAddressId) {
       const originAddr = await this.addressRepo.findOne({
@@ -270,8 +270,8 @@ export class ShippingService {
       });
       if (originAddr) {
         originAreaId = originAddr.area_id || undefined;
-        originLat = originAddr.latitude || originLat;
-        originLng = originAddr.longitude || originLng;
+        originLat = originAddr.latitude ? parseFloat(originAddr.latitude.toString()) : originLat;
+        originLng = originAddr.longitude ? parseFloat(originAddr.longitude.toString()) : originLng;
       }
     }
 
@@ -284,8 +284,8 @@ export class ShippingService {
     }
 
     let destinationAreaId: string | undefined;
-    let destLat: number | undefined = destinationLatitude;
-    let destLng: number | undefined = destinationLongitude;
+    let destLat: number | undefined = destinationLatitude ? parseFloat(destinationLatitude.toString()) : undefined;
+    let destLng: number | undefined = destinationLongitude ? parseFloat(destinationLongitude.toString()) : undefined;
     let storedDestAreaId: string | undefined;
 
     if (destinationAddressId) {
@@ -297,8 +297,8 @@ export class ShippingService {
         // Stored area_id may lack postal code suffix (e.g. IDND829 vs IDZ55283)
         // which causes Biteship error 40001010 for same-city routes.
         storedDestAreaId = destAddr.area_id || undefined;
-        destLat = destAddr.latitude || destLat;
-        destLng = destAddr.longitude || destLng;
+        destLat = destAddr.latitude ? parseFloat(destAddr.latitude.toString()) : destLat;
+        destLng = destAddr.longitude ? parseFloat(destAddr.longitude.toString()) : destLng;
       }
     }
 
