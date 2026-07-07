@@ -5,7 +5,7 @@ import { ShippingRateStrategy, ShippingRateRequest } from './shipping-rate.strat
  * Instant couriers: GoSend, GrabExpress, Lalamove, Borzo, etc.
  * These use Latitude and Longitude for shipping rate calculation.
  */
-const INSTANT_COURIERS = ['gosend', 'grabexpress', 'lalamove', 'borzo', 'deliveree', 'sicepat', 'sicepat instant'];
+const INSTANT_COURIERS = ['gojek', 'grab', 'gosend', 'grabexpress', 'lalamove', 'borzo', 'deliveree', 'sicepat', 'sicepat instant'];
 
 @Injectable()
 export class InstantCourierStrategy implements ShippingRateStrategy {
