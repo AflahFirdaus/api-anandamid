@@ -70,15 +70,15 @@ export class ShippingService {
   }
 
   /**
-   * Resolve area_id from postal_code for destination when lat/lng unavailable.
-   * Uses Biteship /maps/areas search by input (postal code / address text).
+   * Resolve area_id using Biteship /maps/areas search by input (postal code / address text).
+   * This returns precise area_id with IDZ suffix.
    */
-  private async resolveAreaIdFromPostalCode(
-    postalCode: string,
+  private async resolveAreaIdFromSearch(
+    input: string,
   ): Promise<string | null> {
     try {
       const response = await fetch(
-        `${this.biteshipBaseUrl}/maps/areas?countries=ID&input=${encodeURIComponent(postalCode)}&type=single`,
+        `${this.biteshipBaseUrl}/maps/areas?countries=ID&input=${encodeURIComponent(input)}&type=single`,
         {
           method: 'GET',
           headers: {
@@ -89,18 +89,28 @@ export class ShippingService {
       );
       const data = await response.json();
       if (!response.ok) {
-        this.logger.warn(`resolveAreaIdFromPostalCode error: ${JSON.stringify(data)}`);
+        this.logger.warn(`resolveAreaIdFromSearch error for "${input}": ${JSON.stringify(data)}`);
         return null;
       }
       if (data.areas && data.areas.length > 0) {
-        this.logger.log(`Resolved area_id from postal_code ${postalCode}: ${data.areas[0].id}`);
+        this.logger.log(`Resolved area_id from search "${input}": ${data.areas[0].id}`);
         return data.areas[0].id;
       }
       return null;
     } catch (e: any) {
-      this.logger.warn(`resolveAreaIdFromPostalCode fetch error: ${e.message}`);
+      this.logger.warn(`resolveAreaIdFromSearch fetch error for "${input}": ${e.message}`);
       return null;
     }
+  }
+
+  /**
+   * Resolve area_id from postal_code for destination when lat/lng unavailable.
+   * Uses Biteship /maps/areas search by input (postal code / address text).
+   */
+  private async resolveAreaIdFromPostalCode(
+    postalCode: string,
+  ): Promise<string | null> {
+    return this.resolveAreaIdFromSearch(postalCode);
   }
 
   /**
@@ -120,28 +130,54 @@ export class ShippingService {
     // Biteship /maps/areas?input={postalCode} returns area_id WITH postal code suffix (IDZ)
     // e.g. "IDNP6IDNC147IDND829IDZ52281" → precise, works for same-city routes
     //
-    // Therefore: POSTAL CODE must be tried FIRST for regular courier area_id resolution.
+    // Therefore: POSTAL CODE or structured text search must be tried FIRST for regular courier area_id resolution.
+
+    // Load DB address if available so we can do fallback searches
+    let dbAddr: UserAddress | null = null;
+    if (destinationAddressId) {
+      dbAddr = await this.addressRepo.findOne({
+        where: { id: destinationAddressId },
+      });
+    }
 
     // First: try postal_code from DTO (highest precision — includes IDZ suffix)
     if (destinationPostalCode) {
-      const resolved = await this.resolveAreaIdFromPostalCode(
+      const resolved = await this.resolveAreaIdFromSearch(
         destinationPostalCode.toString(),
       );
       if (resolved) return resolved;
     }
 
     // Second: try DB address postal_code (also precise — includes IDZ suffix)
-    if (destinationAddressId) {
-      const addr = await this.addressRepo.findOne({
-        where: { id: destinationAddressId },
-      });
-      if (addr && addr.postal_code) {
-        const resolved = await this.resolveAreaIdFromPostalCode(addr.postal_code);
+    if (dbAddr && dbAddr.postal_code) {
+      const resolved = await this.resolveAreaIdFromSearch(dbAddr.postal_code);
+      if (resolved) return resolved;
+    }
+
+    // Third: try DB address subdistrict, district, city (also precise — includes IDZ suffix)
+    // This serves as an extremely robust fallback if the postal code was incorrect or unrecognized
+    if (dbAddr) {
+      const addressParts = [
+        dbAddr.subdistrict,
+        dbAddr.district,
+        dbAddr.city,
+      ].filter((part) => part && part.trim() !== '');
+
+      if (addressParts.length > 0) {
+        const searchText = addressParts.join(', ');
+        const resolved = await this.resolveAreaIdFromSearch(searchText);
         if (resolved) return resolved;
+
+        // Try a broader search if the specific one failed (e.g. just "Ngaglik, Sleman")
+        if (addressParts.length > 1) {
+          const broadSearchText = addressParts.slice(1).join(', ');
+          const resolvedBroad = await this.resolveAreaIdFromSearch(broadSearchText);
+          if (resolvedBroad) return resolvedBroad;
+        }
       }
     }
 
-    // Third: try lat/lng — fallback only, returns area_id WITHOUT IDZ suffix (imprecise)
+    // Fourth: try lat/lng — fallback only, returns area_id WITHOUT IDZ suffix (imprecise)
     // May still fail for same-city routes if no postal_code is available
     if (destLat && destLng) {
       const resolved = await this.resolveAreaIdFromCoords(destLat, destLng);
