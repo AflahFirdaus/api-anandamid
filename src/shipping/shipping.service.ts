@@ -14,6 +14,8 @@ export class ShippingService {
   private readonly apiKey = process.env.BITESHIP_API_KEY;
   private readonly defaultOriginPostalCode = process.env.STORE_POSTAL_CODE || '55283';
   private readonly defaultOriginAreaId = process.env.STORE_AREA_ID || '';
+  private readonly defaultOriginLatitude = process.env.STORE_LATITUDE ? parseFloat(process.env.STORE_LATITUDE) : undefined;
+  private readonly defaultOriginLongitude = process.env.STORE_LONGITUDE ? parseFloat(process.env.STORE_LONGITUDE) : undefined;
 
   private strategies: ShippingRateStrategy[];
 
@@ -273,8 +275,8 @@ export class ShippingService {
       originAreaId = this.defaultOriginAreaId || undefined;
     }
     if (!originLat || !originLng) {
-      originLat = undefined;
-      originLng = undefined;
+      originLat = this.defaultOriginLatitude || undefined;
+      originLng = this.defaultOriginLongitude || undefined;
     }
 
     let destinationAreaId: string | undefined;
