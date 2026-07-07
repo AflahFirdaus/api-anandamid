@@ -137,6 +137,13 @@ export class CheckRatesRefactoredDto {
   couriers?: string;
 
   @ApiPropertyOptional({
+    description: 'Fallback origin postal code if address ID has no area_id',
+    example: '55283',
+  })
+  @IsOptional()
+  originPostalCode?: string | number;
+
+  @ApiPropertyOptional({
     description: 'Fallback destination postal code if address ID has no area_id',
     example: '55283',
   })

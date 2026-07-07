@@ -140,6 +140,51 @@ export class ShippingService {
     return undefined;
   }
 
+  /**
+   * Resolve origin area_id by trying: 1) lat/lng, 2) store default postal_code, 3) DB address
+   */
+  private async ensureOriginAreaId(
+    originLat: number | undefined,
+    originLng: number | undefined,
+    originPostalCode: string | number | undefined,
+    originAddressId: string | undefined,
+  ): Promise<string | undefined> {
+    // First: try lat/lng
+    if (originLat && originLng) {
+      const resolved = await this.resolveAreaIdFromCoords(originLat, originLng);
+      if (resolved) return resolved;
+    }
+
+    // Second: try store default postal_code
+    if (this.defaultOriginPostalCode) {
+      const resolved = await this.resolveAreaIdFromPostalCode(
+        this.defaultOriginPostalCode,
+      );
+      if (resolved) return resolved;
+    }
+
+    // Third: try postal_code from DTO
+    if (originPostalCode) {
+      const resolved = await this.resolveAreaIdFromPostalCode(
+        originPostalCode.toString(),
+      );
+      if (resolved) return resolved;
+    }
+
+    // Fourth: try DB address postal_code
+    if (originAddressId) {
+      const addr = await this.addressRepo.findOne({
+        where: { id: originAddressId },
+      });
+      if (addr && addr.postal_code) {
+        const resolved = await this.resolveAreaIdFromPostalCode(addr.postal_code);
+        if (resolved) return resolved;
+      }
+    }
+
+    return undefined;
+  }
+
   async checkRates(dto: CheckRatesRefactoredDto) {
     const {
       originAddressId,
@@ -148,6 +193,8 @@ export class ShippingService {
       originLongitude,
       destinationLatitude,
       destinationLongitude,
+      originPostalCode,
+      destinationPostalCode,
       couriers = 'jne,jnt,sicepat,tiki,pos',
       items = [],
     } = dto;
@@ -195,8 +242,18 @@ export class ShippingService {
       destinationAreaId = await this.ensureDestinationAreaId(
         destLat,
         destLng,
-        dto.destinationPostalCode,
+        destinationPostalCode,
         destinationAddressId,
+      );
+    }
+
+    // If origin has no area_id, try to resolve it from store default postal code
+    if (!originAreaId) {
+      originAreaId = await this.ensureOriginAreaId(
+        originLat,
+        originLng,
+        originPostalCode,
+        originAddressId,
       );
     }
 
@@ -225,7 +282,7 @@ export class ShippingService {
       const requestBody = strategy.buildRequest(request);
       const endpoint = strategy.getEndpoint();
 
-      // For /rates/couriers: if area_id missing on either side, fallback to postal codes
+      // For /rates/couriers: if BOTH area_ids missing, fallback to postal codes
       // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
       if (endpoint === '/rates/couriers') {
         // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
@@ -233,12 +290,8 @@ export class ShippingService {
         // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
         const hasDestArea = !!requestBody.destination_area_id;
 
-        if (!hasOriginArea || !hasDestArea) {
-          // Fallback: use postal codes entirely (Biteship requires uniform approach)
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-          delete requestBody.origin_area_id;
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-          delete requestBody.destination_area_id;
+        if (!hasOriginArea && !hasDestArea) {
+          // Fallback: use postal codes entirely (Biteship requires at least one approach)
           // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
           requestBody.origin_postal_code =
             parseInt(this.defaultOriginPostalCode, 10) || 55283;
@@ -251,7 +304,7 @@ export class ShippingService {
 
           const destPostal =
             (dbDestAddr && dbDestAddr.postal_code) ||
-            dto.destinationPostalCode?.toString() ||
+            destinationPostalCode?.toString() ||
             '';
           // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
           requestBody.destination_postal_code =
