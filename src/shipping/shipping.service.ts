@@ -111,8 +111,9 @@ export class ShippingService {
     destLng: number | undefined,
     destinationPostalCode: string | number | undefined,
     destinationAddressId: string | undefined,
+    storedAreaId?: string,
   ): Promise<string | undefined> {
-    // First: try lat/lng
+    // First: try lat/lng (most precise — resolves to kelurahan + postal code level)
     if (destLat && destLng) {
       const resolved = await this.resolveAreaIdFromCoords(destLat, destLng);
       if (resolved) return resolved;
@@ -135,6 +136,14 @@ export class ShippingService {
         const resolved = await this.resolveAreaIdFromPostalCode(addr.postal_code);
         if (resolved) return resolved;
       }
+    }
+
+    // Last resort: use stored area_id from DB (may be imprecise for same-city routes)
+    if (storedAreaId) {
+      this.logger.warn(
+        `Using stored area_id as last resort (may be imprecise for same-city): ${storedAreaId}`,
+      );
+      return storedAreaId;
     }
 
     return undefined;
@@ -225,27 +234,31 @@ export class ShippingService {
     let destinationAreaId: string | undefined;
     let destLat: number | undefined = destinationLatitude;
     let destLng: number | undefined = destinationLongitude;
+    let storedDestAreaId: string | undefined;
 
     if (destinationAddressId) {
       const destAddr = await this.addressRepo.findOne({
         where: { id: destinationAddressId },
       });
       if (destAddr) {
-        destinationAreaId = destAddr.area_id || undefined;
+        // Store the DB area_id as fallback only — do NOT use directly.
+        // Stored area_id may lack postal code suffix (e.g. IDND829 vs IDZ55283)
+        // which causes Biteship error 40001010 for same-city routes.
+        storedDestAreaId = destAddr.area_id || undefined;
         destLat = destAddr.latitude || destLat;
         destLng = destAddr.longitude || destLng;
       }
     }
 
-    // If destination has no area_id, try to resolve it
-    if (!destinationAreaId) {
-      destinationAreaId = await this.ensureDestinationAreaId(
-        destLat,
-        destLng,
-        destinationPostalCode,
-        destinationAddressId,
-      );
-    }
+    // Always re-resolve destination area_id from lat/lng or postal_code
+    // for maximum precision. Stored area_id is passed as last resort only.
+    destinationAreaId = await this.ensureDestinationAreaId(
+      destLat,
+      destLng,
+      destinationPostalCode,
+      destinationAddressId,
+      storedDestAreaId,
+    );
 
     // If origin has no area_id, try to resolve it from store default postal code
     if (!originAreaId) {
