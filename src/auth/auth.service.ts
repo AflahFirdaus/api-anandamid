@@ -21,7 +21,7 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    const payload = { sub: admin.id, username: admin.username };
+    const payload = { sub: admin.id, username: admin.username, role: 'ADMIN' };
 
     const accessToken = this.jwtService.sign(payload, {
       expiresIn: '15m', 
@@ -71,7 +71,7 @@ export class AuthService {
         throw new UnauthorizedException('Security breach detected. Session revoked.');
       }
 
-      const newPayload = { sub: admin.id, username: admin.username };
+      const newPayload = { sub: admin.id, username: admin.username, role: 'ADMIN' };
 
       const newAccessToken = this.jwtService.sign(newPayload, {
         expiresIn: '15m',

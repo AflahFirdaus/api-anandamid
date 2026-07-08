@@ -16,7 +16,9 @@ export class JwtAdminGuard extends AuthGuard('jwt') {
       throw err || new UnauthorizedException('Token tidak valid atau sudah expired');
     }
 
-    if (user.role !== 'ADMIN') {
+    // Backward-compatible: token lama mungkin belum punya field `role`.
+    // Hanya tolak jika role eksplisit 'USER'.
+    if (user.role === 'USER') {
       throw new UnauthorizedException(
         'Akses ditolak! Hanya admin yang diizinkan mengakses endpoint ini.',
       );
