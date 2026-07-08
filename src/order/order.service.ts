@@ -654,7 +654,7 @@ export class OrderService {
             shipping_address_snapshot: addressSnapshot,
             payment_token: tx.token
         } as any);
-        const saved = await this.orderRepo.save(no);
+        const saved = (await this.orderRepo.save(no)) as unknown as Order;
 
         // Update voucher usage with real order ID
         if (dto.voucher_usage_id) {
