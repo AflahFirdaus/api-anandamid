@@ -465,6 +465,24 @@ export class VoucherService {
   }
 
   // ──────────────────────────────────────────────
+  //  ADMIN METHOD 4: getVoucherByUsageId
+  // ──────────────────────────────────────────────
+
+  /**
+   * Mencari voucher berdasarkan voucher usage ID (dari reservasi).
+   * Digunakan oleh OrderService saat checkout untuk menghitung diskon.
+   */
+  async getVoucherByUsageId(usageId: string): Promise<Voucher | null> {
+    const usage = await this.voucherUsageRepository.findOne({
+      where: { id: usageId, status: VOUCHER_USAGE_STATUS.RESERVED },
+    });
+    if (!usage) return null;
+    return this.voucherRepository.findOne({
+      where: { id: usage.voucher_id },
+    });
+  }
+
+  // ──────────────────────────────────────────────
   //  HELPER: Cek apakah user punya order sukses
   // ──────────────────────────────────────────────
 

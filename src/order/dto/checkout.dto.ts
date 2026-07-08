@@ -175,6 +175,14 @@ export class CreateCheckoutDto {
   shipping_details?: Record<string, any>;
 
   @ApiPropertyOptional({
+    description: 'Voucher usage ID from apply-voucher endpoint (for discount)',
+    example: 'usage-uuid-abc',
+  })
+  @IsOptional()
+  @IsString()
+  voucher_usage_id?: string;
+
+  @ApiPropertyOptional({
     description: 'Optional notes',
     example: 'Tolong kirim cepat ya',
   })

@@ -11,6 +11,7 @@ import { UserAddress } from '../user/entities/user-address.entity';
 import { CheckoutCartDto, CheckoutDirectDto, CreateCheckoutDto } from './dto/checkout.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { PaymentService } from '../payment/payment.service';
+import { VoucherService } from '../voucher/voucher.service';
 
 /**
  * Normalize nama kurir ke kode yang diterima Biteship API.
@@ -96,6 +97,7 @@ export class OrderService {
         @InjectRepository(User) private userRepo: Repository<User>,
         @InjectRepository(UserAddress) private addressRepo: Repository<UserAddress>,
         private readonly paymentService: PaymentService,
+        private readonly voucherService: VoucherService,
     ) {}
 
     private generateInvoiceNumber(): string {
@@ -602,15 +604,44 @@ export class OrderService {
         }
 
         if (oi.length === 0) throw new BadRequestException('Tidak ada item.');
-        const sc = dto.shipping_cost || 0; const ga = tp + sc; const inv = this.generateInvoiceNumber();
-        const roundedAmount = Math.round(ga);
+
+        // ─── Proses voucher (jika ada) ──────────────────────
+        let voucherDiscount = 0;
+        if (dto.voucher_usage_id) {
+          try {
+            const voucher = await this.voucherService.getVoucherByUsageId(dto.voucher_usage_id);
+            if (voucher) {
+              const discountType = voucher.discount_type;
+              const discountValue = Number(voucher.discount_value);
+              const maxDiscount = voucher.max_discount ? Number(voucher.max_discount) : null;
+
+              if (discountType === 'PERCENTAGE') {
+                voucherDiscount = Math.round((tp * discountValue) / 100);
+                if (maxDiscount && voucherDiscount > maxDiscount) {
+                  voucherDiscount = maxDiscount;
+                }
+              } else {
+                voucherDiscount = Math.min(discountValue, tp);
+              }
+            }
+            await this.voucherService.confirmVoucherUsage(dto.voucher_usage_id, 'CONFIRMED_PLACEHOLDER');
+          } catch (err: any) {
+            this.logger.warn(`Voucher confirmation failed: ${err.message}`);
+          }
+        }
+
+        const sc = dto.shipping_cost || 0;
+        const grossAmount = tp + sc;
+        const finalAmount = Math.max(grossAmount - voucherDiscount, 0);
+        const roundedAmount = Math.round(finalAmount);
+        const inv = this.generateInvoiceNumber();
         
         const tx = await this.paymentService.createTransaction(inv, roundedAmount, cd);
         
         const no = this.orderRepo.create({ 
             user_id: userId, 
             invoice_number: inv, 
-            total_price: ga, 
+            total_price: finalAmount, 
             status: 'PENDING', 
             notes: dto.notes, 
             items: oi as OrderItem[], 
@@ -624,6 +655,15 @@ export class OrderService {
             payment_token: tx.token
         } as any);
         const saved = await this.orderRepo.save(no);
+
+        // Update voucher usage with real order ID
+        if (dto.voucher_usage_id) {
+          try {
+            await this.voucherService.confirmVoucherUsage(dto.voucher_usage_id, saved.id);
+          } catch (err: any) {
+            this.logger.warn(`Failed to update voucher usage with order ID: ${err.message}`);
+          }
+        }
 
         if (dto.cart_ids?.length) await this.cartRepo.delete(dto.cart_ids);
         return { message: 'Checkout berhasil', order: saved, payment: { token: tx.token, redirect_url: tx.redirect_url } };

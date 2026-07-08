@@ -10,6 +10,7 @@ import { ProductVariant } from '../product/entities/product-variant.entity';
 import { User } from '../user/entities/user.entity';
 import { UserAddress } from '../user/entities/user-address.entity';
 import { PaymentModule } from '../payment/payment.module';
+import { VoucherModule } from '../voucher/voucher.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { PaymentModule } from '../payment/payment.module';
       UserAddress,
     ]),
     PaymentModule,
+    VoucherModule,
   ],
   controllers: [OrderController],
   providers: [OrderService],
