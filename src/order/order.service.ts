@@ -480,6 +480,8 @@ export class OrderService {
 
             order.biteship_order_id = data.id || '';
             order.tracking_number = data.waybill_id || `INSTANT-${order.invoice_number}`;
+            (order as any).awb_number = data.waybill_id || '';
+            (order as any).awb_url = data.waybill_url || '';
             order.shipping_details = {
                 ...((order.shipping_details as any) || {}),
                 driver_name: driverInfo.name || driverInfo.driver_name || null,
