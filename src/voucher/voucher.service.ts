@@ -381,7 +381,7 @@ export class VoucherService {
       );
     }
 
-    const voucher = this.voucherRepository.create({
+    const insertResult = await this.voucherRepository.insert({
       code: normalizedCode,
       name: dto.name.trim(),
       type: dto.type,
@@ -394,9 +394,11 @@ export class VoucherService {
       start_date: new Date(dto.startDate),
       end_date: new Date(dto.endDate),
       is_active: true,
-    } as any);
+    });
 
-    const saved = await this.voucherRepository.save(voucher);
+    const saved = await this.voucherRepository.findOneOrFail({
+      where: { id: insertResult.identifiers[0].id },
+    });
 
     this.logger.log(`Voucher "${saved.code}" created by admin`);
 
