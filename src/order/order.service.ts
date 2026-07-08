@@ -550,7 +550,7 @@ export class OrderService {
 
         // Get counts per status (always unfiltered by status)
         const countsRaw: any[] = await this.orderRepo.query(
-            `SELECT status, COUNT(*) as cnt FROM "order" ${dateClause} GROUP BY status`,
+            `SELECT status, COUNT(*) as cnt FROM orders ${dateClause} GROUP BY status`,
             dateParams
         );
         const counts: Record<string, number> = {};
