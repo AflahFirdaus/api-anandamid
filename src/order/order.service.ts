@@ -537,8 +537,14 @@ export class OrderService {
     async findAllOrders(query: any) {
         const qb = this.orderRepo.createQueryBuilder('order').leftJoinAndSelect('order.user', 'user').leftJoinAndSelect('order.items', 'items').leftJoinAndSelect('user.addresses', 'addresses').leftJoinAndSelect('items.product', 'product').leftJoinAndSelect('product.images', 'images').orderBy('order.created_at', 'DESC');
         if (query.status) qb.andWhere('order.status = :status', { status: query.status });
+        if (query.startDate) qb.andWhere('order.created_at >= :startDate', { startDate: new Date(query.startDate) });
+        if (query.endDate) qb.andWhere('order.created_at <= :endDate', { endDate: new Date(query.endDate + 'T23:59:59.999Z') });
+        const page = Math.max(1, parseInt(query.page, 10) || 1);
+        const limit = Math.min(200, Math.max(1, parseInt(query.limit, 10) || 100));
+        const skip = (page - 1) * limit;
+        qb.skip(skip).take(limit);
         const [d, t] = await qb.getManyAndCount();
-        return { data: d, total: t };
+        return { data: d, total: t, page, limit, totalPages: Math.ceil(t / limit) };
     }
 
     async findOneOrder(id: string) {
