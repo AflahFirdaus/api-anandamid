@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { VoucherController } from './voucher.controller';
+import { AdminVoucherController } from './admin-voucher.controller';
 import { VoucherService } from './voucher.service';
 import { VoucherCronService } from './voucher-cron.service';
 import { Voucher } from './entities/voucher.entity';
@@ -17,7 +18,7 @@ import { Order } from '../order/entities/order.entity';
       Order,
     ]),
   ],
-  controllers: [VoucherController],
+  controllers: [VoucherController, AdminVoucherController],
   providers: [VoucherService, VoucherCronService],
   exports: [VoucherService],
 })
