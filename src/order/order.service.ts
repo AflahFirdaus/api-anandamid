@@ -535,6 +535,30 @@ export class OrderService {
     }
 
     async findAllOrders(query: any) {
+        // Build date filter for counts (same as main query)
+        const dateWhere: string[] = [];
+        const dateParams: any = {};
+        if (query.startDate) {
+            dateWhere.push('created_at >= :startDate');
+            dateParams.startDate = new Date(query.startDate);
+        }
+        if (query.endDate) {
+            dateWhere.push('created_at <= :endDate');
+            dateParams.endDate = new Date(query.endDate + 'T23:59:59.999Z');
+        }
+        const dateClause = dateWhere.length > 0 ? 'WHERE ' + dateWhere.join(' AND ') : '';
+
+        // Get counts per status (always unfiltered by status)
+        const countsRaw: any[] = await this.orderRepo.query(
+            `SELECT status, COUNT(*) as cnt FROM "order" ${dateClause} GROUP BY status`,
+            dateParams
+        );
+        const counts: Record<string, number> = {};
+        for (const row of countsRaw) {
+            counts[row.status] = parseInt(row.cnt, 10);
+        }
+
+        // Main query with pagination
         const qb = this.orderRepo.createQueryBuilder('order').leftJoinAndSelect('order.user', 'user').leftJoinAndSelect('order.items', 'items').leftJoinAndSelect('user.addresses', 'addresses').leftJoinAndSelect('items.product', 'product').leftJoinAndSelect('product.images', 'images').orderBy('order.created_at', 'DESC');
         if (query.status) qb.andWhere('order.status = :status', { status: query.status });
         if (query.startDate) qb.andWhere('order.created_at >= :startDate', { startDate: new Date(query.startDate) });
@@ -544,7 +568,7 @@ export class OrderService {
         const skip = (page - 1) * limit;
         qb.skip(skip).take(limit);
         const [d, t] = await qb.getManyAndCount();
-        return { data: d, total: t, page, limit, totalPages: Math.ceil(t / limit) };
+        return { data: d, total: t, page, limit, totalPages: Math.ceil(t / limit), counts };
     }
 
     async findOneOrder(id: string) {
