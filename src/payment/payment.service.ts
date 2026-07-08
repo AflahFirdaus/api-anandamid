@@ -26,10 +26,12 @@ export class PaymentService {
   }
 
   async createTransaction(orderId: string, grossAmount: number, customerDetails?: any) {
+    const finishUrl = `${process.env.VITE_SITE_URL || 'https://anandam.id'}/user/purchase`;
     const parameter = {
       transaction_details: { order_id: orderId, gross_amount: grossAmount },
       customer_details: customerDetails || {}, 
       credit_card: { secure: true },
+      callbacks: { finish: finishUrl },
     };
     this.logger.log(`Creating Midtrans transaction for ${orderId} amount ${grossAmount}`);
     try {
