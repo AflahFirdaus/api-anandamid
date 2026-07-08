@@ -535,18 +535,18 @@ export class OrderService {
     }
 
     async findAllOrders(query: any) {
-        // Build date filter for counts (same as main query)
-        const dateWhere: string[] = [];
-        const dateParams: any = {};
+        // Build date filter for counts (same as main query) - use array params for PG
+        const dateClauses: string[] = [];
+        const dateParams: any[] = [];
         if (query.startDate) {
-            dateWhere.push('created_at >= :startDate');
-            dateParams.startDate = new Date(query.startDate);
+            dateClauses.push(`created_at >= $${dateParams.length + 1}`);
+            dateParams.push(new Date(query.startDate));
         }
         if (query.endDate) {
-            dateWhere.push('created_at <= :endDate');
-            dateParams.endDate = new Date(query.endDate + 'T23:59:59.999Z');
+            dateClauses.push(`created_at <= $${dateParams.length + 1}`);
+            dateParams.push(new Date(query.endDate + 'T23:59:59.999Z'));
         }
-        const dateClause = dateWhere.length > 0 ? 'WHERE ' + dateWhere.join(' AND ') : '';
+        const dateClause = dateClauses.length > 0 ? 'WHERE ' + dateClauses.join(' AND ') : '';
 
         // Get counts per status (always unfiltered by status)
         const countsRaw: any[] = await this.orderRepo.query(
