@@ -336,7 +336,15 @@ export class OrderService {
             courier_company: courier,
             courier_type: svc,
             delivery_type: 'now',
-            items: order.items.map((item) => ({ name: item.product_name || 'Product', value: Math.max(Number(item.price) || 1000, 100), quantity: item.quantity, weight: 1000, length: 20, width: 20, height: 20 })),
+          items: order.items.map((item) => ({
+            name: item.product_name || 'Product',
+            value: Math.max(Number(item.price) || 1000, 100),
+            quantity: item.quantity,
+            weight: Math.max(Math.round((item.product?.weight || 1000) * item.quantity), 100),
+            length: Number(item.product?.length) || 20,
+            width: Number(item.product?.width) || 20,
+            height: Number(item.product?.height) || 20,
+          })),
         };
         if (originArea) body.origin_area_id = originArea;
         if (destArea) body.destination_area_id = destArea;
@@ -444,10 +452,10 @@ export class OrderService {
                 name: item.product_name || 'Product',
                 value: Math.max(Number(item.price) || 1000, 100),
                 quantity: item.quantity,
-                weight: 1000,
-                length: 20,
-                width: 20,
-                height: 20,
+                weight: Math.max(Math.round((item.product?.weight || 1000) * item.quantity), 100),
+                length: Number(item.product?.length) || 20,
+                width: Number(item.product?.width) || 20,
+                height: Number(item.product?.height) || 20,
             })),
         };
         if (destPC) biteshipBody.destination_postal_code = parseInt(destPC, 10);
