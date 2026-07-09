@@ -35,10 +35,7 @@ export class ChatGateway implements OnGatewayInit {
   // Event untuk Admin bergabung ke channel global admin
   @SubscribeMessage('join_admin')
   handleJoinAdmin(@ConnectedSocket() client: Socket) {
-    console.log(`[WS AUDIT] join_admin received from socket ${client.id}`);
     client.join('admin-global');
-    const roomSize = this.server.sockets.adapter.rooms.get('admin-global')?.size || 0;
-    console.log(`[WS AUDIT] Socket ${client.id} joined admin-global. Total in admin-global: ${roomSize}`);
     return { status: 'joined', room: 'admin-global' };
   }
 
@@ -54,17 +51,10 @@ export class ChatGateway implements OnGatewayInit {
 
   // Fungsi publik untuk broadcast pesan baru - dipanggil oleh Controller
   broadcastNewMessage(roomId: string, message: any) {
-    console.log(`[WS AUDIT] broadcastNewMessage called for roomId: ${roomId}, content: ${message.content?.substring(0, 30)}`);
-    
     // 1. Kirim pesan realtime ke User & Admin yang sedang membuka room tersebut
-    const roomChannel = `room_${roomId}`;
-    const roomSize = this.server.sockets.adapter.rooms.get(roomChannel)?.size || 0;
-    console.log(`[WS AUDIT] Emitting 'new_message' to ${roomChannel} (${roomSize} clients)`);
-    this.server.to(roomChannel).emit('new_message', message);
+    this.server.to(`room_${roomId}`).emit('new_message', message);
     
     // 2. Kirim notifikasi ringan ke semua admin (sidebar update) via admin-global channel
-    const adminGlobalSize = this.server.sockets.adapter.rooms.get('admin-global')?.size || 0;
-    console.log(`[WS AUDIT] Emitting 'chat:list-updated' to admin-global (${adminGlobalSize} clients) - roomId: ${roomId}`);
     this.server.to('admin-global').emit('chat:list-updated', {
       roomId,
       last_message_content: message.content,
