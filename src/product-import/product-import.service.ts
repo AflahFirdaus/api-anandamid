@@ -212,6 +212,12 @@ export class ProductImportService {
         product.category = category;
         if (productBrand) product.brand = productBrand;
 
+        // 🔥 Set product-level weight/dimensions dari mainRow (diambil dari baris pertama)
+        product.weight = Number(mainRow.weight_gram) || 0;
+        product.length = Number(mainRow.panjang_cm) || 0;
+        product.width = Number(mainRow.lebar_cm) || 0;
+        product.height = Number(mainRow.tinggi_cm) || 0;
+
         product.variants = variantsRows.map((vRow, vIndex) => {
           if (!vRow.sku_seller) throw new BadRequestException(`SKU seller wajib diisi (Baris Variasi ke-${vIndex + 1})`);
           return Object.assign(new ProductVariant(), {
@@ -491,6 +497,12 @@ export class ProductImportService {
         if (mainRow.ram_type !== "") product.ram_type = mainRow.ram_type ? String(mainRow.ram_type).trim() : null;
         if (mainRow.is_active !== "") product.is_active = mainRow.is_active === true || mainRow.is_active === 'true';
         if (mainRow.is_popular !== "") product.is_popular = mainRow.is_popular === true || mainRow.is_popular === 'true';
+
+        // 🔥 Update product-level weight/dimensions dari baris pertama (mainRow)
+        if (mainRow.weight_gram !== "") product.weight = Number(mainRow.weight_gram);
+        if (mainRow.panjang_cm !== "") product.length = Number(mainRow.panjang_cm);
+        if (mainRow.lebar_cm !== "") product.width = Number(mainRow.lebar_cm);
+        if (mainRow.tinggi_cm !== "") product.height = Number(mainRow.tinggi_cm);
 
         const currentVariantsMap = new Map(product.variants.map(v => [v.id, v]));
         const updatedVariants: ProductVariant[] = [];
