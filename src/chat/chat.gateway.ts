@@ -32,11 +32,11 @@ export class ChatGateway implements OnGatewayInit {
     return { status: 'joined', room: payload.roomId };
   }
 
-  // Event khusus untuk Admin agar mendapat notifikasi global
+  // Event untuk Admin bergabung ke channel global admin
   @SubscribeMessage('join_admin')
   handleJoinAdmin(@ConnectedSocket() client: Socket) {
-    client.join('room_admins');
-    return { status: 'joined', room: 'room_admins' };
+    client.join('admin-global');
+    return { status: 'joined', room: 'admin-global' };
   }
 
   // Event untuk leave room (saat admin pindah ke room lain)
@@ -49,15 +49,18 @@ export class ChatGateway implements OnGatewayInit {
     return { status: 'left', room: payload.roomId };
   }
 
-  // Fungsi publik ini akan dipanggil oleh Controller setelah HTTP POST sukses
+  // Fungsi publik untuk broadcast pesan baru - dipanggil oleh Controller
   broadcastNewMessage(roomId: string, message: any) {
-    // 1. Sebarkan pesan ke User & Admin yang sedang berada di room tersebut
+    // 1. Kirim pesan realtime ke User & Admin yang sedang membuka room tersebut
     this.server.to(`room_${roomId}`).emit('new_message', message);
     
-    // 2. Sebarkan sinyal ke dashboard semua Admin untuk update unread badge
-    this.server.to('room_admins').emit('new_message_notification', {
+    // 2. Kirim notifikasi ringan ke semua admin (sidebar update) via admin-global channel
+    this.server.to('admin-global').emit('chat:list-updated', {
       roomId,
-      message,
+      last_message_content: message.content,
+      last_message_at: message.created_at,
+      sender_id: message.sender_id,
+      buyer_id: message.room?.buyer_id || message.buyer_id,
     });
   }
 }
