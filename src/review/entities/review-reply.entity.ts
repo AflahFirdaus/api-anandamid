@@ -27,7 +27,7 @@ export class ReviewReply {
   admin: User;
 
   @Column({ nullable: true })
-  admin_id: string;
+  admin_id: string | null;
 
   @Column({ type: 'text' })
   comment: string;

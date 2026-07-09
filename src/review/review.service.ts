@@ -10,6 +10,7 @@ import { ReviewImage } from './entities/review-image.entity';
 import { ReviewReply } from './entities/review-reply.entity';
 import { Order } from '../order/entities/order.entity';
 import { Product } from '../product/entities/product.entity';
+import { User } from '../user/entities/user.entity';
 import { CreateReviewDto } from './dto/create-review.dto';
 import { CreateReplyDto } from './dto/create-reply.dto';
 import { HideReviewDto } from './dto/hide-review.dto';
@@ -29,6 +30,8 @@ export class ReviewService {
     private readonly orderRepo: Repository<Order>,
     @InjectRepository(Product)
     private readonly productRepo: Repository<Product>,
+    @InjectRepository(User)
+    private readonly userRepo: Repository<User>,
   ) {}
 
   // ====================== PUBLIC ======================
@@ -324,9 +327,14 @@ export class ReviewService {
       throw new BadRequestException('Review ini sudah memiliki balasan');
     }
 
+    // Verifikasi admin exists di users table agar FK constraint tidak gagal
+    const admin = await this.userRepo.findOne({
+      where: { id: adminId },
+    });
+
     const reply = this.reviewReplyRepo.create({
       review_id: reviewId,
-      admin_id: adminId,
+      admin_id: admin ? adminId : null,
       comment: dto.comment,
     });
     await this.reviewReplyRepo.save(reply);
