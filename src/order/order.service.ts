@@ -99,15 +99,11 @@ export class OrderService {
     }
 
     async deductStock(orderId: string): Promise<void> {
-    const order = await this.orderRepo.findOne({
-      where: { id: orderId },
-      relations: ['items', 'items.product', 'items.product.variants'],
-    });
-    if (!order) return;
-    for (const item of order.items) {
-      if (!item.product) continue;
-      let mv = item.product.variants?.find(
-        (v) => v.variant_name === item.variasi,
+        const order = await this.orderRepo.findOne({ where: { id: orderId }, relations: ['items', 'items.product', 'items.product.variants'] });
+        if (!order) return;
+        for (const item of order.items) {
+            if (!item.product) continue;
+            let mv = item.product.variants?.find((v) => v.variant_name === item.variasi);
             if (!mv && item.product.variants?.length > 0) mv = item.product.variants[0];
             if (mv) {
                 if (mv.stock < item.quantity) throw new BadRequestException(`Stok ${item.product.name} (${mv.variant_name}) tidak mencukupi.`);
