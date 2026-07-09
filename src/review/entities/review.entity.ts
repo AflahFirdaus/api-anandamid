@@ -52,6 +52,15 @@ export class Review {
   @Column({ type: 'text', nullable: true })
   comment: string;
 
+  @Column({ type: 'boolean', default: false })
+  is_hidden: boolean;
+
+  @Column({ type: 'text', nullable: true })
+  hide_reason: string | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  hidden_at: Date | null;
+
   @Column({ type: 'enum', enum: ReviewStatus, default: ReviewStatus.PENDING })
   status: ReviewStatus;
 

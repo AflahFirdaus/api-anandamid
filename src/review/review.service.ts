@@ -12,6 +12,7 @@ import { Order } from '../order/entities/order.entity';
 import { Product } from '../product/entities/product.entity';
 import { CreateReviewDto } from './dto/create-review.dto';
 import { CreateReplyDto } from './dto/create-reply.dto';
+import { HideReviewDto } from './dto/hide-review.dto';
 import * as path from 'path';
 import * as fs from 'fs';
 
@@ -34,7 +35,7 @@ export class ReviewService {
 
   async findByProduct(productId: string) {
     const reviews = await this.reviewRepo.find({
-      where: { product_id: productId, status: ReviewStatus.APPROVED },
+      where: { product_id: productId, is_hidden: false },
       relations: ['user', 'images', 'replies', 'replies.admin'],
       order: { created_at: 'DESC' },
     });
@@ -91,7 +92,7 @@ export class ReviewService {
         'one',
       )
       .where('review.product_id = :pid', { pid: productId })
-      .andWhere('review.status = :status', { status: ReviewStatus.APPROVED })
+      .andWhere('review.is_hidden = :hidden', { hidden: false })
       .getRawOne();
 
     return {
@@ -152,14 +153,14 @@ export class ReviewService {
       throw new BadRequestException('Maksimal 5 foto');
     }
 
-    // 5. Simpan review
+    // 5. Simpan review — langsung APPROVED (tidak perlu moderasi)
     const review = this.reviewRepo.create({
       product_id: dto.product_id,
       user_id: userId,
       order_id: completedOrder.id,
       rating: dto.rating,
       comment: dto.comment || '',
-      status: ReviewStatus.PENDING,
+      status: ReviewStatus.APPROVED,
     });
 
     const savedReview = await this.reviewRepo.save(review);
@@ -176,8 +177,7 @@ export class ReviewService {
     }
 
     return {
-      message:
-        'Review berhasil dikirim dan menunggu persetujuan admin',
+      message: 'Review berhasil dipublikasikan',
       review: { id: savedReview.id, status: savedReview.status },
     };
   }
@@ -214,6 +214,13 @@ export class ReviewService {
   }
 
   // ====================== ADMIN ======================
+
+  async findAll() {
+    return this.reviewRepo.find({
+      relations: ['user', 'product', 'images', 'replies', 'replies.admin'],
+      order: { created_at: 'DESC' },
+    });
+  }
 
   async findPending() {
     return this.reviewRepo.find({
@@ -269,6 +276,34 @@ export class ReviewService {
     return { message: 'Review ditolak' };
   }
 
+  async hide(reviewId: string, dto: HideReviewDto) {
+    const review = await this.reviewRepo.findOne({
+      where: { id: reviewId },
+    });
+    if (!review) {
+      throw new NotFoundException('Review tidak ditemukan');
+    }
+    review.is_hidden = true;
+    review.hide_reason = dto.hide_reason;
+    review.hidden_at = new Date();
+    await this.reviewRepo.save(review);
+    return { message: 'Review disembunyikan' };
+  }
+
+  async unhide(reviewId: string) {
+    const review = await this.reviewRepo.findOne({
+      where: { id: reviewId },
+    });
+    if (!review) {
+      throw new NotFoundException('Review tidak ditemukan');
+    }
+    review.is_hidden = false;
+    review.hide_reason = null;
+    review.hidden_at = null;
+    await this.reviewRepo.save(review);
+    return { message: 'Review ditampilkan kembali' };
+  }
+
   async createReply(
     reviewId: string,
     adminId: string,
@@ -279,11 +314,6 @@ export class ReviewService {
     });
     if (!review) {
       throw new NotFoundException('Review tidak ditemukan');
-    }
-    if (review.status !== ReviewStatus.APPROVED) {
-      throw new BadRequestException(
-        'Hanya review APPROVED yang bisa dibalas',
-      );
     }
 
     // Cek sudah ada reply

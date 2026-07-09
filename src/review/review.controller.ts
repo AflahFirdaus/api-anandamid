@@ -16,6 +16,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiConsumes } from '
 import { ReviewService } from './review.service';
 import { CreateReviewDto } from './dto/create-review.dto';
 import { CreateReplyDto } from './dto/create-reply.dto';
+import { HideReviewDto } from './dto/hide-review.dto';
 import { JwtUserGuard } from '../user/guards/jwt-user.guard';
 import { JwtAuthGuard } from '../auth/guards/jwt.guards';
 import { diskStorage } from 'multer';
@@ -83,6 +84,14 @@ export class ReviewController {
   // ====================== ADMIN ======================
 
   @UseGuards(JwtAuthGuard)
+  @Get('all')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Get all reviews (admin)' })
+  async getAll() {
+    return this.reviewService.findAll();
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Get('pending')
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Get pending reviews (admin)' })
@@ -104,6 +113,22 @@ export class ReviewController {
   @ApiOperation({ summary: 'Reject a review (admin)' })
   async reject(@Param('id') id: string) {
     return this.reviewService.reject(id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch(':id/hide')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Hide a review (admin)' })
+  async hide(@Param('id') id: string, @Body() dto: HideReviewDto) {
+    return this.reviewService.hide(id, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch(':id/unhide')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Unhide a review (admin)' })
+  async unhide(@Param('id') id: string) {
+    return this.reviewService.unhide(id);
   }
 
   @UseGuards(JwtAuthGuard)
