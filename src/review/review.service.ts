@@ -219,10 +219,37 @@ export class ReviewService {
   // ====================== ADMIN ======================
 
   async findAll() {
-    return this.reviewRepo.find({
+    const reviews = await this.reviewRepo.find({
       relations: ['user', 'product', 'images', 'replies', 'replies.admin'],
       order: { created_at: 'DESC' },
     });
+
+    return reviews.map((r) => ({
+      id: r.id,
+      user: {
+        id: r.user?.id,
+        full_name: r.user?.full_name,
+        avatar_url: r.user?.avatar_url,
+      },
+      product: r.product
+        ? { id: r.product.id, name: r.product.name }
+        : undefined,
+      rating: r.rating,
+      comment: r.comment,
+      images: r.images?.map((img) => img.image_url) || [],
+      is_hidden: r.is_hidden,
+      hide_reason: r.hide_reason,
+      hidden_at: r.hidden_at,
+      status: r.status,
+      reply: r.replies?.[0]
+        ? {
+            comment: r.replies[0].comment,
+            admin_name: r.replies[0].admin?.full_name || 'Admin',
+            created_at: r.replies[0].created_at,
+          }
+        : null,
+      created_at: r.created_at,
+    }));
   }
 
   async findPending() {
@@ -319,12 +346,14 @@ export class ReviewService {
       throw new NotFoundException('Review tidak ditemukan');
     }
 
-    // Cek sudah ada reply
+    // Cek sudah ada reply — update jika sudah ada, buat baru jika belum
     const existingReply = await this.reviewReplyRepo.findOne({
       where: { review_id: reviewId },
     });
     if (existingReply) {
-      throw new BadRequestException('Review ini sudah memiliki balasan');
+      existingReply.comment = dto.comment;
+      await this.reviewReplyRepo.save(existingReply);
+      return { message: 'Balasan berhasil diperbarui' };
     }
 
     // Verifikasi admin exists di users table agar FK constraint tidak gagal
