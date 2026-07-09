@@ -97,9 +97,25 @@ export class OrderController {
   @UseGuards(JwtUserGuard)
   @Patch(':id/cancel')
   @ApiBearerAuth('JWT-auth')
-  @ApiOperation({ summary: 'Cancel order' })
+  @ApiOperation({ summary: 'Cancel order (only PENDING)' })
   async cancelMyOrder(@Req() req: any, @Param('id') orderId: string) {
     return this.orderService.cancelOrderUser(req.user.id, orderId);
+  }
+
+  // ====================== USER REQUEST CANCEL (PAID ORDER) ======================
+  @UseGuards(JwtUserGuard)
+  @Post(':id/cancel/request')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ 
+    summary: 'Request cancel PAID order + refund',
+    description: 'User requests cancellation of a PAID/LUNAS order. Initiates Midtrans refund.'
+  })
+  async requestCancelOrder(
+    @Req() req: any,
+    @Param('id') orderId: string,
+    @Body() body: { cancel_reason: string; cancel_reason_detail?: string },
+  ) {
+    return this.orderService.requestCancel(req.user.id, orderId, body);
   }
 
   @UseGuards(JwtUserGuard)

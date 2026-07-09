@@ -16,13 +16,12 @@ export class Order {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  // Relasi ke tabel users
   @ManyToOne(() => User, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'user_id' })
   user: User;
 
   @Column()
-  user_id: string; // Otomatis terisi karena JoinColumn
+  user_id: string;
 
   @Column({ unique: true })
   invoice_number: string;
@@ -31,57 +30,96 @@ export class Order {
   total_price: number;
 
   @Column({ default: 'PENDING' })
-  status: string; // PENDING, LUNAS, DIKEMAS, DIKIRIM, SELESAI, BATAL
+  status: string;
 
   @Column({ type: 'text', nullable: true })
-  notes: string; // Opsional: Catatan dari pembeli
+  cancel_reason: string;
+
+  @Column({ type: 'text', nullable: true })
+  cancel_reason_detail: string;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  cancelled_at: Date;
+
+  // ── Refund Metadata ──
+  @Column({ nullable: true })
+  refund_transaction_id: string;
 
   @Column({ nullable: true })
-  tracking_number: string; // Nomor resi / AWB dari kurir
+  refund_key: string;
+
+  @Column({ type: 'jsonb', nullable: true })
+  refund_response: Record<string, any>;
 
   @Column({ nullable: true })
-  courier_name: string; // Nama kurir yang dipilih (JNE, J&T, etc.)
+  refund_status: string;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  refunded_at: Date;
+
+  @Column({ type: 'int', default: 0 })
+  refund_retry_count: number;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  refund_requested_at: Date;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  refund_completed_at: Date;
+
+  @Column({ type: 'text', nullable: true })
+  refund_note: string;
 
   @Column({ nullable: true })
-  courier_service: string; // Layanan kurir (REG, YES, OKE, etc.)
+  refund_operation_id: string;
+
+  // ── Original Fields ──
+  @Column({ type: 'text', nullable: true })
+  notes: string;
+
+  @Column({ nullable: true })
+  tracking_number: string;
+
+  @Column({ nullable: true })
+  courier_name: string;
+
+  @Column({ nullable: true })
+  courier_service: string;
 
   @Column('decimal', { precision: 10, scale: 2, nullable: true, default: 0 })
-  shipping_cost: number; // Ongkos kirim
-
-  // --- NEW FIELDS for Payment & Shipping Flow ---
+  shipping_cost: number;
 
   @Column({ type: 'varchar', length: 20, default: 'regular' })
-  shipping_type: string; // 'regular' atau 'instant'
+  shipping_type: string;
 
   @Column({ default: false })
-  is_locked: boolean; // Order dikunci (admin sudah proses, buyer tidak bisa cancel)
+  is_locked: boolean;
 
   @Column({ nullable: true })
-  payment_method: string; // Metode pembayaran dari Midtrans (qris, bank_transfer, etc.)
+  payment_method: string;
 
   @Column({ type: 'varchar', nullable: true })
-  address_id: string; // ID alamat pengiriman yang dipilih
+  address_id: string;
 
   @Column({ nullable: true })
-  awb_number: string; // Nomor AWB/Resi dari Biteship (berbeda dengan tracking_number)
+  awb_number: string;
 
   @Column({ type: 'text', nullable: true })
-  awb_url: string; // URL cetak label AWB dari Biteship
+  awb_url: string;
 
   @Column({ nullable: true })
-  biteship_order_id: string; // ID Order dari Biteship (digunakan untuk request pickup)
+  biteship_order_id: string;
 
   @Column({ nullable: true })
-  pickup_request_id: string; // ID request pickup dari Biteship
+  pickup_request_id: string;
 
   @Column({ type: 'timestamptz', nullable: true })
-  delivered_at: Date; // Waktu kurir menandai paket terkirim
+  delivered_at: Date;
 
   @Column({ type: 'timestamptz', nullable: true })
-  completed_at: Date; // Waktu pesanan selesai (konfirmasi buyer atau auto-complete)
+  completed_at: Date;
 
   @Column({ type: 'json', nullable: true })
-  shipping_details: Record<string, any>; // Detail pengiriman tambahan (rate, duration, dll)
+  shipping_details: Record<string, any>;
 
   @Column({ type: 'jsonb', nullable: true })
   shipping_address_snapshot: Record<string, any>;
@@ -89,7 +127,6 @@ export class Order {
   @Column({ nullable: true })
   payment_token: string;
 
-  // Relasi ke order_items
   @OneToMany(() => OrderItem, (item) => item.order, { cascade: true })
   items: OrderItem[];
 

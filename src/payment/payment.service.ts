@@ -1,24 +1,36 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as midtransClient from 'midtrans-client';
 import * as crypto from 'crypto';
 import { Order } from '../order/entities/order.entity';
+import { OrderHistory } from '../order/entities/order-history.entity';
+import { InventoryHistory } from '../order/entities/inventory-history.entity';
 import { ProductVariant } from '../product/entities/product-variant.entity';
 
 @Injectable()
 export class PaymentService {
   private readonly logger = new Logger(PaymentService.name);
   private snap: any;
+  private core: any;
 
   constructor(
     @InjectRepository(Order)
     private readonly orderRepo: Repository<Order>,
+    @InjectRepository(OrderHistory)
+    private readonly orderHistoryRepo: Repository<OrderHistory>,
+    @InjectRepository(InventoryHistory)
+    private readonly inventoryHistoryRepo: Repository<InventoryHistory>,
     @InjectRepository(ProductVariant)
     private readonly variantRepo: Repository<ProductVariant>,
   ) {
     this.logger.log(`Initializing Midtrans with serverKey: ${process.env.MIDTRANS_SERVER_KEY ? 'SET' : 'NOT SET'}, isProduction: ${process.env.MIDTRANS_IS_PRODUCTION}`);
     this.snap = new midtransClient.Snap({
+      isProduction: process.env.MIDTRANS_IS_PRODUCTION === 'true',
+      serverKey: process.env.MIDTRANS_SERVER_KEY,
+      clientKey: process.env.MIDTRANS_CLIENT_KEY,
+    });
+    this.core = new midtransClient.CoreApi({
       isProduction: process.env.MIDTRANS_IS_PRODUCTION === 'true',
       serverKey: process.env.MIDTRANS_SERVER_KEY,
       clientKey: process.env.MIDTRANS_CLIENT_KEY,
@@ -29,7 +41,7 @@ export class PaymentService {
     const finishUrl = `${process.env.VITE_SITE_URL || 'https://anandam.id'}/user/purchase`;
     const parameter = {
       transaction_details: { order_id: orderId, gross_amount: grossAmount },
-      customer_details: customerDetails || {}, 
+      customer_details: customerDetails || {},
       credit_card: { secure: true },
       callbacks: { finish: finishUrl },
     };
@@ -45,14 +57,116 @@ export class PaymentService {
   }
 
   /**
+   * Refund a transaction via Midtrans Core API.
+   * Uses the /v2/{order_id}/refund endpoint (direct refund).
+   */
+  async refundTransaction(orderId: string, amount: number, reason: string): Promise<any> {
+    this.logger.log(`[REFUND] Requesting refund for ${orderId}, amount=${amount}, reason=${reason}`);
+    try {
+      const parameter = {
+        transaction_id: orderId,
+        amount: amount,
+        reason: reason,
+      };
+      const result = await this.core.transactions.refundDirect(parameter);
+      this.logger.log(`[REFUND] Success for ${orderId}: ${JSON.stringify(result)}`);
+      return result;
+    } catch (error: any) {
+      const apiResponse = error?.ApiResponse || error?.apiResponse;
+      this.logger.error(`[REFUND] Failed for ${orderId}: ${error.message}`, apiResponse ? JSON.stringify(apiResponse) : '');
+      throw new Error(`Refund failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Process refund notification from Midtrans webhook.
+   * Direct refunds complete immediately, so Midtrans may not send a separate "refund" webhook.
+   * This is called as part of handleNotification when refund status is detected.
+   */
+  async processRefundNotification(order: Order): Promise<void> {
+    this.logger.log(`[REFUND NOTIFICATION] Processing refund for order ${order.id} (${order.invoice_number})`);
+
+    // Idempotency: sudah CANCELLED/BATAL → skip
+    if (order.status === 'CANCELLED' || order.status === 'BATAL') {
+      this.logger.log(`[REFUND NOTIFICATION] Order already cancelled, skipping duplicate`);
+      return;
+    }
+
+    const queryRunner = this.orderRepo.manager.connection.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      // 1. Update status
+      await queryRunner.manager.update(Order, order.id, {
+        status: 'CANCELLED',
+        cancelled_at: new Date(),
+      });
+
+      // 2. Restock items
+      const fullOrder = await queryRunner.manager.findOne(Order, {
+        where: { id: order.id },
+        relations: ['items', 'items.product', 'items.product.variants'],
+      });
+
+      if (fullOrder) {
+        for (const item of fullOrder.items) {
+          if (!item.product) continue;
+          let mv = item.product.variants?.find((v) => v.variant_name === item.variasi);
+          if (!mv && item.product.variants?.length > 0) mv = item.product.variants[0];
+          if (mv) {
+            const beforeStock = mv.stock;
+            mv.stock += item.quantity;
+            await queryRunner.manager.save(ProductVariant, mv);
+
+            // Inventory history
+            await queryRunner.manager.save(InventoryHistory, {
+              product_id: item.product_id,
+              variant_name: mv.variant_name,
+              qty: item.quantity,
+              before_stock: beforeStock,
+              after_stock: mv.stock,
+              reason: 'REFUND_RESTOCK',
+              reference_id: order.id,
+            });
+          }
+        }
+      }
+
+      // 3. Order history
+      await queryRunner.manager.save(OrderHistory, {
+        order_id: order.id,
+        actor: 'SYSTEM',
+        action: 'REFUND_SUCCESS',
+        description: 'Refund berhasil, order dibatalkan',
+      });
+
+      await queryRunner.manager.save(OrderHistory, {
+        order_id: order.id,
+        actor: 'SYSTEM',
+        action: 'STOCK_RESTORED',
+        description: 'Stok dikembalikan akibat refund',
+      });
+
+      await queryRunner.commitTransaction();
+      this.logger.log(`[REFUND NOTIFICATION] Successfully processed refund for order ${order.invoice_number}`);
+    } catch (err: any) {
+      await queryRunner.rollbackTransaction();
+      this.logger.error(`[REFUND NOTIFICATION] Failed, rolled back: ${err.message}`);
+      throw err;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  /**
    * Handle Midtrans webhook notification
-   * Updates order status based on payment result
    */
   async handleNotification(notificationBody: any) {
     try {
       this.logger.log(`Midtrans notification received: ${JSON.stringify(notificationBody)}`);
 
-      // 1. Verify signature to prevent unauthorized notifications
+      // Verify signature
       const serverKey = process.env.MIDTRANS_SERVER_KEY || '';
       const orderId = notificationBody.order_id;
       const statusCode = notificationBody.status_code;
@@ -73,12 +187,9 @@ export class PaymentService {
 
       this.logger.log(`Order ${orderId}: status=${transactionStatus}, fraud=${fraudStatus}`);
 
-      // 2. Find order in database — cari berdasarkan invoice_number
-      // Untuk retry payment, Midtrans mengirim order_id = "INV-xxx-Ruuid"
-      // Kita perlu cari order yang invoice_number-nya merupakan prefix dari orderId
+      // Find order
       let order = await this.orderRepo.findOne({ where: { invoice_number: orderId } });
 
-      // Jika tidak ditemukan, coba partial match (untuk retry payment)
       if (!order && orderId && orderId.includes('-R')) {
         const baseInvoice = orderId.split('-R')[0];
         this.logger.log(`Trying partial match with base invoice: ${baseInvoice}`);
@@ -94,7 +205,13 @@ export class PaymentService {
         return { status: 'error', message: 'Order not found' };
       }
 
-      // 3. Update order status based on payment result
+      // Handle refund notifications
+      if (transactionStatus === 'refund' || transactionStatus === 'refund_complete' || transactionStatus === 'return') {
+        await this.processRefundNotification(order);
+        return { status: 'success', message: 'Refund processed' };
+      }
+
+      // Normal payment status update
       let newStatus: string = order.status;
 
       if (transactionStatus === 'capture' && fraudStatus === 'accept') {
@@ -112,15 +229,11 @@ export class PaymentService {
       }
 
       if (order.status !== newStatus) {
-        // Stock deduction on transitioning to LUNAS
         if (order.status === 'PENDING' && newStatus === 'LUNAS') {
-          // Dynamically load variant repo to prevent circular dependencies if any (already injected though)
-          // Let's call the helper method to deduct stock
           try {
-            // We need to deduct stock. We can do it by finding variants.
-            const fullOrder = await this.orderRepo.findOne({ 
-              where: { id: order.id }, 
-              relations: ['items', 'items.product', 'items.product.variants'] 
+            const fullOrder = await this.orderRepo.findOne({
+              where: { id: order.id },
+              relations: ['items', 'items.product', 'items.product.variants'],
             });
             if (fullOrder) {
               for (const item of fullOrder.items) {
@@ -142,7 +255,7 @@ export class PaymentService {
         }
         order.status = newStatus;
         await this.orderRepo.save(order);
-        this.logger.log(`Order ${orderId} status updated: ${order.status} → ${newStatus}`);
+        this.logger.log(`Order ${orderId} status updated: → ${newStatus}`);
       } else {
         this.logger.log(`Order ${orderId} already at status ${newStatus}`);
       }
