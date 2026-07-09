@@ -103,10 +103,11 @@ export class OrderService {
       where: { id: orderId },
       relations: ['items', 'items.product', 'items.product.variants'],
     });
-        if (!order) return;
-        for (const item of order.items) {
-            if (!item.product) continue;
-            let mv = item.product.variants?.find((v) => v.variant_name === item.variasi);
+    if (!order) return;
+    for (const item of order.items) {
+      if (!item.product) continue;
+      let mv = item.product.variants?.find(
+        (v) => v.variant_name === item.variasi,
             if (!mv && item.product.variants?.length > 0) mv = item.product.variants[0];
             if (mv) {
                 if (mv.stock < item.quantity) throw new BadRequestException(`Stok ${item.product.name} (${mv.variant_name}) tidak mencukupi.`);
@@ -543,7 +544,7 @@ export class OrderService {
         }
 
         order.refund_retry_count = (order.refund_retry_count || 0) + 1;
-        order.refund_note = note || null;
+        order.refund_note = note || null as any;
         order.refund_status = 'retrying';
         await this.orderRepo.save(order);
 
