@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Repository, LessThan, In } from "typeorm";
+import { Repository, LessThan, In, Not, IsNull } from "typeorm";
 
 
 import { ChatRoom } from "./entities/chat-room.entity";
@@ -41,8 +41,9 @@ export class ChatService {
     const isAdmin = userPayload?.username !== undefined || userPayload?.role === 'admin' || (userPayload?.role !== 'USER' && !userPayload?.email);
 
     if (isAdmin) {
-      // Admin: ambil semua room beserta nama pembeli
+      // Admin: ambil semua room yang sudah memiliki pesan beserta nama pembeli
       const rooms = await this.roomRepository.find({
+        where: { last_message_at: Not(IsNull()) },
         order: { last_message_at: "DESC" },
       });
 
