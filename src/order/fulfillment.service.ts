@@ -563,7 +563,7 @@ export class FulfillmentService {
     const order = await this.orderRepo.findOne({ where: { id: orderId } });
     if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
 
-    const currentStatus = order.fulfillment_status || FulfillmentStatus.NONE;
+    let currentStatus = order.fulfillment_status || FulfillmentStatus.NONE;
     const shippingMethod = this.determineShippingMethod(order);
 
     if (
@@ -575,7 +575,21 @@ export class FulfillmentService {
       );
     }
 
-    // Must be in PACKING state
+    // Must be in PACKING state (or NONE for legacy orders)
+    // Auto-transition from NONE → PACKING for legacy orders
+    if (currentStatus === FulfillmentStatus.NONE) {
+      order.fulfillment_status = FulfillmentStatus.PACKING;
+      await this.orderRepo.save(order);
+      await this.recordHistory(
+        order.id,
+        actor,
+        'FULFILLMENT_STARTED',
+        'Fulfillment dimulai (legacy recovery for instant)',
+        opId,
+        { before: 'NONE', after: FulfillmentStatus.PACKING },
+      );
+      currentStatus = FulfillmentStatus.PACKING;
+    }
     if (currentStatus !== FulfillmentStatus.PACKING) {
       throw new BadRequestException('Pesanan harus dalam status packing.');
     }
