@@ -405,6 +405,19 @@ export class OrderController {
     return this.orderService.createCheckout(req.user.id, dto);
   }
 
+  // ====================== ADMIN REPAIR ORDER ======================
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/repair')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Repair corrupt order state (Admin)',
+    description: 'Fix orders stuck in inconsistent state (e.g. fulfillment=PACKING but status=LUNAS).',
+  })
+  @ApiResponse({ status: 200, description: 'Order repaired' })
+  async repairOrder(@Param('id') orderId: string) {
+    return this.orderService.repairOrderState(orderId);
+  }
+
   // ====================== BITESHIP WEBHOOK ======================
   @Post('webhook/biteship')
   @ApiOperation({ summary: 'Biteship webhook for order status updates' })

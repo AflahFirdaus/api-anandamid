@@ -1,4 +1,9 @@
-import { Injectable, BadRequestException, NotFoundException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+  Logger,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, LessThan, DataSource } from 'typeorm';
 import { Order } from './entities/order.entity';
@@ -10,1254 +15,2117 @@ import { Product } from '../product/entities/product.entity';
 import { ProductVariant } from '../product/entities/product-variant.entity';
 import { User } from '../user/entities/user.entity';
 import { UserAddress } from '../user/entities/user-address.entity';
-import { CheckoutCartDto, CheckoutDirectDto, CreateCheckoutDto } from './dto/checkout.dto';
-import { UpdateOrderStatusDto, CancelReason, RequestCancelDto } from './dto/update-order-status.dto';
+import {
+  CheckoutCartDto,
+  CheckoutDirectDto,
+  CreateCheckoutDto,
+} from './dto/checkout.dto';
+import {
+  UpdateOrderStatusDto,
+  CancelReason,
+  RequestCancelDto,
+} from './dto/update-order-status.dto';
 import { PaymentService } from '../payment/payment.service';
 import { VoucherService } from '../voucher/voucher.service';
-import { validateStatusTransition, validateBookingTransition } from './order-state-machine';
+import {
+  validateStatusTransition,
+  validateBookingTransition,
+} from './order-state-machine';
 
 function normalizeCourierCode(courier: string): string {
-    const c = courier.toLowerCase().trim();
-    if (c.includes('j&t') || c.includes('j & t') || c === 'jnt' || c.includes('j&t express')) return 'jnt';
-    if (c === 'jne' || c.includes('jne')) return 'jne';
-    if (c.includes('sicepat') || c === 'scp') return 'sicepat';
-    if (c === 'tiki' || c.includes('tiki')) return 'tiki';
-    if (c === 'pos' || c.includes('pos indonesia')) return 'pos';
-    if (c.includes('anteraja') || c === 'anteraja') return 'anteraja';
-    if (c.includes('ninja') || c === 'ninjaxpress') return 'ninjaxpress';
-    if (c.includes('wahana') || c === 'wahana') return 'wahana';
-    if (c.includes('gojek') || c.includes('gosend') || c === 'gojek') return 'gojek';
-    if (c.includes('grab') || c === 'grabexpress') return 'grab';
-    return c.replace(/\s+/g, '');
+  const c = courier.toLowerCase().trim();
+  if (
+    c.includes('j&t') ||
+    c.includes('j & t') ||
+    c === 'jnt' ||
+    c.includes('j&t express')
+  )
+    return 'jnt';
+  if (c === 'jne' || c.includes('jne')) return 'jne';
+  if (c.includes('sicepat') || c === 'scp') return 'sicepat';
+  if (c === 'tiki' || c.includes('tiki')) return 'tiki';
+  if (c === 'pos' || c.includes('pos indonesia')) return 'pos';
+  if (c.includes('anteraja') || c === 'anteraja') return 'anteraja';
+  if (c.includes('ninja') || c === 'ninjaxpress') return 'ninjaxpress';
+  if (c.includes('wahana') || c === 'wahana') return 'wahana';
+  if (c.includes('gojek') || c.includes('gosend') || c === 'gojek')
+    return 'gojek';
+  if (c.includes('grab') || c === 'grabexpress') return 'grab';
+  return c.replace(/\s+/g, '');
 }
 
 function extractCourierType(courier: string, rawService: string): string {
-    const svc = rawService.toLowerCase();
-    const c = normalizeCourierCode(courier);
-    if (c === 'jne') {
-        if (svc.includes('oke')) return 'oke';
-        if (svc.includes('yes')) return 'yes';
-        if (svc.includes('jtr')) return 'jtr';
-        if (svc.includes('ctc')) return 'ctc';
-        return 'reg';
-    }
-    if (c === 'jnt') {
-        if (svc.includes('jnd') || svc.includes('next day')) return 'jnd';
-        return 'ez';
-    }
-    if (c === 'sicepat') {
-        if (svc.includes('best')) return 'best';
-        if (svc.includes('sds') || svc.includes('same day')) return 'sds';
-        if (svc.includes('gokil')) return 'gokil';
-        return 'reg';
-    }
-    if (c === 'tiki') {
-        if (svc.includes('eco')) return 'eco';
-        if (svc.includes('ons') || svc.includes('overnight')) return 'ons';
-        if (svc.includes('hds') || svc.includes('same day')) return 'hds';
-        return 'reg';
-    }
-    if (c === 'pos') {
-        if (svc.includes('express') || svc.includes('next day')) return 'express next day';
-        return 'pos kilat khusus';
-    }
-    if (c === 'anteraja') {
-        if (svc.includes('next day') || svc.includes('nd')) return 'next_day';
-        if (svc.includes('same day') || svc.includes('sd')) return 'same_day';
-        return 'reguler';
-    }
-    if (svc.includes('regular') || svc.includes('reguler')) return 'reg';
-    if (svc.includes('express')) return 'express';
-    if (svc.includes('instant')) return 'instant';
-    if (svc.includes('same day') || svc.includes('sameday')) return 'same_day';
-    if (/^[a-z_]+$/.test(svc) && svc.length <= 20) return svc;
+  const svc = rawService.toLowerCase();
+  const c = normalizeCourierCode(courier);
+  if (c === 'jne') {
+    if (svc.includes('oke')) return 'oke';
+    if (svc.includes('yes')) return 'yes';
+    if (svc.includes('jtr')) return 'jtr';
+    if (svc.includes('ctc')) return 'ctc';
     return 'reg';
+  }
+  if (c === 'jnt') {
+    if (svc.includes('jnd') || svc.includes('next day')) return 'jnd';
+    return 'ez';
+  }
+  if (c === 'sicepat') {
+    if (svc.includes('best')) return 'best';
+    if (svc.includes('sds') || svc.includes('same day')) return 'sds';
+    if (svc.includes('gokil')) return 'gokil';
+    return 'reg';
+  }
+  if (c === 'tiki') {
+    if (svc.includes('eco')) return 'eco';
+    if (svc.includes('ons') || svc.includes('overnight')) return 'ons';
+    if (svc.includes('hds') || svc.includes('same day')) return 'hds';
+    return 'reg';
+  }
+  if (c === 'pos') {
+    if (svc.includes('express') || svc.includes('next day'))
+      return 'express next day';
+    return 'pos kilat khusus';
+  }
+  if (c === 'anteraja') {
+    if (svc.includes('next day') || svc.includes('nd')) return 'next_day';
+    if (svc.includes('same day') || svc.includes('sd')) return 'same_day';
+    return 'reguler';
+  }
+  if (svc.includes('regular') || svc.includes('reguler')) return 'reg';
+  if (svc.includes('express')) return 'express';
+  if (svc.includes('instant')) return 'instant';
+  if (svc.includes('same day') || svc.includes('sameday')) return 'same_day';
+  if (/^[a-z_]+$/.test(svc) && svc.length <= 20) return svc;
+  return 'reg';
 }
 
 @Injectable()
 export class OrderService {
-    private readonly logger = new Logger(OrderService.name);
+  private readonly logger = new Logger(OrderService.name);
 
-    constructor(
-        @InjectRepository(Order) private orderRepo: Repository<Order>,
-        @InjectRepository(OrderItem) private orderItemRepo: Repository<OrderItem>,
-        @InjectRepository(OrderHistory) private orderHistoryRepo: Repository<OrderHistory>,
-        @InjectRepository(InventoryHistory) private inventoryHistoryRepo: Repository<InventoryHistory>,
-        @InjectRepository(Cart) private cartRepo: Repository<Cart>,
-        @InjectRepository(Product) private productRepo: Repository<Product>,
-        @InjectRepository(ProductVariant) private variantRepo: Repository<ProductVariant>,
-        @InjectRepository(User) private userRepo: Repository<User>,
-        @InjectRepository(UserAddress) private addressRepo: Repository<UserAddress>,
-        private readonly paymentService: PaymentService,
-        private readonly voucherService: VoucherService,
-        private readonly dataSource: DataSource,
-    ) {}
+  constructor(
+    @InjectRepository(Order) private orderRepo: Repository<Order>,
+    @InjectRepository(OrderItem) private orderItemRepo: Repository<OrderItem>,
+    @InjectRepository(OrderHistory)
+    private orderHistoryRepo: Repository<OrderHistory>,
+    @InjectRepository(InventoryHistory)
+    private inventoryHistoryRepo: Repository<InventoryHistory>,
+    @InjectRepository(Cart) private cartRepo: Repository<Cart>,
+    @InjectRepository(Product) private productRepo: Repository<Product>,
+    @InjectRepository(ProductVariant)
+    private variantRepo: Repository<ProductVariant>,
+    @InjectRepository(User) private userRepo: Repository<User>,
+    @InjectRepository(UserAddress) private addressRepo: Repository<UserAddress>,
+    private readonly paymentService: PaymentService,
+    private readonly voucherService: VoucherService,
+    private readonly dataSource: DataSource,
+  ) {}
 
-    private generateInvoiceNumber(): string {
-        const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-        const randomNum = Math.floor(1000 + Math.random() * 9000);
-        return `INV-${dateStr}-${randomNum}`;
+  private generateInvoiceNumber(): string {
+    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const randomNum = Math.floor(1000 + Math.random() * 9000);
+    return `INV-${dateStr}-${randomNum}`;
+  }
+
+  async deductStock(orderId: string): Promise<void> {
+    const order = await this.orderRepo.findOne({
+      where: { id: orderId },
+      relations: ['items', 'items.product', 'items.product.variants'],
+    });
+    if (!order) return;
+    for (const item of order.items) {
+      if (!item.product) continue;
+      let mv = item.product.variants?.find(
+        (v) => v.variant_name === item.variasi,
+      );
+      if (!mv && item.product.variants?.length > 0)
+        mv = item.product.variants[0];
+      if (mv) {
+        if (mv.stock < item.quantity)
+          throw new BadRequestException(
+            `Stok ${item.product.name} (${mv.variant_name}) tidak mencukupi.`,
+          );
+        mv.stock -= item.quantity;
+        await this.variantRepo.save(mv);
+      }
     }
+  }
 
-    async deductStock(orderId: string): Promise<void> {
-        const order = await this.orderRepo.findOne({ where: { id: orderId }, relations: ['items', 'items.product', 'items.product.variants'] });
-        if (!order) return;
-        for (const item of order.items) {
-            if (!item.product) continue;
-            let mv = item.product.variants?.find((v) => v.variant_name === item.variasi);
-            if (!mv && item.product.variants?.length > 0) mv = item.product.variants[0];
-            if (mv) {
-                if (mv.stock < item.quantity) throw new BadRequestException(`Stok ${item.product.name} (${mv.variant_name}) tidak mencukupi.`);
-                mv.stock -= item.quantity;
-                await this.variantRepo.save(mv);
-            }
-        }
+  async restoreStock(orderId: string): Promise<void> {
+    const order = await this.orderRepo.findOne({
+      where: { id: orderId },
+      relations: ['items', 'items.product', 'items.product.variants'],
+    });
+    if (!order) return;
+    for (const item of order.items) {
+      if (!item.product) continue;
+      let mv = item.product.variants?.find(
+        (v) => v.variant_name === item.variasi,
+      );
+      if (!mv && item.product.variants?.length > 0)
+        mv = item.product.variants[0];
+      if (mv) {
+        mv.stock += item.quantity;
+        await this.variantRepo.save(mv);
+      }
     }
+  }
 
-    async restoreStock(orderId: string): Promise<void> {
-        const order = await this.orderRepo.findOne({ where: { id: orderId }, relations: ['items', 'items.product', 'items.product.variants'] });
-        if (!order) return;
-        for (const item of order.items) {
-            if (!item.product) continue;
-            let mv = item.product.variants?.find((v) => v.variant_name === item.variasi);
-            if (!mv && item.product.variants?.length > 0) mv = item.product.variants[0];
-            if (mv) { mv.stock += item.quantity; await this.variantRepo.save(mv); }
-        }
+  async checkoutFromCart(userId: string, dto: CheckoutCartDto) {
+    // ... unchanged
+    const cartItems = await this.cartRepo.find({
+      where: { id: In(dto.cart_ids), user_id: userId },
+      relations: ['product', 'product.variants'],
+    });
+    if (cartItems.length === 0)
+      throw new BadRequestException('Item keranjang tidak ditemukan.');
+    let tp = 0;
+    const oi: Partial<OrderItem>[] = [];
+    for (const cart of cartItems) {
+      if (!cart.product) continue;
+      let mv = cart.product.variants?.find(
+        (v) => v.variant_name === cart.selected_variasi,
+      );
+      if (!mv && cart.product.variants?.length > 0)
+        mv = cart.product.variants[0];
+      if (!mv)
+        throw new BadRequestException(
+          `Data variasi ${cart.product.name} tidak valid.`,
+        );
+      if (mv.stock < cart.quantity)
+        throw new BadRequestException(
+          `Stok ${cart.product.name} (${mv.variant_name}) tidak mencukupi.`,
+        );
+      const fp =
+        Number(mv.price_discount || 0) > 0
+          ? Number(mv.price_normal || 0) - Number(mv.price_discount || 0)
+          : Number(mv.price_normal || 0);
+      tp += fp * cart.quantity;
+      oi.push({
+        product: { id: cart.product.id } as Product,
+        product_name: cart.product.name,
+        variasi: mv.variant_name,
+        quantity: cart.quantity,
+        price: fp,
+      });
     }
+    const no = this.orderRepo.create({
+      user_id: userId,
+      invoice_number: this.generateInvoiceNumber(),
+      total_price: tp,
+      notes: dto.notes,
+      items: oi as OrderItem[],
+    } as any);
+    const saved = await this.orderRepo.save(no);
+    await this.cartRepo.delete(dto.cart_ids);
+    return { message: 'Checkout keranjang berhasil', order: saved };
+  }
 
-    async checkoutFromCart(userId: string, dto: CheckoutCartDto) {
-        // ... unchanged
-        const cartItems = await this.cartRepo.find({ where: { id: In(dto.cart_ids), user_id: userId }, relations: ['product', 'product.variants'] });
-        if (cartItems.length === 0) throw new BadRequestException('Item keranjang tidak ditemukan.');
-        let tp = 0; const oi: Partial<OrderItem>[] = [];
-        for (const cart of cartItems) {
-            if (!cart.product) continue;
-            let mv = cart.product.variants?.find((v) => v.variant_name === cart.selected_variasi);
-            if (!mv && cart.product.variants?.length > 0) mv = cart.product.variants[0];
-            if (!mv) throw new BadRequestException(`Data variasi ${cart.product.name} tidak valid.`);
-            if (mv.stock < cart.quantity) throw new BadRequestException(`Stok ${cart.product.name} (${mv.variant_name}) tidak mencukupi.`);
-            const fp = (Number(mv.price_discount || 0) > 0) ? Number(mv.price_normal || 0) - Number(mv.price_discount || 0) : Number(mv.price_normal || 0);
-            tp += fp * cart.quantity;
-            oi.push({ product: { id: cart.product.id } as Product, product_name: cart.product.name, variasi: mv.variant_name, quantity: cart.quantity, price: fp });
-        }
-        const no = this.orderRepo.create({ user_id: userId, invoice_number: this.generateInvoiceNumber(), total_price: tp, notes: dto.notes, items: oi as OrderItem[] } as any);
-        const saved = await this.orderRepo.save(no);
-        await this.cartRepo.delete(dto.cart_ids);
-        return { message: 'Checkout keranjang berhasil', order: saved };
+  async checkoutDirect(userId: string, dto: CheckoutDirectDto) {
+    const product = await this.productRepo.findOne({
+      where: { id: dto.product_id },
+      relations: ['variants'],
+    });
+    if (!product) throw new NotFoundException('Produk tidak ditemukan');
+    let mv = product.variants?.find((v) => v.variant_name === dto.variasi);
+    if (!mv && product.variants?.length > 0) mv = product.variants[0];
+    if (!mv) throw new BadRequestException('Data variasi produk tidak valid.');
+    if (mv.stock < dto.quantity)
+      throw new BadRequestException(
+        `Stok ${product.name} (${mv.variant_name}) hanya tersisa ${mv.stock}`,
+      );
+    const fp =
+      Number(mv.price_discount || 0) > 0
+        ? Number(mv.price_normal || 0) - Number(mv.price_discount || 0)
+        : Number(mv.price_normal || 0);
+    const no = this.orderRepo.create({
+      user_id: userId,
+      invoice_number: this.generateInvoiceNumber(),
+      total_price: fp * dto.quantity,
+      notes: dto.notes,
+      items: [
+        {
+          product: { id: product.id } as Product,
+          product_name: product.name,
+          variasi: mv.variant_name,
+          quantity: dto.quantity,
+          price: fp,
+        } as OrderItem,
+      ],
+    } as any);
+    return {
+      message: 'Checkout langsung berhasil',
+      order: await this.orderRepo.save(no),
+    };
+  }
+
+  async findMyOrders(userId: string) {
+    return this.orderRepo.find({
+      where: { user_id: userId } as any,
+      relations: ['items', 'items.product', 'items.product.images'],
+      order: { created_at: 'DESC' },
+    });
+  }
+
+  async retryPayment(orderId: string, userId: string) {
+    const order = await this.orderRepo.findOne({
+      where: { id: orderId, user_id: userId } as any,
+      relations: ['user'],
+    });
+    if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
+    if (order.status !== 'PENDING')
+      throw new BadRequestException(
+        'Hanya pesanan PENDING yang bisa dibayar ulang',
+      );
+    const tx = await this.paymentService.createTransaction(
+      `${order.invoice_number}-R${order.id.slice(0, 8)}`,
+      Math.round(order.total_price),
+      {
+        first_name: order.user.full_name || 'Customer',
+        email: order.user.email,
+        phone: order.user.phone_number || '',
+      },
+    );
+    order.payment_token = tx.token;
+    await this.orderRepo.save(order);
+    return {
+      message: 'Token pembayaran berhasil dibuat',
+      payment: { token: tx.token, redirect_url: tx.redirect_url },
+    };
+  }
+
+  async checkPaymentStatus(orderId: string, userId: string) {
+    const order = await this.orderRepo.findOne({
+      where: { id: orderId, user_id: userId } as any,
+    });
+    if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
+    if (order.status !== 'PENDING')
+      return {
+        message: `Status pesanan sudah ${order.status}`,
+        status: order.status,
+      };
+    const sk = process.env.MIDTRANS_SERVER_KEY || '';
+    const isProd = process.env.MIDTRANS_IS_PRODUCTION === 'true';
+    const base = isProd
+      ? 'https://api.midtrans.com/v2'
+      : 'https://api.sandbox.midtrans.com/v2';
+    const auth = Buffer.from(`${sk}:`).toString('base64');
+    let res = await fetch(`${base}/${order.invoice_number}/status`, {
+      headers: {
+        Authorization: `Basic ${auth}`,
+        'Content-Type': 'application/json',
+      },
+    });
+    let data = await res.json();
+    if (!res.ok || res.status === 404) {
+      const retryId = `${order.invoice_number}-R${order.id.slice(0, 8)}`;
+      res = await fetch(`${base}/${retryId}/status`, {
+        headers: {
+          Authorization: `Basic ${auth}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      data = await res.json();
     }
-
-    async checkoutDirect(userId: string, dto: CheckoutDirectDto) {
-        const product = await this.productRepo.findOne({ where: { id: dto.product_id }, relations: ['variants'] });
-        if (!product) throw new NotFoundException('Produk tidak ditemukan');
-        let mv = product.variants?.find((v) => v.variant_name === dto.variasi);
-        if (!mv && product.variants?.length > 0) mv = product.variants[0];
-        if (!mv) throw new BadRequestException('Data variasi produk tidak valid.');
-        if (mv.stock < dto.quantity) throw new BadRequestException(`Stok ${product.name} (${mv.variant_name}) hanya tersisa ${mv.stock}`);
-        const fp = (Number(mv.price_discount || 0) > 0) ? Number(mv.price_normal || 0) - Number(mv.price_discount || 0) : Number(mv.price_normal || 0);
-        const no = this.orderRepo.create({ user_id: userId, invoice_number: this.generateInvoiceNumber(), total_price: fp * dto.quantity, notes: dto.notes, items: [{ product: { id: product.id } as Product, product_name: product.name, variasi: mv.variant_name, quantity: dto.quantity, price: fp } as OrderItem] } as any);
-        return { message: 'Checkout langsung berhasil', order: await this.orderRepo.save(no) };
+    if (!res.ok)
+      throw new BadRequestException(data.error_messages?.[0] || 'Failed');
+    const ts = data.transaction_status,
+      fs = data.fraud_status;
+    let ns = order.status;
+    if (ts === 'capture' && fs === 'accept') ns = 'LUNAS';
+    else if (ts === 'settlement') ns = 'LUNAS';
+    else if (['cancel', 'deny', 'expire'].includes(ts)) ns = 'BATAL';
+    else if (ts === 'pending') ns = 'PENDING';
+    if (order.status !== ns) {
+      order.status = ns;
+      if (ns === 'LUNAS') {
+        await this.deductStock(order.id);
+      }
+      await this.orderRepo.save(order);
+      return { message: `→ ${ns}`, status: ns };
     }
-
-    async findMyOrders(userId: string) {
-        return this.orderRepo.find({ where: { user_id: userId } as any, relations: ['items', 'items.product', 'items.product.images'], order: { created_at: 'DESC' } });
-    }
-
-    async retryPayment(orderId: string, userId: string) {
-        const order = await this.orderRepo.findOne({ where: { id: orderId, user_id: userId } as any, relations: ['user'] });
-        if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
-        if (order.status !== 'PENDING') throw new BadRequestException('Hanya pesanan PENDING yang bisa dibayar ulang');
-        const tx = await this.paymentService.createTransaction(`${order.invoice_number}-R${order.id.slice(0, 8)}`, Math.round(order.total_price), { first_name: order.user.full_name || 'Customer', email: order.user.email, phone: order.user.phone_number || '' });
-        order.payment_token = tx.token;
-        await this.orderRepo.save(order);
-        return { message: 'Token pembayaran berhasil dibuat', payment: { token: tx.token, redirect_url: tx.redirect_url } };
-    }
-
-    async checkPaymentStatus(orderId: string, userId: string) {
-        const order = await this.orderRepo.findOne({ where: { id: orderId, user_id: userId } as any });
-        if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
-        if (order.status !== 'PENDING') return { message: `Status pesanan sudah ${order.status}`, status: order.status };
-        const sk = process.env.MIDTRANS_SERVER_KEY || ''; const isProd = process.env.MIDTRANS_IS_PRODUCTION === 'true';
-        const base = isProd ? 'https://api.midtrans.com/v2' : 'https://api.sandbox.midtrans.com/v2';
-        const auth = Buffer.from(`${sk}:`).toString('base64');
-        let res = await fetch(`${base}/${order.invoice_number}/status`, { headers: { Authorization: `Basic ${auth}`, 'Content-Type': 'application/json' } });
-        let data = await res.json();
-        if (!res.ok || res.status === 404) {
-            const retryId = `${order.invoice_number}-R${order.id.slice(0, 8)}`;
-            res = await fetch(`${base}/${retryId}/status`, { headers: { Authorization: `Basic ${auth}`, 'Content-Type': 'application/json' } });
-            data = await res.json();
-        }
-        if (!res.ok) throw new BadRequestException(data.error_messages?.[0] || 'Failed');
-        const ts = data.transaction_status, fs = data.fraud_status; let ns = order.status;
-        if (ts === 'capture' && fs === 'accept') ns = 'LUNAS'; else if (ts === 'settlement') ns = 'LUNAS';
-        else if (['cancel', 'deny', 'expire'].includes(ts)) ns = 'BATAL'; else if (ts === 'pending') ns = 'PENDING';
-        if (order.status !== ns) { 
-            order.status = ns; 
-            if (ns === 'LUNAS') { await this.deductStock(order.id); }
-            await this.orderRepo.save(order); 
-            return { message: `→ ${ns}`, status: ns }; 
-        }
-        return { message: `Status masih ${order.status}`, status: order.status };
-    }
-
-    async getTrackingInfo(orderId: string, userId: string) {
-        const order = await this.orderRepo.findOne({ where: { id: orderId, user_id: userId } as any });
-        if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
-        const searchResi = order.awb_number || order.tracking_number;
-        if (!searchResi) return { message: 'Nomor resi belum tersedia', tracking_number: null, status: order.status, courier_name: order.courier_name, courier_service: order.courier_service, history: [] };
-        try {
-            const key = process.env.BITESHIP_API_KEY || '';
-            const res = await fetch(`https://api.biteship.com/v1/trackings/${searchResi}`, { headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' } });
-            const data = await res.json();
-            if (!res.ok) return { message: 'Data tracking tidak tersedia', tracking_number: searchResi, status: order.status, courier_name: order.courier_name, courier_service: order.courier_service, history: [], raw_error: data.message };
-            return { message: 'Data tracking berhasil diambil', tracking_number: searchResi, status: data.status || order.status, courier_name: order.courier_name || data.courier?.name, courier_service: order.courier_service, history: (data.history || []).map((e: any) => ({ status: e.status, note: e.note, updated_at: e.updated_at, location: e.location || null })), waybill_url: data.waybill_url || null };
-        } catch (err: any) { return { message: 'Gagal mengambil data tracking', tracking_number: searchResi, status: order.status, courier_name: order.courier_name, courier_service: order.courier_service, history: [], error: err.message }; }
-    }
-
-    async cancelOrderUser(userId: string, orderId: string) {
-        const order = await this.orderRepo.findOne({ where: { id: orderId, user_id: userId } as any });
-        if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
-        if (order.is_locked) throw new BadRequestException('Pesanan sudah diproses admin.');
-        if (order.status !== 'PENDING') throw new BadRequestException('Hanya PENDING.');
-        order.status = 'BATAL'; return { message: 'Pesanan dibatalkan', order: await this.orderRepo.save(order) };
-    }
-
-    // ====================== ENTERPRISE REFUND: SHARED HELPERS ======================
-
-    /**
-     * Shared helper: restock order items inside a queryRunner transaction.
-     * Records inventory history with product_name/sku snapshot.
-     * Used by both processRefundSuccess and PaymentService to eliminate duplicate restock logic.
-     */
-    private async restockItemsAndRecordHistory(
-        queryRunner: any,
-        orderId: string,
-        operationId: string,
-    ): Promise<void> {
-        const fullOrder = await queryRunner.manager.findOne(Order, {
-            where: { id: orderId },
-            relations: ['items', 'items.product', 'items.product.variants'],
-        });
-
-        if (!fullOrder) return;
-
-        for (const item of fullOrder.items) {
-            if (!item.product) continue;
-            let mv = item.product.variants?.find((v) => v.variant_name === item.variasi);
-            if (!mv && item.product.variants?.length > 0) mv = item.product.variants[0];
-            if (mv) {
-                const beforeStock = mv.stock;
-                mv.stock += item.quantity;
-                await queryRunner.manager.save(ProductVariant, mv);
-
-                await queryRunner.manager.save(InventoryHistory, {
-                    product_id: item.product_id,
-                    variant_name: mv.variant_name,
-                    qty: item.quantity,
-                    before_stock: beforeStock,
-                    after_stock: mv.stock,
-                    source: 'REFUND',
-                    reason: 'REFUND_RESTOCK',
-                    reference_id: orderId,
-                    product_name: item.product_name,
-                    sku: mv.sku_seller,
-                    refund_operation_id: operationId || undefined,
-                });
-            }
-        }
-    }
-
-    /**
-     * Shared helper: save OrderHistory with metadata (before/after snapshots).
-     */
-    private async saveOrderHistory(
-        queryRunner: any,
-        orderId: string,
-        actor: string,
-        action: string,
-        description: string,
-        operationId: string,
-        beforeStatus?: string,
-        afterStatus?: string,
-        extraMeta?: Record<string, any>,
-    ): Promise<void> {
-        const metadata: Record<string, any> = {
-            ...(extraMeta || {}),
-        };
-        if (beforeStatus || afterStatus) {
-            metadata.before = { status: beforeStatus || null };
-            metadata.after = { status: afterStatus || null };
-        }
-        if (operationId) {
-            metadata.refund_operation_id = operationId;
-        }
-
-        await queryRunner.manager.save(OrderHistory, {
-            order_id: orderId,
-            actor,
-            action,
-            description,
-            metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
-            refund_operation_id: operationId || undefined,
-        });
-    }
-
-    // ====================== REQUEST CANCEL + REFUND (HARDENED) ======================
-
-    /**
-     * User requests cancellation of a PAID/LUNAS order.
-     * Uses pessimistic lock + DB transaction to prevent race conditions.
-     * Generates refund_operation_id (UUID) for full audit trail.
-     */
-    async requestCancel(userId: string, orderId: string, dto: { cancel_reason: string; cancel_reason_detail?: string }) {
-        const queryRunner = this.dataSource.createQueryRunner();
-        await queryRunner.connect();
-        await queryRunner.startTransaction();
-
-        try {
-            // 1. Pessimistic lock: SELECT ... FOR UPDATE
-            const order = await queryRunner.manager.findOne(Order, {
-                where: { id: orderId, user_id: userId },
-                relations: ['user'],
-                lock: { mode: 'pessimistic_write' },
-            } as any);
-
-            if (!order) {
-                await queryRunner.rollbackTransaction();
-                throw new NotFoundException('Pesanan tidak ditemukan');
-            }
-
-            // 2. Validasi status
-            if (order.status !== 'LUNAS') {
-                await queryRunner.rollbackTransaction();
-                throw new BadRequestException('Hanya pesanan LUNAS yang dapat dibatalkan.');
-            }
-            if (order.is_locked) {
-                await queryRunner.rollbackTransaction();
-                throw new BadRequestException('Pesanan sudah diproses admin dan tidak dapat dibatalkan.');
-            }
-            if (['CANCEL_REQUESTED', 'REFUNDING', 'REFUND_FAILED', 'CANCELLED', 'BATAL', 'DIKEMAS', 'DIKIRIM', 'SELESAI'].includes(order.status)) {
-                await queryRunner.rollbackTransaction();
-                throw new BadRequestException('Pesanan tidak dapat dibatalkan pada status ini.');
-            }
-
-            // 3. Generate correlation ID
-            const operationId = require('uuid').v4();
-            const oldStatus = order.status;
-
-            // 4. Save cancel reason + status = CANCEL_REQUESTED
-            order.cancel_reason = dto.cancel_reason;
-            order.cancel_reason_detail = dto.cancel_reason_detail || null as any;
-            order.refund_operation_id = operationId;
-            order.refund_requested_at = new Date();
-            order.status = 'CANCEL_REQUESTED';
-            await queryRunner.manager.save(Order, order);
-
-            // 5. History: USER_REQUEST_CANCEL
-            await this.saveOrderHistory(queryRunner, order.id, 'USER', 'USER_REQUEST_CANCEL',
-                `User meminta pembatalan: ${dto.cancel_reason}${dto.cancel_reason_detail ? ` (${dto.cancel_reason_detail})` : ''}`,
-                operationId, oldStatus, 'CANCEL_REQUESTED');
-
-            // 6. History: SYSTEM_VALIDATE
-            await this.saveOrderHistory(queryRunner, order.id, 'SYSTEM', 'SYSTEM_VALIDATE',
-                'Validasi pembatalan berhasil',
-                operationId, 'CANCEL_REQUESTED', 'CANCEL_REQUESTED');
-
-            // 7. Call Midtrans refund API
-            try {
-                const requestTime = Date.now();
-                const refundResult = await this.paymentService.refundTransaction(
-                    order.invoice_number,
-                    Math.round(Number(order.total_price)),
-                    dto.cancel_reason,
-                );
-                const responseTime = Date.now();
-                const responseMs = responseTime - requestTime;
-
-                // Save refund metadata
-                order.refund_transaction_id = refundResult?.transaction_id || null;
-                order.refund_key = refundResult?.refund_key || null;
-                order.refund_status = refundResult?.status || 'pending';
-                order.refund_response = refundResult || undefined;
-                order.refunded_at = new Date();
-                order.status = 'REFUNDING';
-                await queryRunner.manager.save(Order, order);
-
-                // 8. History: REFUND_REQUEST_SENT
-                await this.saveOrderHistory(queryRunner, order.id, 'SYSTEM', 'REFUND_REQUEST_SENT',
-                    'Refund request dikirim ke Midtrans',
-                    operationId, 'CANCEL_REQUESTED', 'REFUNDING', {
-                        refund_amount: Math.round(Number(order.total_price)),
-                        response_time_ms: responseMs,
-                        refund_key: order.refund_key,
-                    });
-
-                await queryRunner.commitTransaction();
-
-                this.logger.log(`[REFUND] operation_id=${operationId} order=${order.invoice_number} status=REFUNDING amount=${Math.round(Number(order.total_price))} actor=USER`);
-
-                return {
-                    message: 'Pengajuan pembatalan berhasil. Dana akan dikembalikan setelah refund diproses.',
-                    status: 'REFUNDING',
-                    refund_operation_id: operationId,
-                    refund_transaction_id: order.refund_transaction_id,
-                };
-            } catch (err: any) {
-                // Refund API failed → check if it's a timeout
-                if (err.message?.includes('timeout') || err.message?.includes('ETIMEDOUT') || err.message?.includes('ECONNRESET')) {
-                    // Don't mark as failed yet — let timeout recovery handle it
-                    order.status = 'REFUNDING';
-                    order.refund_status = 'PENDING_VERIFICATION';
-                    await queryRunner.manager.save(Order, order);
-
-                    await this.saveOrderHistory(queryRunner, order.id, 'SYSTEM', 'WAITING_MIDTRANS',
-                        `Refund timeout — perlu verifikasi: ${err.message}`,
-                        operationId, 'CANCEL_REQUESTED', 'REFUNDING', {
-                            error: err.message,
-                            requires_verification: true,
-                        });
-
-                    await queryRunner.commitTransaction();
-                    throw new BadRequestException('Refund diproses, namun perlu diverifikasi. Silakan cek status pesanan beberapa saat lagi.');
-                }
-
-                // Real failure
-                order.status = 'REFUND_FAILED';
-                order.refund_status = 'failed';
-                order.refund_response = { error: err.message } as any;
-                await queryRunner.manager.save(Order, order);
-
-                await this.saveOrderHistory(queryRunner, order.id, 'SYSTEM', 'REFUND_FAILED',
-                    `Refund gagal: ${err.message}. Manual action required.`,
-                    operationId, 'CANCEL_REQUESTED', 'REFUND_FAILED', {
-                        error: err.message,
-                        manual_action_required: true,
-                    });
-
-                await queryRunner.commitTransaction();
-
-                this.logger.error(`[REFUND] operation_id=${operationId} order=${order.invoice_number} status=REFUND_FAILED error=${err.message}`);
-
-                throw new BadRequestException(`Refund gagal: ${err.message}. Silakan hubungi admin.`);
-            }
-        } catch (err: any) {
-            if (err instanceof BadRequestException || err instanceof NotFoundException) {
-                if (queryRunner.isTransactionActive) await queryRunner.rollbackTransaction();
-                await queryRunner.release();
-                throw err;
-            }
-            if (queryRunner.isTransactionActive) await queryRunner.rollbackTransaction();
-            await queryRunner.release();
-            throw err;
-        }
-    }
-
-    /**
-     * Process successful refund from Midtrans webhook.
-     * Uses shared restock helper to eliminate duplicate logic.
-     * Idempotent via refund_operation_id + status check.
-     */
-    async processRefundSuccess(orderId: string, operationId?: string, webhookMeta?: Record<string, any>): Promise<void> {
-        const order = await this.orderRepo.findOne({ where: { id: orderId } });
-        if (!order) {
-            this.logger.warn(`[REFUND] operation_id=${operationId || '?'} order=${orderId} not_found=true`);
-            return;
-        }
-
-        // Multi-layer idempotency: status + refund_operation_id + refund_key
-        if (order.status === 'CANCELLED' || order.status === 'BATAL') {
-            this.logger.log(`[REFUND] operation_id=${operationId || order.refund_operation_id || '?'} order=${order.invoice_number} already_cancelled=true`);
-            return;
-        }
-        if (operationId && order.refund_operation_id && order.refund_operation_id !== operationId) {
-            // Different operation already processed — skip to prevent double restock
-            this.logger.warn(`[REFUND] operation_id=${operationId} order=${order.invoice_number} different_operation_exists=${order.refund_operation_id}`);
-            return;
-        }
-
-        const opId = operationId || order.refund_operation_id || require('uuid').v4();
-
-        const queryRunner = this.dataSource.createQueryRunner();
-        await queryRunner.connect();
-        await queryRunner.startTransaction();
-
-        try {
-            // 1. History: MIDTRANS_WEBHOOK_RECEIVED
-            const webhookReceivedAt = new Date();
-            await this.saveOrderHistory(queryRunner, order.id, 'MIDTRANS', 'MIDTRANS_WEBHOOK_RECEIVED',
-                'Webhook refund diterima dari Midtrans',
-                opId, order.status, 'CANCELLED', {
-                    ...(webhookMeta || {}),
-                    received_at: webhookReceivedAt.toISOString(),
-                });
-
-            // 2. Update order status
-            await queryRunner.manager.update(Order, order.id, {
-                status: 'CANCELLED',
-                cancelled_at: new Date(),
-                refund_status: 'success',
-                refund_completed_at: new Date(),
-                refund_operation_id: opId,
-            });
-
-            // 3. Restock items using shared helper
-            await this.restockItemsAndRecordHistory(queryRunner, order.id, opId);
-
-            // 4. History: REFUND_SUCCESS + ORDER_CANCELLED
-            await this.saveOrderHistory(queryRunner, order.id, 'SYSTEM', 'REFUND_SUCCESS',
-                'Refund berhasil diproses',
-                opId, 'REFUNDING', 'CANCELLED');
-
-            await this.saveOrderHistory(queryRunner, order.id, 'SYSTEM', 'ORDER_CANCELLED',
-                'Order dibatalkan akibat refund',
-                opId, 'REFUNDING', 'CANCELLED');
-
-            await queryRunner.commitTransaction();
-
-            // Calculate duration
-            const refundDuration = order.refund_requested_at
-                ? Math.round((Date.now() - order.refund_requested_at.getTime()) / 1000)
-                : null;
-
-            this.logger.log(`[REFUND] operation_id=${opId} order=${order.invoice_number} status=CANCELLED duration=${refundDuration ? `${refundDuration}s` : '?'} actor=MIDTRANS`);
-        } catch (err: any) {
-            await queryRunner.rollbackTransaction();
-            this.logger.error(`[REFUND] operation_id=${opId} order=${order.invoice_number} error=${err.message} rolled_back=true`);
-            throw err;
-        } finally {
-            await queryRunner.release();
-        }
-    }
-
-    /**
-     * Admin retries a failed refund. Capped at MAX_REFUND_RETRY (default 3).
-     */
-    async retryRefund(orderId: string, note?: string): Promise<any> {
-        const maxRetry = parseInt(process.env.MAX_REFUND_RETRY || '3', 10);
-        const order = await this.orderRepo.findOne({ where: { id: orderId } as any, lock: { mode: 'pessimistic_write' } } as any);
-        if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
-        if (order.status !== 'REFUND_FAILED') throw new BadRequestException('Hanya pesanan REFUND_FAILED yang bisa di-retry.');
-        if (order.refund_retry_count >= maxRetry) {
-            throw new BadRequestException(`Refund sudah di-retry ${maxRetry}x. Proses manual diperlukan.`);
-        }
-
-        order.refund_retry_count = (order.refund_retry_count || 0) + 1;
-        order.refund_note = note || null as any;
-        order.refund_status = 'retrying';
-        await this.orderRepo.save(order);
-
-        // Reuse the refund logic (same as requestCancel but simpler)
-        try {
-            const refundResult = await this.paymentService.refundTransaction(
-                order.invoice_number,
-                Math.round(Number(order.total_price)),
-                order.cancel_reason || 'Retry refund',
-            );
-            order.refund_transaction_id = refundResult?.transaction_id || order.refund_transaction_id;
-            order.refund_key = refundResult?.refund_key || order.refund_key;
-            order.refund_status = refundResult?.status || 'pending';
-            order.refund_response = refundResult || undefined;
-            order.status = 'REFUNDING';
-            await this.orderRepo.save(order);
-
-            this.logger.log(`[REFUND] operation_id=${order.refund_operation_id || '?'} order=${order.invoice_number} retry=${order.refund_retry_count} status=REFUNDING actor=ADMIN`);
-
-            return { message: 'Retry refund berhasil, status=REFUNDING', status: 'REFUNDING' };
-        } catch (err: any) {
-            order.refund_status = 'failed';
-            order.refund_response = { error: err.message } as any;
-            await this.orderRepo.save(order);
-
-            this.logger.error(`[REFUND] operation_id=${order.refund_operation_id || '?'} order=${order.invoice_number} retry=${order.refund_retry_count} status=REFUND_FAILED error=${err.message}`);
-
-            throw new BadRequestException(`Retry refund gagal (${order.refund_retry_count}/${maxRetry}): ${err.message}`);
-        }
-    }
-
-    async updateOrderStatus(orderId: string, dto: UpdateOrderStatusDto) {
-        const order = await this.orderRepo.findOne({ where: { id: orderId }, relations: ['items', 'items.product', 'items.product.variants'] });
-        if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
-        // State machine validation
-        try {
-            validateStatusTransition(order.status, dto.status);
-        } catch (e: any) {
-            throw new BadRequestException(e.message);
-        }
-        if (order.status === 'PENDING' && dto.status === 'LUNAS') await this.deductStock(orderId);
-        if (order.status === 'LUNAS' && dto.status === 'BATAL') await this.restoreStock(orderId);
-        if (dto.status === 'DIKIRIM') order.delivered_at = new Date();
-        if (dto.status === 'SELESAI') order.completed_at = new Date();
-        order.status = dto.status as string;
-        if (dto.tracking_number !== undefined) order.tracking_number = dto.tracking_number;
-        if (dto.courier_name !== undefined) order.courier_name = dto.courier_name;
-        if (dto.courier_service !== undefined) order.courier_service = dto.courier_service;
-        if (dto.awb_number !== undefined) order.awb_number = dto.awb_number;
-        if (dto.awb_url !== undefined) order.awb_url = dto.awb_url;
-        return { message: `Status diubah: ${dto.status}`, order: await this.orderRepo.save(order) };
-    }
-
-    async processOrder(orderId: string, dto?: { tracking_number?: string; courier_name?: string; courier_service?: string }) {
-        const opId = require('uuid').v4();
-        this.logger.log(`[PROCESS] operation_id=${opId} order=${orderId}`);
-
-        const order = await this.orderRepo.findOne({ where: { id: orderId }, relations: ['user', 'items', 'items.product'] });
-        if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
-        if (order.status !== 'LUNAS') throw new BadRequestException('Hanya pesanan LUNAS.');
-
-        // State machine: validate status transition
-        try { validateStatusTransition(order.status, 'DIKEMAS'); } catch (e: any) { throw new BadRequestException(e.message); }
-
-        // Booking idempotency guard
-        if (order.booking_status === 'BOOKING') throw new BadRequestException('Booking sedang diproses. Mohon tunggu.');
-        if (order.booking_status === 'BOOKED') throw new BadRequestException('Booking sudah berhasil sebelumnya.');
-
-        order.is_locked = true;
-        order.status = 'DIKEMAS';
-        if (dto?.tracking_number) order.tracking_number = dto.tracking_number;
-        if (dto?.courier_name) order.courier_name = dto.courier_name;
-        if (dto?.courier_service) order.courier_service = dto.courier_service;
-
-        // Booking lifecycle for regular courier
-        if (order.shipping_type === 'regular' && order.courier_name) {
-            order.booking_status = 'BOOKING';
-            await this.orderRepo.save(order);
-            await this.orderHistoryRepo.save({
-                order_id: order.id, actor: 'SYSTEM', action: 'BOOKING_STARTED',
-                description: 'Booking kurir dimulai',
-                refund_operation_id: opId,
-                metadata: { courier: order.courier_name, service: order.courier_service, operation_id: opId },
-            });
-
-            try {
-                const awb = await this.generateAwb(order);
-                if (awb) {
-                    order.awb_number = awb.awb_number;
-                    order.awb_url = awb.awb_url;
-                    order.biteship_order_id = awb.biteship_order_id;
-                    if (!order.tracking_number) order.tracking_number = awb.awb_number;
-                    order.booking_status = 'BOOKED';
-
-                    // Create shipping snapshot immediately after successful booking
-                    // This freezes the shipping data
-                    if (!order.shipping_snapshot) {
-                        // Snapshot creation is handled by ShippingLabelService
-                        // We just save the order with all booking data
-                    }
-
-                    const saved = await this.orderRepo.save(order);
-                    this.logger.log(`[PROCESS] ✅ AWB OK: operation_id=${opId} order=${order.invoice_number} biteshipId=${awb.biteship_order_id} awb=${awb.awb_number} booking_status=BOOKED`);
-
-                    // Fetch tracking URL in background
-                    this.fetchAndSaveTrackingUrl(saved).catch((e) =>
-                        this.logger.warn(`[PROCESS] tracking_url fetch failed: ${e.message}`),
-                    );
-
-                    await this.orderHistoryRepo.save({
-                        order_id: order.id, actor: 'SYSTEM', action: 'BOOKING_SUCCESS',
-                        description: 'Booking kurir berhasil',
-                        refund_operation_id: opId,
-                        metadata: { awb: awb.awb_number, biteship_order_id: awb.biteship_order_id, operation_id: opId },
-                    });
-
-                    this.logger.log(`[BOOKING] SUCCESS operation_id=${opId} order=${order.invoice_number} awb=${awb.awb_number}`);
-                    return { message: 'Pesanan diproses.', order: saved };
-                } else {
-                    // AWB generation returned null (API error)
-                    order.booking_status = 'FAILED';
-                    await this.orderRepo.save(order);
-                    await this.orderHistoryRepo.save({
-                        order_id: order.id, actor: 'SYSTEM', action: 'BOOKING_FAILED',
-                        description: 'Booking kurir gagal - AWB null dari Biteship',
-                        refund_operation_id: opId,
-                        metadata: { operation_id: opId },
-                    });
-                    this.logger.warn(`[BOOKING] FAILED operation_id=${opId} order=${order.invoice_number}`);
-                    return { message: 'Pesanan diproses namun booking kurir gagal. Gunakan Retry Booking.', order: order };
-                }
-            } catch (e: any) {
-                order.booking_status = 'FAILED';
-                await this.orderRepo.save(order);
-                await this.orderHistoryRepo.save({
-                    order_id: order.id, actor: 'SYSTEM', action: 'BOOKING_FAILED',
-                    description: `Booking kurir gagal: ${e.message}`,
-                    refund_operation_id: opId,
-                    metadata: { error: e.message, operation_id: opId },
-                });
-                this.logger.error(`[BOOKING] FAILED operation_id=${opId} order=${order.invoice_number} error=${e.message}`);
-                return { message: `Pesanan diproses namun booking gagal: ${e.message}. Gunakan Retry Booking.`, order: order };
-            }
-        }
-
-        // No booking needed (no courier selected or custom tracking)
-        await this.orderRepo.save(order);
-        this.logger.log(`[PROCESS] Done (no booking) operation_id=${opId} order=${order.invoice_number}`);
-        return { message: 'Pesanan diproses.', order: order };
-    }
-
-    /**
-     * Retry booking after failure. Only allowed when booking_status = FAILED.
-     */
-    async retryBooking(orderId: string): Promise<any> {
-        const opId = require('uuid').v4();
-        this.logger.log(`[RETRY_BOOKING] operation_id=${opId} order=${orderId}`);
-
-        const order = await this.orderRepo.findOne({ where: { id: orderId }, relations: ['user', 'items', 'items.product'] });
-        if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
-        if (order.booking_status !== 'FAILED') throw new BadRequestException('Hanya pesanan dengan booking FAILED yang bisa di-retry.');
-        if (!order.courier_name) throw new BadRequestException('Kurir belum dipilih.');
-
-        order.booking_status = 'BOOKING';
-        await this.orderRepo.save(order);
-        await this.orderHistoryRepo.save({
-            order_id: order.id, actor: 'SYSTEM', action: 'BOOKING_RETRY',
-            description: 'Retry booking kurir dimulai',
-            refund_operation_id: opId,
-            metadata: { courier: order.courier_name, operation_id: opId },
-        });
-
-        try {
-            let awb: any = null;
-            if (order.shipping_type === 'regular') {
-                awb = await this.generateAwb(order);
-            } else if (order.shipping_type === 'instant') {
-                awb = await this.generateInstantBooking(order);
-            }
-
-            if (awb) {
-                order.awb_number = awb.awb_number;
-                order.awb_url = awb.awb_url;
-                order.biteship_order_id = awb.biteship_order_id;
-                if (!order.tracking_number) order.tracking_number = awb.awb_number;
-                order.booking_status = 'BOOKED';
-                await this.orderRepo.save(order);
-
-                await this.orderHistoryRepo.save({
-                    order_id: order.id, actor: 'SYSTEM', action: 'BOOKING_RETRY_SUCCESS',
-                    description: 'Retry booking kurir berhasil',
-                    refund_operation_id: opId,
-                    metadata: { awb: awb.awb_number, biteship_order_id: awb.biteship_order_id, operation_id: opId },
-                });
-
-                this.logger.log(`[RETRY_BOOKING] SUCCESS operation_id=${opId} order=${order.invoice_number} awb=${awb.awb_number}`);
-                return { message: 'Retry booking berhasil.', order: order };
-            } else {
-                order.booking_status = 'FAILED';
-                await this.orderRepo.save(order);
-                throw new BadRequestException('Retry booking gagal. Silakan coba lagi.');
-            }
-        } catch (e: any) {
-            if (e instanceof BadRequestException) throw e;
-            order.booking_status = 'FAILED';
-            await this.orderRepo.save(order);
-            await this.orderHistoryRepo.save({
-                order_id: order.id, actor: 'SYSTEM', action: 'BOOKING_RETRY_FAILED',
-                description: `Retry booking gagal: ${e.message}`,
-                refund_operation_id: opId,
-                metadata: { error: e.message, operation_id: opId },
-            });
-            throw new BadRequestException(`Retry booking gagal: ${e.message}`);
-        }
-    }
-
-    /**
-     * Generate instant booking (for searchDriver / gojek/grab)
-     */
-    private async generateInstantBooking(order: Order): Promise<{ biteship_order_id: string; awb_number: string; awb_url: string } | null> {
-        const key = process.env.BITESHIP_API_KEY || '';
-        if (!key) return null;
-
-        let destLat = '', destLng = ''; let destName = order.user?.full_name || 'Customer';
-        let destPhone = order.user?.phone_number || '08123456789'; let destAddr = ''; let destPC = '';
-        if (order.shipping_address_snapshot) {
-            const snap = order.shipping_address_snapshot as any;
-            destLat = String(snap.latitude || ''); destLng = String(snap.longitude || '');
-            destAddr = snap.full_address || ''; destName = snap.recipient_name || destName;
-            destPhone = snap.phone_number || destPhone; destPC = snap.postal_code || '';
-        } else if (order.address_id) {
-            const addr = await this.addressRepo.findOne({ where: { id: order.address_id } as any });
-            if (addr?.latitude && addr?.longitude) {
-                destLat = String(addr.latitude); destLng = String(addr.longitude);
-                destAddr = addr.full_address || ''; destName = addr.recipient_name || destName;
-                destPhone = addr.phone_number || destPhone; destPC = addr.postal_code || '';
-            }
-        }
-        if (!destLat || !destLng) return null;
-
-        const originLat = parseFloat(process.env.STORE_LATITUDE || '-7.8300');
-        const originLng = parseFloat(process.env.STORE_LONGITUDE || '110.3870');
-        const courier = normalizeCourierCode(order.courier_name || 'gojek');
-
-        const biteshipBody: any = {
-            origin_contact_name: process.env.STORE_CONTACT_NAME || 'Anandam Computer',
-            origin_contact_phone: process.env.STORE_PHONE || '6281228134747',
-            origin_address: process.env.STORE_ADDRESS || 'Jl. Ringroad Selatan',
-            origin_postal_code: parseInt(process.env.STORE_POSTAL_CODE || '55283', 10),
-            origin_coordinate: { latitude: originLat, longitude: originLng },
-            destination_contact_name: destName, destination_contact_phone: destPhone,
-            destination_address: destAddr || 'Alamat Tujuan',
-            destination_coordinate: { latitude: parseFloat(destLat), longitude: parseFloat(destLng) },
-            courier_company: courier, courier_type: 'instant', delivery_type: 'now',
-            items: order.items.map((item) => ({
-                name: item.product_name || 'Product', value: Math.max(Number(item.price) || 1000, 100),
-                quantity: item.quantity, weight: Math.max(Math.round((item.product?.weight || 1000) * item.quantity), 100),
-                length: Number(item.product?.length) || 20, width: Number(item.product?.width) || 20,
-                height: Number(item.product?.height) || 20,
-            })),
-        };
-        if (destPC) biteshipBody.destination_postal_code = parseInt(destPC, 10);
-
-        const res = await fetch('https://api.biteship.com/v1/orders', {
-            method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify(biteshipBody),
-        });
-        const data = await res.json();
-        if (!res.ok) {
-            this.logger.error(`[INSTANT_BOOKING] FAIL: ${JSON.stringify(data)}`);
-            return null;
-        }
+    return { message: `Status masih ${order.status}`, status: order.status };
+  }
+
+  async getTrackingInfo(orderId: string, userId: string) {
+    const order = await this.orderRepo.findOne({
+      where: { id: orderId, user_id: userId } as any,
+    });
+    if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
+    const searchResi = order.awb_number || order.tracking_number;
+    if (!searchResi)
+      return {
+        message: 'Nomor resi belum tersedia',
+        tracking_number: null,
+        status: order.status,
+        courier_name: order.courier_name,
+        courier_service: order.courier_service,
+        history: [],
+      };
+    try {
+      const key = process.env.BITESHIP_API_KEY || '';
+      const res = await fetch(
+        `https://api.biteship.com/v1/trackings/${searchResi}`,
+        {
+          headers: {
+            Authorization: `Bearer ${key}`,
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+      const data = await res.json();
+      if (!res.ok)
         return {
-            biteship_order_id: data.id || '',
-            awb_number: data.waybill_id || '',
-            awb_url: data.waybill_url || '',
+          message: 'Data tracking tidak tersedia',
+          tracking_number: searchResi,
+          status: order.status,
+          courier_name: order.courier_name,
+          courier_service: order.courier_service,
+          history: [],
+          raw_error: data.message,
         };
+      return {
+        message: 'Data tracking berhasil diambil',
+        tracking_number: searchResi,
+        status: data.status || order.status,
+        courier_name: order.courier_name || data.courier?.name,
+        courier_service: order.courier_service,
+        history: (data.history || []).map((e: any) => ({
+          status: e.status,
+          note: e.note,
+          updated_at: e.updated_at,
+          location: e.location || null,
+        })),
+        waybill_url: data.waybill_url || null,
+      };
+    } catch (err: any) {
+      return {
+        message: 'Gagal mengambil data tracking',
+        tracking_number: searchResi,
+        status: order.status,
+        courier_name: order.courier_name,
+        courier_service: order.courier_service,
+        history: [],
+        error: err.message,
+      };
+    }
+  }
+
+  async cancelOrderUser(userId: string, orderId: string) {
+    const order = await this.orderRepo.findOne({
+      where: { id: orderId, user_id: userId } as any,
+    });
+    if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
+    if (order.is_locked)
+      throw new BadRequestException('Pesanan sudah diproses admin.');
+    if (order.status !== 'PENDING')
+      throw new BadRequestException('Hanya PENDING.');
+    order.status = 'BATAL';
+    return {
+      message: 'Pesanan dibatalkan',
+      order: await this.orderRepo.save(order),
+    };
+  }
+
+  // ====================== ENTERPRISE REFUND: SHARED HELPERS ======================
+
+  /**
+   * Shared helper: restock order items inside a queryRunner transaction.
+   * Records inventory history with product_name/sku snapshot.
+   * Used by both processRefundSuccess and PaymentService to eliminate duplicate restock logic.
+   */
+  private async restockItemsAndRecordHistory(
+    queryRunner: any,
+    orderId: string,
+    operationId: string,
+  ): Promise<void> {
+    const fullOrder = await queryRunner.manager.findOne(Order, {
+      where: { id: orderId },
+      relations: ['items', 'items.product', 'items.product.variants'],
+    });
+
+    if (!fullOrder) return;
+
+    for (const item of fullOrder.items) {
+      if (!item.product) continue;
+      let mv = item.product.variants?.find(
+        (v) => v.variant_name === item.variasi,
+      );
+      if (!mv && item.product.variants?.length > 0)
+        mv = item.product.variants[0];
+      if (mv) {
+        const beforeStock = mv.stock;
+        mv.stock += item.quantity;
+        await queryRunner.manager.save(ProductVariant, mv);
+
+        await queryRunner.manager.save(InventoryHistory, {
+          product_id: item.product_id,
+          variant_name: mv.variant_name,
+          qty: item.quantity,
+          before_stock: beforeStock,
+          after_stock: mv.stock,
+          source: 'REFUND',
+          reason: 'REFUND_RESTOCK',
+          reference_id: orderId,
+          product_name: item.product_name,
+          sku: mv.sku_seller,
+          refund_operation_id: operationId || undefined,
+        });
+      }
+    }
+  }
+
+  /**
+   * Shared helper: save OrderHistory with metadata (before/after snapshots).
+   */
+  private async saveOrderHistory(
+    queryRunner: any,
+    orderId: string,
+    actor: string,
+    action: string,
+    description: string,
+    operationId: string,
+    beforeStatus?: string,
+    afterStatus?: string,
+    extraMeta?: Record<string, any>,
+  ): Promise<void> {
+    const metadata: Record<string, any> = {
+      ...(extraMeta || {}),
+    };
+    if (beforeStatus || afterStatus) {
+      metadata.before = { status: beforeStatus || null };
+      metadata.after = { status: afterStatus || null };
+    }
+    if (operationId) {
+      metadata.refund_operation_id = operationId;
     }
 
-    async searchDriver(orderId: string) {
-        const opId = require('uuid').v4();
-        this.logger.log(`[INSTANT] Booking driver for order ${orderId} operation_id=${opId}`);
+    await queryRunner.manager.save(OrderHistory, {
+      order_id: orderId,
+      actor,
+      action,
+      description,
+      metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
+      refund_operation_id: operationId || undefined,
+    });
+  }
 
-        const order = await this.orderRepo.findOne({ where: { id: orderId }, relations: ['user', 'items', 'items.product'] });
-        if (!order) throw new NotFoundException('Tidak ditemukan');
-        if (order.status !== 'DIKEMAS') throw new BadRequestException('Hanya pesanan DIKEMAS yang bisa dipesan drivernya.');
-        if (order.shipping_type !== 'instant') throw new BadRequestException('Hanya pesanan instan.');
+  // ====================== REQUEST CANCEL + REFUND (HARDENED) ======================
 
-        // Booking idempotency guard
-        if (order.booking_status === 'BOOKING') throw new BadRequestException('Booking sedang diproses. Mohon tunggu.');
-        if (order.booking_status === 'BOOKED') throw new BadRequestException('Driver sudah dipesan sebelumnya.');
+  /**
+   * User requests cancellation of a PAID/LUNAS order.
+   * Uses pessimistic lock + DB transaction to prevent race conditions.
+   * Generates refund_operation_id (UUID) for full audit trail.
+   */
+  async requestCancel(
+    userId: string,
+    orderId: string,
+    dto: { cancel_reason: string; cancel_reason_detail?: string },
+  ) {
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
 
-        order.booking_status = 'BOOKING';
-        await this.orderRepo.save(order);
+    try {
+      // 1. Pessimistic lock: SELECT ... FOR UPDATE
+      const order = await queryRunner.manager.findOne(Order, {
+        where: { id: orderId, user_id: userId },
+        relations: ['user'],
+        lock: { mode: 'pessimistic_write' },
+      } as any);
 
-        await this.orderHistoryRepo.save({
-            order_id: order.id, actor: 'SYSTEM', action: 'BOOKING_STARTED',
-            description: 'Pencarian driver instant dimulai',
+      if (!order) {
+        await queryRunner.rollbackTransaction();
+        throw new NotFoundException('Pesanan tidak ditemukan');
+      }
+
+      // 2. Validasi status
+      if (order.status !== 'LUNAS') {
+        await queryRunner.rollbackTransaction();
+        throw new BadRequestException(
+          'Hanya pesanan LUNAS yang dapat dibatalkan.',
+        );
+      }
+      if (order.is_locked) {
+        await queryRunner.rollbackTransaction();
+        throw new BadRequestException(
+          'Pesanan sudah diproses admin dan tidak dapat dibatalkan.',
+        );
+      }
+      if (
+        [
+          'CANCEL_REQUESTED',
+          'REFUNDING',
+          'REFUND_FAILED',
+          'CANCELLED',
+          'BATAL',
+          'DIKEMAS',
+          'DIKIRIM',
+          'SELESAI',
+        ].includes(order.status)
+      ) {
+        await queryRunner.rollbackTransaction();
+        throw new BadRequestException(
+          'Pesanan tidak dapat dibatalkan pada status ini.',
+        );
+      }
+
+      // 3. Generate correlation ID
+      const operationId = require('uuid').v4();
+      const oldStatus = order.status;
+
+      // 4. Save cancel reason + status = CANCEL_REQUESTED
+      order.cancel_reason = dto.cancel_reason;
+      order.cancel_reason_detail = dto.cancel_reason_detail || (null as any);
+      order.refund_operation_id = operationId;
+      order.refund_requested_at = new Date();
+      order.status = 'CANCEL_REQUESTED';
+      await queryRunner.manager.save(Order, order);
+
+      // 5. History: USER_REQUEST_CANCEL
+      await this.saveOrderHistory(
+        queryRunner,
+        order.id,
+        'USER',
+        'USER_REQUEST_CANCEL',
+        `User meminta pembatalan: ${dto.cancel_reason}${dto.cancel_reason_detail ? ` (${dto.cancel_reason_detail})` : ''}`,
+        operationId,
+        oldStatus,
+        'CANCEL_REQUESTED',
+      );
+
+      // 6. History: SYSTEM_VALIDATE
+      await this.saveOrderHistory(
+        queryRunner,
+        order.id,
+        'SYSTEM',
+        'SYSTEM_VALIDATE',
+        'Validasi pembatalan berhasil',
+        operationId,
+        'CANCEL_REQUESTED',
+        'CANCEL_REQUESTED',
+      );
+
+      // 7. Call Midtrans refund API
+      try {
+        const requestTime = Date.now();
+        const refundResult = await this.paymentService.refundTransaction(
+          order.invoice_number,
+          Math.round(Number(order.total_price)),
+          dto.cancel_reason,
+        );
+        const responseTime = Date.now();
+        const responseMs = responseTime - requestTime;
+
+        // Save refund metadata
+        order.refund_transaction_id = refundResult?.transaction_id || null;
+        order.refund_key = refundResult?.refund_key || null;
+        order.refund_status = refundResult?.status || 'pending';
+        order.refund_response = refundResult || undefined;
+        order.refunded_at = new Date();
+        order.status = 'REFUNDING';
+        await queryRunner.manager.save(Order, order);
+
+        // 8. History: REFUND_REQUEST_SENT
+        await this.saveOrderHistory(
+          queryRunner,
+          order.id,
+          'SYSTEM',
+          'REFUND_REQUEST_SENT',
+          'Refund request dikirim ke Midtrans',
+          operationId,
+          'CANCEL_REQUESTED',
+          'REFUNDING',
+          {
+            refund_amount: Math.round(Number(order.total_price)),
+            response_time_ms: responseMs,
+            refund_key: order.refund_key,
+          },
+        );
+
+        await queryRunner.commitTransaction();
+
+        this.logger.log(
+          `[REFUND] operation_id=${operationId} order=${order.invoice_number} status=REFUNDING amount=${Math.round(Number(order.total_price))} actor=USER`,
+        );
+
+        return {
+          message:
+            'Pengajuan pembatalan berhasil. Dana akan dikembalikan setelah refund diproses.',
+          status: 'REFUNDING',
+          refund_operation_id: operationId,
+          refund_transaction_id: order.refund_transaction_id,
+        };
+      } catch (err: any) {
+        // Refund API failed → check if it's a timeout
+        if (
+          err.message?.includes('timeout') ||
+          err.message?.includes('ETIMEDOUT') ||
+          err.message?.includes('ECONNRESET')
+        ) {
+          // Don't mark as failed yet — let timeout recovery handle it
+          order.status = 'REFUNDING';
+          order.refund_status = 'PENDING_VERIFICATION';
+          await queryRunner.manager.save(Order, order);
+
+          await this.saveOrderHistory(
+            queryRunner,
+            order.id,
+            'SYSTEM',
+            'WAITING_MIDTRANS',
+            `Refund timeout — perlu verifikasi: ${err.message}`,
+            operationId,
+            'CANCEL_REQUESTED',
+            'REFUNDING',
+            {
+              error: err.message,
+              requires_verification: true,
+            },
+          );
+
+          await queryRunner.commitTransaction();
+          throw new BadRequestException(
+            'Refund diproses, namun perlu diverifikasi. Silakan cek status pesanan beberapa saat lagi.',
+          );
+        }
+
+        // Real failure
+        order.status = 'REFUND_FAILED';
+        order.refund_status = 'failed';
+        order.refund_response = { error: err.message } as any;
+        await queryRunner.manager.save(Order, order);
+
+        await this.saveOrderHistory(
+          queryRunner,
+          order.id,
+          'SYSTEM',
+          'REFUND_FAILED',
+          `Refund gagal: ${err.message}. Manual action required.`,
+          operationId,
+          'CANCEL_REQUESTED',
+          'REFUND_FAILED',
+          {
+            error: err.message,
+            manual_action_required: true,
+          },
+        );
+
+        await queryRunner.commitTransaction();
+
+        this.logger.error(
+          `[REFUND] operation_id=${operationId} order=${order.invoice_number} status=REFUND_FAILED error=${err.message}`,
+        );
+
+        throw new BadRequestException(
+          `Refund gagal: ${err.message}. Silakan hubungi admin.`,
+        );
+      }
+    } catch (err: any) {
+      if (
+        err instanceof BadRequestException ||
+        err instanceof NotFoundException
+      ) {
+        if (queryRunner.isTransactionActive)
+          await queryRunner.rollbackTransaction();
+        await queryRunner.release();
+        throw err;
+      }
+      if (queryRunner.isTransactionActive)
+        await queryRunner.rollbackTransaction();
+      await queryRunner.release();
+      throw err;
+    }
+  }
+
+  /**
+   * Process successful refund from Midtrans webhook.
+   * Uses shared restock helper to eliminate duplicate logic.
+   * Idempotent via refund_operation_id + status check.
+   */
+  async processRefundSuccess(
+    orderId: string,
+    operationId?: string,
+    webhookMeta?: Record<string, any>,
+  ): Promise<void> {
+    const order = await this.orderRepo.findOne({ where: { id: orderId } });
+    if (!order) {
+      this.logger.warn(
+        `[REFUND] operation_id=${operationId || '?'} order=${orderId} not_found=true`,
+      );
+      return;
+    }
+
+    // Multi-layer idempotency: status + refund_operation_id + refund_key
+    if (order.status === 'CANCELLED' || order.status === 'BATAL') {
+      this.logger.log(
+        `[REFUND] operation_id=${operationId || order.refund_operation_id || '?'} order=${order.invoice_number} already_cancelled=true`,
+      );
+      return;
+    }
+    if (
+      operationId &&
+      order.refund_operation_id &&
+      order.refund_operation_id !== operationId
+    ) {
+      // Different operation already processed — skip to prevent double restock
+      this.logger.warn(
+        `[REFUND] operation_id=${operationId} order=${order.invoice_number} different_operation_exists=${order.refund_operation_id}`,
+      );
+      return;
+    }
+
+    const opId =
+      operationId || order.refund_operation_id || require('uuid').v4();
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      // 1. History: MIDTRANS_WEBHOOK_RECEIVED
+      const webhookReceivedAt = new Date();
+      await this.saveOrderHistory(
+        queryRunner,
+        order.id,
+        'MIDTRANS',
+        'MIDTRANS_WEBHOOK_RECEIVED',
+        'Webhook refund diterima dari Midtrans',
+        opId,
+        order.status,
+        'CANCELLED',
+        {
+          ...(webhookMeta || {}),
+          received_at: webhookReceivedAt.toISOString(),
+        },
+      );
+
+      // 2. Update order status
+      await queryRunner.manager.update(Order, order.id, {
+        status: 'CANCELLED',
+        cancelled_at: new Date(),
+        refund_status: 'success',
+        refund_completed_at: new Date(),
+        refund_operation_id: opId,
+      });
+
+      // 3. Restock items using shared helper
+      await this.restockItemsAndRecordHistory(queryRunner, order.id, opId);
+
+      // 4. History: REFUND_SUCCESS + ORDER_CANCELLED
+      await this.saveOrderHistory(
+        queryRunner,
+        order.id,
+        'SYSTEM',
+        'REFUND_SUCCESS',
+        'Refund berhasil diproses',
+        opId,
+        'REFUNDING',
+        'CANCELLED',
+      );
+
+      await this.saveOrderHistory(
+        queryRunner,
+        order.id,
+        'SYSTEM',
+        'ORDER_CANCELLED',
+        'Order dibatalkan akibat refund',
+        opId,
+        'REFUNDING',
+        'CANCELLED',
+      );
+
+      await queryRunner.commitTransaction();
+
+      // Calculate duration
+      const refundDuration = order.refund_requested_at
+        ? Math.round((Date.now() - order.refund_requested_at.getTime()) / 1000)
+        : null;
+
+      this.logger.log(
+        `[REFUND] operation_id=${opId} order=${order.invoice_number} status=CANCELLED duration=${refundDuration ? `${refundDuration}s` : '?'} actor=MIDTRANS`,
+      );
+    } catch (err: any) {
+      await queryRunner.rollbackTransaction();
+      this.logger.error(
+        `[REFUND] operation_id=${opId} order=${order.invoice_number} error=${err.message} rolled_back=true`,
+      );
+      throw err;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  /**
+   * Admin retries a failed refund. Capped at MAX_REFUND_RETRY (default 3).
+   */
+  async retryRefund(orderId: string, note?: string): Promise<any> {
+    const maxRetry = parseInt(process.env.MAX_REFUND_RETRY || '3', 10);
+    const order = await this.orderRepo.findOne({
+      where: { id: orderId } as any,
+      lock: { mode: 'pessimistic_write' },
+    } as any);
+    if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
+    if (order.status !== 'REFUND_FAILED')
+      throw new BadRequestException(
+        'Hanya pesanan REFUND_FAILED yang bisa di-retry.',
+      );
+    if (order.refund_retry_count >= maxRetry) {
+      throw new BadRequestException(
+        `Refund sudah di-retry ${maxRetry}x. Proses manual diperlukan.`,
+      );
+    }
+
+    order.refund_retry_count = (order.refund_retry_count || 0) + 1;
+    order.refund_note = note || (null as any);
+    order.refund_status = 'retrying';
+    await this.orderRepo.save(order);
+
+    // Reuse the refund logic (same as requestCancel but simpler)
+    try {
+      const refundResult = await this.paymentService.refundTransaction(
+        order.invoice_number,
+        Math.round(Number(order.total_price)),
+        order.cancel_reason || 'Retry refund',
+      );
+      order.refund_transaction_id =
+        refundResult?.transaction_id || order.refund_transaction_id;
+      order.refund_key = refundResult?.refund_key || order.refund_key;
+      order.refund_status = refundResult?.status || 'pending';
+      order.refund_response = refundResult || undefined;
+      order.status = 'REFUNDING';
+      await this.orderRepo.save(order);
+
+      this.logger.log(
+        `[REFUND] operation_id=${order.refund_operation_id || '?'} order=${order.invoice_number} retry=${order.refund_retry_count} status=REFUNDING actor=ADMIN`,
+      );
+
+      return {
+        message: 'Retry refund berhasil, status=REFUNDING',
+        status: 'REFUNDING',
+      };
+    } catch (err: any) {
+      order.refund_status = 'failed';
+      order.refund_response = { error: err.message } as any;
+      await this.orderRepo.save(order);
+
+      this.logger.error(
+        `[REFUND] operation_id=${order.refund_operation_id || '?'} order=${order.invoice_number} retry=${order.refund_retry_count} status=REFUND_FAILED error=${err.message}`,
+      );
+
+      throw new BadRequestException(
+        `Retry refund gagal (${order.refund_retry_count}/${maxRetry}): ${err.message}`,
+      );
+    }
+  }
+
+  async updateOrderStatus(orderId: string, dto: UpdateOrderStatusDto) {
+    const order = await this.orderRepo.findOne({
+      where: { id: orderId },
+      relations: ['items', 'items.product', 'items.product.variants'],
+    });
+    if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
+    // State machine validation
+    try {
+      validateStatusTransition(order.status, dto.status);
+    } catch (e: any) {
+      throw new BadRequestException(e.message);
+    }
+    if (order.status === 'PENDING' && dto.status === 'LUNAS')
+      await this.deductStock(orderId);
+    if (order.status === 'LUNAS' && dto.status === 'BATAL')
+      await this.restoreStock(orderId);
+    if (dto.status === 'DIKIRIM') order.delivered_at = new Date();
+    if (dto.status === 'SELESAI') order.completed_at = new Date();
+    order.status = dto.status as string;
+    if (dto.tracking_number !== undefined)
+      order.tracking_number = dto.tracking_number;
+    if (dto.courier_name !== undefined) order.courier_name = dto.courier_name;
+    if (dto.courier_service !== undefined)
+      order.courier_service = dto.courier_service;
+    if (dto.awb_number !== undefined) order.awb_number = dto.awb_number;
+    if (dto.awb_url !== undefined) order.awb_url = dto.awb_url;
+    return {
+      message: `Status diubah: ${dto.status}`,
+      order: await this.orderRepo.save(order),
+    };
+  }
+
+  async processOrder(
+    orderId: string,
+    dto?: {
+      tracking_number?: string;
+      courier_name?: string;
+      courier_service?: string;
+    },
+  ) {
+    const opId = require('uuid').v4();
+    this.logger.log(`[PROCESS] operation_id=${opId} order=${orderId}`);
+
+    const order = await this.orderRepo.findOne({
+      where: { id: orderId },
+      relations: ['user', 'items', 'items.product'],
+    });
+    if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
+    if (order.status !== 'LUNAS')
+      throw new BadRequestException('Hanya pesanan LUNAS.');
+
+    // State machine: validate status transition
+    try {
+      validateStatusTransition(order.status, 'DIKEMAS');
+    } catch (e: any) {
+      throw new BadRequestException(e.message);
+    }
+
+    // Booking idempotency guard
+    if (order.booking_status === 'BOOKING')
+      throw new BadRequestException('Booking sedang diproses. Mohon tunggu.');
+    if (order.booking_status === 'BOOKED')
+      throw new BadRequestException('Booking sudah berhasil sebelumnya.');
+
+    order.is_locked = true;
+    order.status = 'DIKEMAS';
+    if (dto?.tracking_number) order.tracking_number = dto.tracking_number;
+    if (dto?.courier_name) order.courier_name = dto.courier_name;
+    if (dto?.courier_service) order.courier_service = dto.courier_service;
+
+    // Booking lifecycle for regular courier
+    if (order.shipping_type === 'regular' && order.courier_name) {
+      order.booking_status = 'BOOKING';
+      await this.orderRepo.save(order);
+      await this.orderHistoryRepo.save({
+        order_id: order.id,
+        actor: 'SYSTEM',
+        action: 'BOOKING_STARTED',
+        description: 'Booking kurir dimulai',
+        refund_operation_id: opId,
+        metadata: {
+          courier: order.courier_name,
+          service: order.courier_service,
+          operation_id: opId,
+        },
+      });
+
+      try {
+        const awb = await this.generateAwb(order);
+        if (awb) {
+          order.awb_number = awb.awb_number;
+          order.awb_url = awb.awb_url;
+          order.biteship_order_id = awb.biteship_order_id;
+          if (!order.tracking_number) order.tracking_number = awb.awb_number;
+          order.booking_status = 'BOOKED';
+
+          // Create shipping snapshot immediately after successful booking
+          // This freezes the shipping data
+          if (!order.shipping_snapshot) {
+            // Snapshot creation is handled by ShippingLabelService
+            // We just save the order with all booking data
+          }
+
+          const saved = await this.orderRepo.save(order);
+          this.logger.log(
+            `[PROCESS] ✅ AWB OK: operation_id=${opId} order=${order.invoice_number} biteshipId=${awb.biteship_order_id} awb=${awb.awb_number} booking_status=BOOKED`,
+          );
+
+          // Fetch tracking URL in background
+          this.fetchAndSaveTrackingUrl(saved).catch((e) =>
+            this.logger.warn(
+              `[PROCESS] tracking_url fetch failed: ${e.message}`,
+            ),
+          );
+
+          await this.orderHistoryRepo.save({
+            order_id: order.id,
+            actor: 'SYSTEM',
+            action: 'BOOKING_SUCCESS',
+            description: 'Booking kurir berhasil',
             refund_operation_id: opId,
-            metadata: { courier: order.courier_name, operation_id: opId },
-        });
+            metadata: {
+              awb: awb.awb_number,
+              biteship_order_id: awb.biteship_order_id,
+              operation_id: opId,
+            },
+          });
 
-        try {
-            const booking = await this.generateInstantBooking(order);
-            if (!booking || !booking.awb_number) {
-                order.booking_status = 'FAILED';
-                await this.orderRepo.save(order);
-                await this.orderHistoryRepo.save({
-                    order_id: order.id, actor: 'SYSTEM', action: 'BOOKING_FAILED',
-                    description: 'Pencarian driver gagal - tidak ada driver tersedia',
-                    refund_operation_id: opId,
-                    metadata: { operation_id: opId },
-                });
-                throw new BadRequestException('Tidak ada driver instant tersedia saat ini.');
-            }
-
-            // Store booking result
-            order.biteship_order_id = booking.biteship_order_id;
-            order.tracking_number = booking.awb_number || ('INSTANT-' + order.invoice_number);
-            order.awb_number = booking.awb_number;
-            order.awb_url = booking.awb_url;
-            order.booking_status = 'BOOKED';
-
-            // Get driver info from Biteship response
-            const res = await fetch(`https://api.biteship.com/v1/orders/${booking.biteship_order_id}`, {
-                headers: { Authorization: `Bearer ${process.env.BITESHIP_API_KEY}`, 'Content-Type': 'application/json' },
-            });
-            let driverInfo: any = {};
-            if (res.ok) {
-                const data = await res.json();
-                driverInfo = data.courier || {};
-            }
-
-            order.shipping_details = {
-                ...((order.shipping_details as any) || {}),
-                driver_name: driverInfo.name || driverInfo.driver_name || null,
-                driver_phone: driverInfo.phone || driverInfo.driver_phone || null,
-                driver_tracking_url: driverInfo.tracking_url || null,
-                driver_vehicle_type: driverInfo.vehicle_type || null,
-                driver_photo: driverInfo.photo_url || null,
-                instant_booked_at: new Date().toISOString(),
-            };
-
-            await this.orderRepo.save(order);
-
-            await this.orderHistoryRepo.save({
-                order_id: order.id, actor: 'SYSTEM', action: 'BOOKING_SUCCESS',
-                description: 'Driver instant berhasil dipesan',
-                refund_operation_id: opId,
-                metadata: { awb: booking.awb_number, biteship_order_id: booking.biteship_order_id, driver: driverInfo.name, operation_id: opId },
-            });
-
-            this.logger.log(`[INSTANT] ✅ Driver dipesan: operation_id=${opId} order=${order.invoice_number} driver=${driverInfo.name} awb=${booking.awb_number} booking_status=BOOKED`);
-
-            return {
-                message: 'Driver berhasil dipesan!',
-                driver_found: true,
-                driver: {
-                    name: driverInfo.name || driverInfo.driver_name || 'Driver',
-                    phone: driverInfo.phone || driverInfo.driver_phone || '-',
-                    tracking_url: driverInfo.tracking_url || null,
-                },
-                biteship_order_id: booking.biteship_order_id,
-            };
-        } catch (err: any) {
-            if (err instanceof BadRequestException) throw err;
-            order.booking_status = 'FAILED';
-            await this.orderRepo.save(order);
-            await this.orderHistoryRepo.save({
-                order_id: order.id, actor: 'SYSTEM', action: 'BOOKING_FAILED',
-                description: `Pencarian driver gagal: ${err.message}`,
-                refund_operation_id: opId,
-                metadata: { error: err.message, operation_id: opId },
-            });
-            throw new BadRequestException(`Gagal memesan driver: ${err.message}`);
-        }
-    }
-
-    private async generateAwb(order: Order): Promise<{ biteship_order_id: string; awb_number: string; awb_url: string } | null> {
-        const key = process.env.BITESHIP_API_KEY || '';
-        if (!key) { this.logger.warn('[AWB] No API key'); return null; }
-        const originName = process.env.STORE_CONTACT_NAME || 'Anandam Computer';
-        const originPhone = process.env.STORE_PHONE || '6281228134747';
-        const originAddr = process.env.STORE_ADDRESS || 'Jl. Ringroad Selatan, Banguntapan, Bantul, Yogyakarta';
-        const originPC = process.env.STORE_POSTAL_CODE || '55283';
-        const originArea = process.env.STORE_AREA_ID || '';
-        let destName = order.user?.full_name || 'Customer';
-        let destPhone = order.user?.phone_number || '08123456789';
-        let destAddr = ''; let destPC = ''; let destArea = '';
-        if (order.shipping_address_snapshot) {
-            const snap = order.shipping_address_snapshot;
-            destName = snap.recipient_name || destName;
-            destPhone = snap.phone_number || destPhone;
-            destAddr = snap.full_address || ''; destPC = snap.postal_code || ''; destArea = snap.area_id || '';
-            this.logger.log(`[AWB] Loaded from address snapshot: PC=${destPC}, Area=${destArea}`);
-        } else if (order.address_id) {
-            this.logger.log(`[AWB] Snapshot empty. Looking up address ID ${order.address_id}`);
-            const addr = await this.addressRepo.findOne({ where: { id: order.address_id } as any });
-            if (addr) {
-                destName = addr.recipient_name || destName; destPhone = addr.phone_number || destPhone;
-                destAddr = addr.full_address || ''; destPC = addr.postal_code || ''; destArea = addr.area_id || '';
-                this.logger.log(`[AWB] Address DB found: PC=${destPC}, Area=${destArea}`);
-            } else { this.logger.warn(`[AWB] Address ${order.address_id} not found!`); }
-        } else { this.logger.warn(`[AWB] No address_id or address snapshot on order!`); }
-        const courier = normalizeCourierCode(order.courier_name || 'jne');
-        const svc = extractCourierType(courier, order.courier_service || '');
-        const body: any = {
-            origin_contact_name: originName, origin_contact_phone: originPhone,
-            origin_address: originAddr, origin_postal_code: parseInt(originPC, 10) || 55283,
-            destination_contact_name: destName, destination_contact_phone: destPhone,
-            destination_address: destAddr, destination_postal_code: parseInt(destPC, 10) || 55283,
-            courier_company: courier, courier_type: svc, delivery_type: 'now',
-            items: order.items.map((item) => ({
-                name: item.product_name || 'Product', value: Math.max(Number(item.price) || 1000, 100),
-                quantity: item.quantity, weight: Math.max(Math.round((item.product?.weight || 1000) * item.quantity), 100),
-                length: Number(item.product?.length) || 20, width: Number(item.product?.width) || 20,
-                height: Number(item.product?.height) || 20,
-            })),
-        };
-        if (originArea) body.origin_area_id = originArea;
-        if (destArea) body.destination_area_id = destArea;
-        this.logger.log(`[AWB] Sending: courier=${courier}, type=${svc}, originArea=${originArea}, destArea=${destArea}, destPC=${destPC}`);
-        try {
-            const res = await fetch('https://api.biteship.com/v1/orders', { method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-            const data = await res.json();
-            this.logger.log(`[AWB] Response ${res.status}: ${JSON.stringify(data).substring(0, 300)}`);
-            if (!res.ok) { this.logger.error(`[AWB] FAIL: ${JSON.stringify(data)}`); return null; }
-            const biteshipOrderId = data.id || '';
-            const awb = data.waybill_id || data.courier?.waybill_id || '';
-            const url = data.waybill_url || data.courier?.waybill_url || '';
-            this.logger.log(`[AWB] SUCCESS! biteshipOrderId=${biteshipOrderId}, AWB=${awb}`);
-            return { biteship_order_id: biteshipOrderId, awb_number: awb, awb_url: url };
-        } catch (e: any) { this.logger.error(`[AWB] Network error: ${e.message}`); return null; }
-    }
-
-    async requestPickup(orderId: string) {
-        this.logger.log(`[PICKUP] ${orderId}`);
-        const order = await this.orderRepo.findOne({ where: { id: orderId }, relations: ['user'] });
-        if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
-        if (order.status !== 'DIKEMAS') throw new BadRequestException('Hanya DIKEMAS.');
-        if (order.shipping_type === 'instant') throw new BadRequestException('Gunakan Cari Driver.');
-        if (!order.biteship_order_id) throw new BadRequestException('Belum ada Biteship Order ID. Klik Proses Pesanan dulu.');
-        order.pickup_request_id = `AUTO-${order.biteship_order_id}`;
-        await this.orderRepo.save(order);
-        this.logger.log(`[PICKUP] OK! ID=${order.pickup_request_id}`);
-        return { message: 'Pickup berhasil dijadwalkan secara otomatis oleh Biteship.', status: 'success' };
-    }
-
-    async markDelivered(orderId: string) {
-        const order = await this.orderRepo.findOne({ where: { id: orderId } as any });
-        if (!order) throw new NotFoundException('Tidak ditemukan');
-        if (order.status !== 'DIKEMAS') throw new BadRequestException('Hanya DIKEMAS.');
-        order.status = 'DIKIRIM'; order.delivered_at = new Date();
-        return { message: 'Dikirim.', order: await this.orderRepo.save(order) };
-    }
-
-    async confirmReceived(orderId: string, userId: string) {
-        const order = await this.orderRepo.findOne({ where: { id: orderId, user_id: userId } as any });
-        if (!order) throw new NotFoundException('Tidak ditemukan');
-        if (order.status !== 'DIKIRIM') throw new BadRequestException('Hanya DIKIRIM.');
-        order.status = 'SELESAI'; order.completed_at = new Date();
-        return { message: 'Diterima!', order: await this.orderRepo.save(order) };
-    }
-
-    async autoCompleteOrders(): Promise<number> {
-        const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
-        const orders = await this.orderRepo.find({ where: { status: 'DIKIRIM' as any, delivered_at: LessThan(twoDaysAgo) as any } });
-        for (const o of orders) { o.status = 'SELESAI'; o.completed_at = new Date(); }
-        if (orders.length > 0) await this.orderRepo.save(orders);
-        return orders.length;
-    }
-
-    async findAllOrders(query: any) {
-        const dateClauses: string[] = [];
-        const dateParams: any[] = [];
-        if (query.startDate) { dateClauses.push(`created_at >= $${dateParams.length + 1}`); dateParams.push(new Date(query.startDate)); }
-        if (query.endDate) { dateClauses.push(`created_at <= $${dateParams.length + 1}`); dateParams.push(new Date(query.endDate + 'T23:59:59.999Z')); }
-        const dateClause = dateClauses.length > 0 ? 'WHERE ' + dateClauses.join(' AND ') : '';
-        const countsRaw: any[] = await this.orderRepo.query(`SELECT status, COUNT(*) as cnt FROM orders ${dateClause} GROUP BY status`, dateParams);
-        const counts: Record<string, number> = {};
-        for (const row of countsRaw) { counts[row.status] = parseInt(row.cnt, 10); }
-        const qb = this.orderRepo.createQueryBuilder('order').leftJoinAndSelect('order.user', 'user').leftJoinAndSelect('order.items', 'items').leftJoinAndSelect('user.addresses', 'addresses').leftJoinAndSelect('items.product', 'product').leftJoinAndSelect('product.images', 'images').orderBy('order.created_at', 'DESC');
-        if (query.status) qb.andWhere('order.status = :status', { status: query.status });
-        if (query.startDate) qb.andWhere('order.created_at >= :startDate', { startDate: new Date(query.startDate) });
-        if (query.endDate) qb.andWhere('order.created_at <= :endDate', { endDate: new Date(query.endDate + 'T23:59:59.999Z') });
-        const page = Math.max(1, parseInt(query.page, 10) || 1);
-        const limit = Math.min(200, Math.max(1, parseInt(query.limit, 10) || 100));
-        const skip = (page - 1) * limit;
-        qb.skip(skip).take(limit);
-        const [d, t] = await qb.getManyAndCount();
-        return { data: d, total: t, page, limit, totalPages: Math.ceil(t / limit), counts };
-    }
-
-    async findOneOrder(id: string) {
-        const o = await this.orderRepo.findOne({ where: { id }, relations: ['user', 'user.addresses', 'items', 'items.product', 'items.product.images'] });
-        if (!o) throw new NotFoundException(`Pesanan ${id} tidak ditemukan`);
-        return o;
-    }
-
-    async checkoutPCBuilder(userId: string, dto: { items: { product_id: string; quantity: number }[]; notes?: string }) {
-        if (!dto.items?.length) throw new BadRequestException('Komponen kosong');
-        let tp = 0; const oi: Partial<OrderItem>[] = [];
-        for (const item of dto.items) {
-            const p = await this.productRepo.findOne({ where: { id: item.product_id }, relations: ['variants'] });
-            if (!p) throw new NotFoundException(`Produk ${item.product_id} tidak ditemukan`);
-            const mv = p.variants?.length > 0 ? p.variants[0] : null;
-            if (!mv) throw new BadRequestException(`Data variasi ${p.name} tidak valid.`);
-            if (mv.stock < item.quantity) throw new BadRequestException(`Stok ${p.name} tidak cukup.`);
-            const fp = (Number(mv.price_discount || 0) > 0) ? Number(mv.price_normal || 0) - Number(mv.price_discount || 0) : Number(mv.price_normal || 0);
-            tp += fp * item.quantity;
-            oi.push({ product: { id: p.id } as Product, product_name: p.name, variasi: mv.variant_name, quantity: item.quantity, price: fp });
-        }
-        return { message: 'PC Builder OK', order: await this.orderRepo.save(this.orderRepo.create({ user_id: userId, invoice_number: this.generateInvoiceNumber(), total_price: tp, notes: dto.notes, items: oi as OrderItem[] } as any)) };
-    }
-
-    async createCheckout(userId: string, dto: CreateCheckoutDto) {
-        const user = await this.userRepo.findOne({ where: { id: userId } });
-        if (!user) throw new NotFoundException('User tidak ditemukan');
-        let tp = 0; const oi: Partial<OrderItem>[] = [];
-        if (dto.cart_ids?.length) {
-            const cartItems = await this.cartRepo.find({ where: { id: In(dto.cart_ids), user_id: userId }, relations: ['product', 'product.variants'] });
-            if (cartItems.length === 0) throw new BadRequestException('Keranjang kosong.');
-            for (const cart of cartItems) {
-                if (!cart.product) continue;
-                let mv = cart.product.variants?.find((v) => v.variant_name === cart.selected_variasi);
-                if (!mv && cart.product.variants?.length > 0) mv = cart.product.variants[0];
-                if (!mv) throw new BadRequestException(`Variasi ${cart.product.name} tidak valid.`);
-                if (mv.stock < cart.quantity) throw new BadRequestException(`Stok ${cart.product.name} tidak cukup.`);
-                const fp = (Number(mv.price_discount || 0) > 0) ? Number(mv.price_normal || 0) - Number(mv.price_discount || 0) : Number(mv.price_normal || 0);
-                tp += fp * cart.quantity;
-                oi.push({ product: { id: cart.product.id } as Product, product_name: cart.product.name, variasi: mv.variant_name, quantity: cart.quantity, price: fp });
-            }
-        }
-        // ... rest of createCheckout unchanged
-        if (dto.direct_item) {
-            const di = dto.direct_item;
-            const p = await this.productRepo.findOne({ where: { id: di.product_id }, relations: ['variants'] });
-            if (!p) throw new NotFoundException('Produk tidak ditemukan');
-            let mv = p.variants?.find((v) => v.variant_name === di.variasi);
-            if (!mv && p.variants?.length > 0) mv = p.variants[0];
-            if (!mv) throw new BadRequestException(`Variasi ${p.name} tidak valid.`);
-            if (mv.stock < di.quantity) throw new BadRequestException(`Stok ${p.name} hanya ${mv.stock}`);
-            const fp = (Number(mv.price_discount || 0) > 0) ? Number(mv.price_normal || 0) - Number(mv.price_discount || 0) : Number(mv.price_normal || 0);
-            tp += fp * di.quantity;
-            oi.push({ product: { id: p.id } as Product, product_name: p.name, variasi: mv.variant_name, quantity: di.quantity, price: fp });
-        }
-        let addressSnapshot: any = null;
-        const cd: any = { first_name: user.full_name || 'Customer', email: user.email, phone: user.phone_number || '' };
-        if (dto.address_id) {
-            const addr = await this.addressRepo.findOne({ where: { id: dto.address_id } as any });
-            if (addr) {
-                addressSnapshot = { recipient_name: addr.recipient_name || user.full_name, phone_number: addr.phone_number || user.phone_number, full_address: addr.full_address, postal_code: addr.postal_code, latitude: addr.latitude, longitude: addr.longitude, area_id: addr.area_id };
-                cd.shipping_address = { first_name: addr.recipient_name || user.full_name, phone: addr.phone_number || user.phone_number, address: addr.full_address };
-            }
-        }
-        if (oi.length === 0) throw new BadRequestException('Tidak ada item.');
-        let voucherDiscount = 0;
-        if (dto.voucher_usage_id) {
-          try {
-            const voucher = await this.voucherService.getVoucherByUsageId(dto.voucher_usage_id);
-            if (voucher) {
-              const discountType = voucher.discount_type; const discountValue = Number(voucher.discount_value);
-              const maxDiscount = voucher.max_discount ? Number(voucher.max_discount) : null;
-              if (discountType === 'PERCENTAGE') {
-                voucherDiscount = Math.round((tp * discountValue) / 100);
-                if (maxDiscount && voucherDiscount > maxDiscount) { voucherDiscount = maxDiscount; }
-              } else { voucherDiscount = Math.min(discountValue, tp); }
-            }
-            await this.voucherService.confirmVoucherUsage(dto.voucher_usage_id, 'CONFIRMED_PLACEHOLDER');
-          } catch (err: any) { this.logger.warn(`Voucher confirmation failed: ${err.message}`); }
-        }
-        const sc = dto.shipping_cost || 0; const grossAmount = tp + sc;
-        const finalAmount = Math.max(grossAmount - voucherDiscount, 0); const roundedAmount = Math.round(finalAmount);
-        const inv = this.generateInvoiceNumber();
-        const tx = await this.paymentService.createTransaction(inv, roundedAmount, cd);
-        const shippingType = dto.shipping_type || 'regular';
-        const shippingMethod = shippingType === 'instant' ? 'INSTANT' : 'REGULAR';
-        const no = this.orderRepo.create({ user_id: userId, invoice_number: inv, total_price: finalAmount, status: 'PENDING', notes: dto.notes, items: oi as OrderItem[], shipping_cost: sc, shipping_type: shippingType, shipping_method: shippingMethod, courier_name: dto.courier_name || null, courier_service: dto.courier_service || null, address_id: dto.address_id || null, shipping_details: dto.shipping_details || null, shipping_address_snapshot: addressSnapshot, payment_token: tx.token } as any);
-        const saved = (await this.orderRepo.save(no)) as unknown as Order;
-        if (dto.voucher_usage_id) { try { await this.voucherService.confirmVoucherUsage(dto.voucher_usage_id, saved.id); } catch (err: any) { this.logger.warn(`Failed to update voucher usage with order ID: ${err.message}`); } }
-        if (dto.cart_ids?.length) await this.cartRepo.delete(dto.cart_ids);
-        return { message: 'Checkout berhasil', order: saved, payment: { token: tx.token, redirect_url: tx.redirect_url } };
-    }
-
-    // ====================== SHIPPING LABEL DATA ======================
-
-    /**
-     * Fetch and save tracking_url from Biteship for an order.
-     */
-    async fetchAndSaveTrackingUrl(order: Order): Promise<void> {
-        if (!order.awb_number) return;
-        try {
-            const key = process.env.BITESHIP_API_KEY || '';
-            if (!key) return;
-            const res = await fetch(
-                `https://api.biteship.com/v1/trackings/${order.awb_number}`,
-                {
-                    headers: {
-                        Authorization: `Bearer ${key}`,
-                        'Content-Type': 'application/json',
-                    },
-                },
-            );
-            const data = await res.json();
-            if (res.ok && data.waybill_url) {
-                order.tracking_url = data.waybill_url;
-                await this.orderRepo.save(order);
-                this.logger.log(`[TRACKING_URL] Saved for order ${order.invoice_number}: ${data.waybill_url}`);
-            }
-        } catch (e: any) {
-            this.logger.warn(`[TRACKING_URL] Failed for order ${order.invoice_number}: ${e.message}`);
-        }
-    }
-
-    /**
-     * Get all data needed for shipping label generation.
-     */
-    async findShippingLabelData(orderId: string): Promise<any> {
-        const order = await this.orderRepo.findOne({
-            where: { id: orderId },
-            relations: ['user', 'user.addresses', 'items', 'items.product'],
-        });
-        if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
-        if (!order.awb_number) {
-            throw new BadRequestException('AWB belum tersedia. Proses pesanan terlebih dahulu.');
-        }
-
-        // Get sender address from env
-        const sender = {
-            name: process.env.STORE_CONTACT_NAME || 'Anandam Computer',
-            phone: process.env.STORE_PHONE || '6281228134747',
-            address: process.env.STORE_ADDRESS || 'Jl. Ringroad Selatan, Banguntapan, Bantul, Yogyakarta',
-        };
-
-        // Get recipient info
-        let recipient: any = {};
-        if (order.shipping_address_snapshot) {
-            const snap = order.shipping_address_snapshot as any;
-            recipient = {
-                name: snap.recipient_name || order.user?.full_name || 'Customer',
-                phone: snap.phone_number || order.user?.phone_number || '',
-                address: snap.full_address || '',
-            };
-        } else if (order.address_id && order.user?.addresses?.length) {
-            const addr = order.user.addresses[0];
-            recipient = {
-                name: addr.recipient_name || order.user.full_name,
-                phone: addr.phone_number || order.user.phone_number,
-                address: addr.full_address,
-            };
+          this.logger.log(
+            `[BOOKING] SUCCESS operation_id=${opId} order=${order.invoice_number} awb=${awb.awb_number}`,
+          );
+          return { message: 'Pesanan diproses.', order: saved };
         } else {
-            recipient = {
-                name: order.user?.full_name || 'Customer',
-                phone: order.user?.phone_number || '',
-                address: '',
-            };
+          // AWB generation returned null (API error)
+          order.booking_status = 'FAILED';
+          await this.orderRepo.save(order);
+          await this.orderHistoryRepo.save({
+            order_id: order.id,
+            actor: 'SYSTEM',
+            action: 'BOOKING_FAILED',
+            description: 'Booking kurir gagal - AWB null dari Biteship',
+            refund_operation_id: opId,
+            metadata: { operation_id: opId },
+          });
+          this.logger.warn(
+            `[BOOKING] FAILED operation_id=${opId} order=${order.invoice_number}`,
+          );
+          return {
+            message:
+              'Pesanan diproses namun booking kurir gagal. Gunakan Retry Booking.',
+            order: order,
+          };
         }
+      } catch (e: any) {
+        order.booking_status = 'FAILED';
+        await this.orderRepo.save(order);
+        await this.orderHistoryRepo.save({
+          order_id: order.id,
+          actor: 'SYSTEM',
+          action: 'BOOKING_FAILED',
+          description: `Booking kurir gagal: ${e.message}`,
+          refund_operation_id: opId,
+          metadata: { error: e.message, operation_id: opId },
+        });
+        this.logger.error(
+          `[BOOKING] FAILED operation_id=${opId} order=${order.invoice_number} error=${e.message}`,
+        );
+        return {
+          message: `Pesanan diproses namun booking gagal: ${e.message}. Gunakan Retry Booking.`,
+          order: order,
+        };
+      }
+    }
 
-        // Calculate total weight
-        let totalWeight = 0;
-        const items = (order.items || []).map((item: any) => {
-            const weight = item.product?.weight || 1000;
-            totalWeight += weight * item.quantity;
-            return {
-                name: item.product_name || 'Product',
-                quantity: item.quantity,
-                weight: weight,
-            };
+    // No booking needed (no courier selected or custom tracking)
+    await this.orderRepo.save(order);
+    this.logger.log(
+      `[PROCESS] Done (no booking) operation_id=${opId} order=${order.invoice_number}`,
+    );
+    return { message: 'Pesanan diproses.', order: order };
+  }
+
+  /**
+   * Retry booking after failure. Only allowed when booking_status = FAILED.
+   */
+  async retryBooking(orderId: string): Promise<any> {
+    const opId = require('uuid').v4();
+    this.logger.log(`[RETRY_BOOKING] operation_id=${opId} order=${orderId}`);
+
+    const order = await this.orderRepo.findOne({
+      where: { id: orderId },
+      relations: ['user', 'items', 'items.product'],
+    });
+    if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
+    if (order.booking_status !== 'FAILED')
+      throw new BadRequestException(
+        'Hanya pesanan dengan booking FAILED yang bisa di-retry.',
+      );
+    if (!order.courier_name)
+      throw new BadRequestException('Kurir belum dipilih.');
+
+    order.booking_status = 'BOOKING';
+    await this.orderRepo.save(order);
+    await this.orderHistoryRepo.save({
+      order_id: order.id,
+      actor: 'SYSTEM',
+      action: 'BOOKING_RETRY',
+      description: 'Retry booking kurir dimulai',
+      refund_operation_id: opId,
+      metadata: { courier: order.courier_name, operation_id: opId },
+    });
+
+    try {
+      let awb: any = null;
+      if (order.shipping_type === 'regular') {
+        awb = await this.generateAwb(order);
+      } else if (order.shipping_type === 'instant') {
+        awb = await this.generateInstantBooking(order);
+      }
+
+      if (awb) {
+        order.awb_number = awb.awb_number;
+        order.awb_url = awb.awb_url;
+        order.biteship_order_id = awb.biteship_order_id;
+        if (!order.tracking_number) order.tracking_number = awb.awb_number;
+        order.booking_status = 'BOOKED';
+        await this.orderRepo.save(order);
+
+        await this.orderHistoryRepo.save({
+          order_id: order.id,
+          actor: 'SYSTEM',
+          action: 'BOOKING_RETRY_SUCCESS',
+          description: 'Retry booking kurir berhasil',
+          refund_operation_id: opId,
+          metadata: {
+            awb: awb.awb_number,
+            biteship_order_id: awb.biteship_order_id,
+            operation_id: opId,
+          },
         });
 
-        // Determine if COD
-        const paymentMethod = order.payment_method || '';
-        const isCod = paymentMethod.toLowerCase().includes('cod');
+        this.logger.log(
+          `[RETRY_BOOKING] SUCCESS operation_id=${opId} order=${order.invoice_number} awb=${awb.awb_number}`,
+        );
+        return { message: 'Retry booking berhasil.', order: order };
+      } else {
+        order.booking_status = 'FAILED';
+        await this.orderRepo.save(order);
+        throw new BadRequestException(
+          'Retry booking gagal. Silakan coba lagi.',
+        );
+      }
+    } catch (e: any) {
+      if (e instanceof BadRequestException) throw e;
+      order.booking_status = 'FAILED';
+      await this.orderRepo.save(order);
+      await this.orderHistoryRepo.save({
+        order_id: order.id,
+        actor: 'SYSTEM',
+        action: 'BOOKING_RETRY_FAILED',
+        description: `Retry booking gagal: ${e.message}`,
+        refund_operation_id: opId,
+        metadata: { error: e.message, operation_id: opId },
+      });
+      throw new BadRequestException(`Retry booking gagal: ${e.message}`);
+    }
+  }
 
-        // Determine if fragile (based on product categories or notes)
-        const isFragile = order.notes?.toLowerCase().includes('fragile') || false;
+  /**
+   * Generate instant booking (for searchDriver / gojek/grab)
+   */
+  private async generateInstantBooking(
+    order: Order,
+  ): Promise<{
+    biteship_order_id: string;
+    awb_number: string;
+    awb_url: string;
+  } | null> {
+    const key = process.env.BITESHIP_API_KEY || '';
+    if (!key) return null;
 
-        // Build tracking URL
-        const trackingUrl = order.tracking_url || order.awb_url || '';
+    let destLat = '',
+      destLng = '';
+    let destName = order.user?.full_name || 'Customer';
+    let destPhone = order.user?.phone_number || '08123456789';
+    let destAddr = '';
+    let destPC = '';
+    if (order.shipping_address_snapshot) {
+      const snap = order.shipping_address_snapshot as any;
+      destLat = String(snap.latitude || '');
+      destLng = String(snap.longitude || '');
+      destAddr = snap.full_address || '';
+      destName = snap.recipient_name || destName;
+      destPhone = snap.phone_number || destPhone;
+      destPC = snap.postal_code || '';
+    } else if (order.address_id) {
+      const addr = await this.addressRepo.findOne({
+        where: { id: order.address_id } as any,
+      });
+      if (addr?.latitude && addr?.longitude) {
+        destLat = String(addr.latitude);
+        destLng = String(addr.longitude);
+        destAddr = addr.full_address || '';
+        destName = addr.recipient_name || destName;
+        destPhone = addr.phone_number || destPhone;
+        destPC = addr.postal_code || '';
+      }
+    }
+    if (!destLat || !destLng) return null;
 
-        return {
-            invoice_number: order.invoice_number,
-            awb_number: order.awb_number,
-            tracking_url: trackingUrl,
-            biteship_order_id: order.biteship_order_id,
-            courier_name: order.courier_name || '',
-            courier_service: order.courier_service || '',
-            sender,
-            recipient,
-            items,
-            total_weight: totalWeight,
-            shipping_cost: order.shipping_cost || 0,
-            total_price: order.total_price,
-            is_cod: isCod,
-            is_fragile: isFragile,
-            status: order.status,
-            created_at: order.created_at,
+    const originLat = parseFloat(process.env.STORE_LATITUDE || '-7.8300');
+    const originLng = parseFloat(process.env.STORE_LONGITUDE || '110.3870');
+    const courier = normalizeCourierCode(order.courier_name || 'gojek');
+
+    const biteshipBody: any = {
+      origin_contact_name: process.env.STORE_CONTACT_NAME || 'Anandam Computer',
+      origin_contact_phone: process.env.STORE_PHONE || '6281228134747',
+      origin_address: process.env.STORE_ADDRESS || 'Jl. Ringroad Selatan',
+      origin_postal_code: parseInt(
+        process.env.STORE_POSTAL_CODE || '55283',
+        10,
+      ),
+      origin_coordinate: { latitude: originLat, longitude: originLng },
+      destination_contact_name: destName,
+      destination_contact_phone: destPhone,
+      destination_address: destAddr || 'Alamat Tujuan',
+      destination_coordinate: {
+        latitude: parseFloat(destLat),
+        longitude: parseFloat(destLng),
+      },
+      courier_company: courier,
+      courier_type: 'instant',
+      delivery_type: 'now',
+      items: order.items.map((item) => ({
+        name: item.product_name || 'Product',
+        value: Math.max(Number(item.price) || 1000, 100),
+        quantity: item.quantity,
+        weight: Math.max(
+          Math.round((item.product?.weight || 1000) * item.quantity),
+          100,
+        ),
+        length: Number(item.product?.length) || 20,
+        width: Number(item.product?.width) || 20,
+        height: Number(item.product?.height) || 20,
+      })),
+    };
+    if (destPC) biteshipBody.destination_postal_code = parseInt(destPC, 10);
+
+    const res = await fetch('https://api.biteship.com/v1/orders', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${key}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(biteshipBody),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      this.logger.error(`[INSTANT_BOOKING] FAIL: ${JSON.stringify(data)}`);
+      return null;
+    }
+    return {
+      biteship_order_id: data.id || '',
+      awb_number: data.waybill_id || '',
+      awb_url: data.waybill_url || '',
+    };
+  }
+
+  async searchDriver(orderId: string) {
+    const opId = require('uuid').v4();
+    this.logger.log(
+      `[INSTANT] Booking driver for order ${orderId} operation_id=${opId}`,
+    );
+
+    const order = await this.orderRepo.findOne({
+      where: { id: orderId },
+      relations: ['user', 'items', 'items.product'],
+    });
+    if (!order) throw new NotFoundException('Tidak ditemukan');
+    if (order.status !== 'DIKEMAS')
+      throw new BadRequestException(
+        'Hanya pesanan DIKEMAS yang bisa dipesan drivernya.',
+      );
+    if (order.shipping_type !== 'instant')
+      throw new BadRequestException('Hanya pesanan instan.');
+
+    // Booking idempotency guard
+    if (order.booking_status === 'BOOKING')
+      throw new BadRequestException('Booking sedang diproses. Mohon tunggu.');
+    if (order.booking_status === 'BOOKED')
+      throw new BadRequestException('Driver sudah dipesan sebelumnya.');
+
+    order.booking_status = 'BOOKING';
+    await this.orderRepo.save(order);
+
+    await this.orderHistoryRepo.save({
+      order_id: order.id,
+      actor: 'SYSTEM',
+      action: 'BOOKING_STARTED',
+      description: 'Pencarian driver instant dimulai',
+      refund_operation_id: opId,
+      metadata: { courier: order.courier_name, operation_id: opId },
+    });
+
+    try {
+      const booking = await this.generateInstantBooking(order);
+      if (!booking || !booking.awb_number) {
+        order.booking_status = 'FAILED';
+        await this.orderRepo.save(order);
+        await this.orderHistoryRepo.save({
+          order_id: order.id,
+          actor: 'SYSTEM',
+          action: 'BOOKING_FAILED',
+          description: 'Pencarian driver gagal - tidak ada driver tersedia',
+          refund_operation_id: opId,
+          metadata: { operation_id: opId },
+        });
+        throw new BadRequestException(
+          'Tidak ada driver instant tersedia saat ini.',
+        );
+      }
+
+      // Store booking result
+      order.biteship_order_id = booking.biteship_order_id;
+      order.tracking_number =
+        booking.awb_number || 'INSTANT-' + order.invoice_number;
+      order.awb_number = booking.awb_number;
+      order.awb_url = booking.awb_url;
+      order.booking_status = 'BOOKED';
+
+      // Get driver info from Biteship response
+      const res = await fetch(
+        `https://api.biteship.com/v1/orders/${booking.biteship_order_id}`,
+        {
+          headers: {
+            Authorization: `Bearer ${process.env.BITESHIP_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+      let driverInfo: any = {};
+      if (res.ok) {
+        const data = await res.json();
+        driverInfo = data.courier || {};
+      }
+
+      order.shipping_details = {
+        ...((order.shipping_details as any) || {}),
+        driver_name: driverInfo.name || driverInfo.driver_name || null,
+        driver_phone: driverInfo.phone || driverInfo.driver_phone || null,
+        driver_tracking_url: driverInfo.tracking_url || null,
+        driver_vehicle_type: driverInfo.vehicle_type || null,
+        driver_photo: driverInfo.photo_url || null,
+        instant_booked_at: new Date().toISOString(),
+      };
+
+      await this.orderRepo.save(order);
+
+      await this.orderHistoryRepo.save({
+        order_id: order.id,
+        actor: 'SYSTEM',
+        action: 'BOOKING_SUCCESS',
+        description: 'Driver instant berhasil dipesan',
+        refund_operation_id: opId,
+        metadata: {
+          awb: booking.awb_number,
+          biteship_order_id: booking.biteship_order_id,
+          driver: driverInfo.name,
+          operation_id: opId,
+        },
+      });
+
+      this.logger.log(
+        `[INSTANT] ✅ Driver dipesan: operation_id=${opId} order=${order.invoice_number} driver=${driverInfo.name} awb=${booking.awb_number} booking_status=BOOKED`,
+      );
+
+      return {
+        message: 'Driver berhasil dipesan!',
+        driver_found: true,
+        driver: {
+          name: driverInfo.name || driverInfo.driver_name || 'Driver',
+          phone: driverInfo.phone || driverInfo.driver_phone || '-',
+          tracking_url: driverInfo.tracking_url || null,
+        },
+        biteship_order_id: booking.biteship_order_id,
+      };
+    } catch (err: any) {
+      if (err instanceof BadRequestException) throw err;
+      order.booking_status = 'FAILED';
+      await this.orderRepo.save(order);
+      await this.orderHistoryRepo.save({
+        order_id: order.id,
+        actor: 'SYSTEM',
+        action: 'BOOKING_FAILED',
+        description: `Pencarian driver gagal: ${err.message}`,
+        refund_operation_id: opId,
+        metadata: { error: err.message, operation_id: opId },
+      });
+      throw new BadRequestException(`Gagal memesan driver: ${err.message}`);
+    }
+  }
+
+  private async generateAwb(
+    order: Order,
+  ): Promise<{
+    biteship_order_id: string;
+    awb_number: string;
+    awb_url: string;
+  } | null> {
+    const key = process.env.BITESHIP_API_KEY || '';
+    if (!key) {
+      this.logger.warn('[AWB] No API key');
+      return null;
+    }
+    const originName = process.env.STORE_CONTACT_NAME || 'Anandam Computer';
+    const originPhone = process.env.STORE_PHONE || '6281228134747';
+    const originAddr =
+      process.env.STORE_ADDRESS ||
+      'Jl. Ringroad Selatan, Banguntapan, Bantul, Yogyakarta';
+    const originPC = process.env.STORE_POSTAL_CODE || '55283';
+    const originArea = process.env.STORE_AREA_ID || '';
+    let destName = order.user?.full_name || 'Customer';
+    let destPhone = order.user?.phone_number || '08123456789';
+    let destAddr = '';
+    let destPC = '';
+    let destArea = '';
+    if (order.shipping_address_snapshot) {
+      const snap = order.shipping_address_snapshot;
+      destName = snap.recipient_name || destName;
+      destPhone = snap.phone_number || destPhone;
+      destAddr = snap.full_address || '';
+      destPC = snap.postal_code || '';
+      destArea = snap.area_id || '';
+      this.logger.log(
+        `[AWB] Loaded from address snapshot: PC=${destPC}, Area=${destArea}`,
+      );
+    } else if (order.address_id) {
+      this.logger.log(
+        `[AWB] Snapshot empty. Looking up address ID ${order.address_id}`,
+      );
+      const addr = await this.addressRepo.findOne({
+        where: { id: order.address_id } as any,
+      });
+      if (addr) {
+        destName = addr.recipient_name || destName;
+        destPhone = addr.phone_number || destPhone;
+        destAddr = addr.full_address || '';
+        destPC = addr.postal_code || '';
+        destArea = addr.area_id || '';
+        this.logger.log(
+          `[AWB] Address DB found: PC=${destPC}, Area=${destArea}`,
+        );
+      } else {
+        this.logger.warn(`[AWB] Address ${order.address_id} not found!`);
+      }
+    } else {
+      this.logger.warn(`[AWB] No address_id or address snapshot on order!`);
+    }
+    const courier = normalizeCourierCode(order.courier_name || 'jne');
+    const svc = extractCourierType(courier, order.courier_service || '');
+    const body: any = {
+      origin_contact_name: originName,
+      origin_contact_phone: originPhone,
+      origin_address: originAddr,
+      origin_postal_code: parseInt(originPC, 10) || 55283,
+      destination_contact_name: destName,
+      destination_contact_phone: destPhone,
+      destination_address: destAddr,
+      destination_postal_code: parseInt(destPC, 10) || 55283,
+      courier_company: courier,
+      courier_type: svc,
+      delivery_type: 'now',
+      items: order.items.map((item) => ({
+        name: item.product_name || 'Product',
+        value: Math.max(Number(item.price) || 1000, 100),
+        quantity: item.quantity,
+        weight: Math.max(
+          Math.round((item.product?.weight || 1000) * item.quantity),
+          100,
+        ),
+        length: Number(item.product?.length) || 20,
+        width: Number(item.product?.width) || 20,
+        height: Number(item.product?.height) || 20,
+      })),
+    };
+    if (originArea) body.origin_area_id = originArea;
+    if (destArea) body.destination_area_id = destArea;
+    this.logger.log(
+      `[AWB] Sending: courier=${courier}, type=${svc}, originArea=${originArea}, destArea=${destArea}, destPC=${destPC}`,
+    );
+    try {
+      const res = await fetch('https://api.biteship.com/v1/orders', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${key}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      this.logger.log(
+        `[AWB] Response ${res.status}: ${JSON.stringify(data).substring(0, 300)}`,
+      );
+      if (!res.ok) {
+        this.logger.error(`[AWB] FAIL: ${JSON.stringify(data)}`);
+        return null;
+      }
+      const biteshipOrderId = data.id || '';
+      const awb = data.waybill_id || data.courier?.waybill_id || '';
+      const url = data.waybill_url || data.courier?.waybill_url || '';
+      this.logger.log(
+        `[AWB] SUCCESS! biteshipOrderId=${biteshipOrderId}, AWB=${awb}`,
+      );
+      return {
+        biteship_order_id: biteshipOrderId,
+        awb_number: awb,
+        awb_url: url,
+      };
+    } catch (e: any) {
+      this.logger.error(`[AWB] Network error: ${e.message}`);
+      return null;
+    }
+  }
+
+  async requestPickup(orderId: string) {
+    this.logger.log(`[PICKUP] ${orderId}`);
+    const order = await this.orderRepo.findOne({
+      where: { id: orderId },
+      relations: ['user'],
+    });
+    if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
+    if (order.status !== 'DIKEMAS')
+      throw new BadRequestException('Hanya DIKEMAS.');
+    if (order.shipping_type === 'instant')
+      throw new BadRequestException('Gunakan Cari Driver.');
+    if (!order.biteship_order_id)
+      throw new BadRequestException(
+        'Belum ada Biteship Order ID. Klik Proses Pesanan dulu.',
+      );
+    order.pickup_request_id = `AUTO-${order.biteship_order_id}`;
+    await this.orderRepo.save(order);
+    this.logger.log(`[PICKUP] OK! ID=${order.pickup_request_id}`);
+    return {
+      message: 'Pickup berhasil dijadwalkan secara otomatis oleh Biteship.',
+      status: 'success',
+    };
+  }
+
+  async markDelivered(orderId: string) {
+    const order = await this.orderRepo.findOne({
+      where: { id: orderId } as any,
+    });
+    if (!order) throw new NotFoundException('Tidak ditemukan');
+    if (order.status !== 'DIKEMAS')
+      throw new BadRequestException('Hanya DIKEMAS.');
+    order.status = 'DIKIRIM';
+    order.delivered_at = new Date();
+    return { message: 'Dikirim.', order: await this.orderRepo.save(order) };
+  }
+
+  async confirmReceived(orderId: string, userId: string) {
+    const order = await this.orderRepo.findOne({
+      where: { id: orderId, user_id: userId } as any,
+    });
+    if (!order) throw new NotFoundException('Tidak ditemukan');
+    if (order.status !== 'DIKIRIM')
+      throw new BadRequestException('Hanya DIKIRIM.');
+    order.status = 'SELESAI';
+    order.completed_at = new Date();
+    return { message: 'Diterima!', order: await this.orderRepo.save(order) };
+  }
+
+  async autoCompleteOrders(): Promise<number> {
+    const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+    const orders = await this.orderRepo.find({
+      where: {
+        status: 'DIKIRIM' as any,
+        delivered_at: LessThan(twoDaysAgo) as any,
+      },
+    });
+    for (const o of orders) {
+      o.status = 'SELESAI';
+      o.completed_at = new Date();
+    }
+    if (orders.length > 0) await this.orderRepo.save(orders);
+    return orders.length;
+  }
+
+  async findAllOrders(query: any) {
+    const dateClauses: string[] = [];
+    const dateParams: any[] = [];
+    if (query.startDate) {
+      dateClauses.push(`created_at >= $${dateParams.length + 1}`);
+      dateParams.push(new Date(query.startDate));
+    }
+    if (query.endDate) {
+      dateClauses.push(`created_at <= $${dateParams.length + 1}`);
+      dateParams.push(new Date(query.endDate + 'T23:59:59.999Z'));
+    }
+    const dateClause =
+      dateClauses.length > 0 ? 'WHERE ' + dateClauses.join(' AND ') : '';
+    const countsRaw: any[] = await this.orderRepo.query(
+      `SELECT status, COUNT(*) as cnt FROM orders ${dateClause} GROUP BY status`,
+      dateParams,
+    );
+    const counts: Record<string, number> = {};
+    for (const row of countsRaw) {
+      counts[row.status] = parseInt(row.cnt, 10);
+    }
+    const qb = this.orderRepo
+      .createQueryBuilder('order')
+      .leftJoinAndSelect('order.user', 'user')
+      .leftJoinAndSelect('order.items', 'items')
+      .leftJoinAndSelect('user.addresses', 'addresses')
+      .leftJoinAndSelect('items.product', 'product')
+      .leftJoinAndSelect('product.images', 'images')
+      .orderBy('order.created_at', 'DESC');
+    if (query.status)
+      qb.andWhere('order.status = :status', { status: query.status });
+    if (query.startDate)
+      qb.andWhere('order.created_at >= :startDate', {
+        startDate: new Date(query.startDate),
+      });
+    if (query.endDate)
+      qb.andWhere('order.created_at <= :endDate', {
+        endDate: new Date(query.endDate + 'T23:59:59.999Z'),
+      });
+    const page = Math.max(1, parseInt(query.page, 10) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(query.limit, 10) || 100));
+    const skip = (page - 1) * limit;
+    qb.skip(skip).take(limit);
+    const [d, t] = await qb.getManyAndCount();
+    return {
+      data: d,
+      total: t,
+      page,
+      limit,
+      totalPages: Math.ceil(t / limit),
+      counts,
+    };
+  }
+
+  async findOneOrder(id: string) {
+    const o = await this.orderRepo.findOne({
+      where: { id },
+      relations: [
+        'user',
+        'user.addresses',
+        'items',
+        'items.product',
+        'items.product.images',
+      ],
+    });
+    if (!o) throw new NotFoundException(`Pesanan ${id} tidak ditemukan`);
+    return o;
+  }
+
+  async checkoutPCBuilder(
+    userId: string,
+    dto: { items: { product_id: string; quantity: number }[]; notes?: string },
+  ) {
+    if (!dto.items?.length) throw new BadRequestException('Komponen kosong');
+    let tp = 0;
+    const oi: Partial<OrderItem>[] = [];
+    for (const item of dto.items) {
+      const p = await this.productRepo.findOne({
+        where: { id: item.product_id },
+        relations: ['variants'],
+      });
+      if (!p)
+        throw new NotFoundException(
+          `Produk ${item.product_id} tidak ditemukan`,
+        );
+      const mv = p.variants?.length > 0 ? p.variants[0] : null;
+      if (!mv)
+        throw new BadRequestException(`Data variasi ${p.name} tidak valid.`);
+      if (mv.stock < item.quantity)
+        throw new BadRequestException(`Stok ${p.name} tidak cukup.`);
+      const fp =
+        Number(mv.price_discount || 0) > 0
+          ? Number(mv.price_normal || 0) - Number(mv.price_discount || 0)
+          : Number(mv.price_normal || 0);
+      tp += fp * item.quantity;
+      oi.push({
+        product: { id: p.id } as Product,
+        product_name: p.name,
+        variasi: mv.variant_name,
+        quantity: item.quantity,
+        price: fp,
+      });
+    }
+    return {
+      message: 'PC Builder OK',
+      order: await this.orderRepo.save(
+        this.orderRepo.create({
+          user_id: userId,
+          invoice_number: this.generateInvoiceNumber(),
+          total_price: tp,
+          notes: dto.notes,
+          items: oi as OrderItem[],
+        } as any),
+      ),
+    };
+  }
+
+  async createCheckout(userId: string, dto: CreateCheckoutDto) {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User tidak ditemukan');
+    let tp = 0;
+    const oi: Partial<OrderItem>[] = [];
+    if (dto.cart_ids?.length) {
+      const cartItems = await this.cartRepo.find({
+        where: { id: In(dto.cart_ids), user_id: userId },
+        relations: ['product', 'product.variants'],
+      });
+      if (cartItems.length === 0)
+        throw new BadRequestException('Keranjang kosong.');
+      for (const cart of cartItems) {
+        if (!cart.product) continue;
+        let mv = cart.product.variants?.find(
+          (v) => v.variant_name === cart.selected_variasi,
+        );
+        if (!mv && cart.product.variants?.length > 0)
+          mv = cart.product.variants[0];
+        if (!mv)
+          throw new BadRequestException(
+            `Variasi ${cart.product.name} tidak valid.`,
+          );
+        if (mv.stock < cart.quantity)
+          throw new BadRequestException(
+            `Stok ${cart.product.name} tidak cukup.`,
+          );
+        const fp =
+          Number(mv.price_discount || 0) > 0
+            ? Number(mv.price_normal || 0) - Number(mv.price_discount || 0)
+            : Number(mv.price_normal || 0);
+        tp += fp * cart.quantity;
+        oi.push({
+          product: { id: cart.product.id } as Product,
+          product_name: cart.product.name,
+          variasi: mv.variant_name,
+          quantity: cart.quantity,
+          price: fp,
+        });
+      }
+    }
+    // ... rest of createCheckout unchanged
+    if (dto.direct_item) {
+      const di = dto.direct_item;
+      const p = await this.productRepo.findOne({
+        where: { id: di.product_id },
+        relations: ['variants'],
+      });
+      if (!p) throw new NotFoundException('Produk tidak ditemukan');
+      let mv = p.variants?.find((v) => v.variant_name === di.variasi);
+      if (!mv && p.variants?.length > 0) mv = p.variants[0];
+      if (!mv) throw new BadRequestException(`Variasi ${p.name} tidak valid.`);
+      if (mv.stock < di.quantity)
+        throw new BadRequestException(`Stok ${p.name} hanya ${mv.stock}`);
+      const fp =
+        Number(mv.price_discount || 0) > 0
+          ? Number(mv.price_normal || 0) - Number(mv.price_discount || 0)
+          : Number(mv.price_normal || 0);
+      tp += fp * di.quantity;
+      oi.push({
+        product: { id: p.id } as Product,
+        product_name: p.name,
+        variasi: mv.variant_name,
+        quantity: di.quantity,
+        price: fp,
+      });
+    }
+    let addressSnapshot: any = null;
+    const cd: any = {
+      first_name: user.full_name || 'Customer',
+      email: user.email,
+      phone: user.phone_number || '',
+    };
+    if (dto.address_id) {
+      const addr = await this.addressRepo.findOne({
+        where: { id: dto.address_id } as any,
+      });
+      if (addr) {
+        addressSnapshot = {
+          recipient_name: addr.recipient_name || user.full_name,
+          phone_number: addr.phone_number || user.phone_number,
+          full_address: addr.full_address,
+          postal_code: addr.postal_code,
+          latitude: addr.latitude,
+          longitude: addr.longitude,
+          area_id: addr.area_id,
         };
+        cd.shipping_address = {
+          first_name: addr.recipient_name || user.full_name,
+          phone: addr.phone_number || user.phone_number,
+          address: addr.full_address,
+        };
+      }
+    }
+    if (oi.length === 0) throw new BadRequestException('Tidak ada item.');
+    let voucherDiscount = 0;
+    if (dto.voucher_usage_id) {
+      try {
+        const voucher = await this.voucherService.getVoucherByUsageId(
+          dto.voucher_usage_id,
+        );
+        if (voucher) {
+          const discountType = voucher.discount_type;
+          const discountValue = Number(voucher.discount_value);
+          const maxDiscount = voucher.max_discount
+            ? Number(voucher.max_discount)
+            : null;
+          if (discountType === 'PERCENTAGE') {
+            voucherDiscount = Math.round((tp * discountValue) / 100);
+            if (maxDiscount && voucherDiscount > maxDiscount) {
+              voucherDiscount = maxDiscount;
+            }
+          } else {
+            voucherDiscount = Math.min(discountValue, tp);
+          }
+        }
+        await this.voucherService.confirmVoucherUsage(
+          dto.voucher_usage_id,
+          'CONFIRMED_PLACEHOLDER',
+        );
+      } catch (err: any) {
+        this.logger.warn(`Voucher confirmation failed: ${err.message}`);
+      }
+    }
+    const sc = dto.shipping_cost || 0;
+    const grossAmount = tp + sc;
+    const finalAmount = Math.max(grossAmount - voucherDiscount, 0);
+    const roundedAmount = Math.round(finalAmount);
+    const inv = this.generateInvoiceNumber();
+    const tx = await this.paymentService.createTransaction(
+      inv,
+      roundedAmount,
+      cd,
+    );
+    const shippingType = dto.shipping_type || 'regular';
+    const shippingMethod = shippingType === 'instant' ? 'INSTANT' : 'REGULAR';
+    const no = this.orderRepo.create({
+      user_id: userId,
+      invoice_number: inv,
+      total_price: finalAmount,
+      status: 'PENDING',
+      notes: dto.notes,
+      items: oi as OrderItem[],
+      shipping_cost: sc,
+      shipping_type: shippingType,
+      shipping_method: shippingMethod,
+      courier_name: dto.courier_name || null,
+      courier_service: dto.courier_service || null,
+      address_id: dto.address_id || null,
+      shipping_details: dto.shipping_details || null,
+      shipping_address_snapshot: addressSnapshot,
+      payment_token: tx.token,
+    } as any);
+    const saved = (await this.orderRepo.save(no)) as unknown as Order;
+    if (dto.voucher_usage_id) {
+      try {
+        await this.voucherService.confirmVoucherUsage(
+          dto.voucher_usage_id,
+          saved.id,
+        );
+      } catch (err: any) {
+        this.logger.warn(
+          `Failed to update voucher usage with order ID: ${err.message}`,
+        );
+      }
+    }
+    if (dto.cart_ids?.length) await this.cartRepo.delete(dto.cart_ids);
+    return {
+      message: 'Checkout berhasil',
+      order: saved,
+      payment: { token: tx.token, redirect_url: tx.redirect_url },
+    };
+  }
+
+  // ====================== SHIPPING LABEL DATA ======================
+
+  /**
+   * Fetch and save tracking_url from Biteship for an order.
+   */
+  async fetchAndSaveTrackingUrl(order: Order): Promise<void> {
+    if (!order.awb_number) return;
+    try {
+      const key = process.env.BITESHIP_API_KEY || '';
+      if (!key) return;
+      const res = await fetch(
+        `https://api.biteship.com/v1/trackings/${order.awb_number}`,
+        {
+          headers: {
+            Authorization: `Bearer ${key}`,
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+      const data = await res.json();
+      if (res.ok && data.waybill_url) {
+        order.tracking_url = data.waybill_url;
+        await this.orderRepo.save(order);
+        this.logger.log(
+          `[TRACKING_URL] Saved for order ${order.invoice_number}: ${data.waybill_url}`,
+        );
+      }
+    } catch (e: any) {
+      this.logger.warn(
+        `[TRACKING_URL] Failed for order ${order.invoice_number}: ${e.message}`,
+      );
+    }
+  }
+
+  /**
+   * Get all data needed for shipping label generation.
+   */
+  async findShippingLabelData(orderId: string): Promise<any> {
+    const order = await this.orderRepo.findOne({
+      where: { id: orderId },
+      relations: ['user', 'user.addresses', 'items', 'items.product'],
+    });
+    if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
+    if (!order.awb_number) {
+      throw new BadRequestException(
+        'AWB belum tersedia. Proses pesanan terlebih dahulu.',
+      );
     }
 
-    async handleBiteshipWebhook(payload: any) {
-        this.logger.log(`[BITESHIP WEBHOOK] Event: ${payload?.event}, order_id: ${payload?.order_id}, status: ${payload?.status}`);
-        if (!payload || payload.event !== 'order.status') { return { message: 'Ignored: Event is not order.status' }; }
-        const biteshipOrderId = payload.order_id; const biteshipStatus = payload.status;
-        if (!biteshipOrderId) { throw new BadRequestException('order_id is required'); }
-        const order = await this.orderRepo.findOne({ where: { biteship_order_id: biteshipOrderId }, relations: ['items', 'items.product'] });
-        if (!order) { this.logger.warn(`[BITESHIP WEBHOOK] Order not found for biteship_order_id: ${biteshipOrderId}`); return { message: 'Order not found in database' }; }
-        let updated = false;
-        if (biteshipStatus === 'picked' || biteshipStatus === 'in_transit') {
-            if (order.status !== 'DIKIRIM' && order.status !== 'SELESAI') { order.status = 'DIKIRIM'; order.delivered_at = new Date(); updated = true; }
-        } else if (biteshipStatus === 'delivered') {
-            if (order.status !== 'SELESAI') { order.status = 'SELESAI'; order.completed_at = new Date(); updated = true; }
-        } else if (biteshipStatus === 'cancelled' || biteshipStatus === 'rejected') {
-            if (order.status !== 'BATAL') { order.status = 'BATAL'; updated = true; }
-        }
-        if (payload.courier_waybill_id && !order.awb_number) { order.awb_number = payload.courier_waybill_id; if (!order.tracking_number) { order.tracking_number = payload.courier_waybill_id; } updated = true; }
-        if (updated) { const saved = await this.orderRepo.save(order); this.logger.log(`[BITESHIP WEBHOOK] SUCCESS: Updated INV ${order.invoice_number} status to ${saved.status}`); return { message: 'Order status updated', status: saved.status }; }
-        return { message: 'No status update required', status: order.status };
+    // Get sender address from env
+    const sender = {
+      name: process.env.STORE_CONTACT_NAME || 'Anandam Computer',
+      phone: process.env.STORE_PHONE || '6281228134747',
+      address:
+        process.env.STORE_ADDRESS ||
+        'Jl. Ringroad Selatan, Banguntapan, Bantul, Yogyakarta',
+    };
+
+    // Get recipient info
+    let recipient: any = {};
+    if (order.shipping_address_snapshot) {
+      const snap = order.shipping_address_snapshot as any;
+      recipient = {
+        name: snap.recipient_name || order.user?.full_name || 'Customer',
+        phone: snap.phone_number || order.user?.phone_number || '',
+        address: snap.full_address || '',
+      };
+    } else if (order.address_id && order.user?.addresses?.length) {
+      const addr = order.user.addresses[0];
+      recipient = {
+        name: addr.recipient_name || order.user.full_name,
+        phone: addr.phone_number || order.user.phone_number,
+        address: addr.full_address,
+      };
+    } else {
+      recipient = {
+        name: order.user?.full_name || 'Customer',
+        phone: order.user?.phone_number || '',
+        address: '',
+      };
     }
+
+    // Calculate total weight
+    let totalWeight = 0;
+    const items = (order.items || []).map((item: any) => {
+      const weight = item.product?.weight || 1000;
+      totalWeight += weight * item.quantity;
+      return {
+        name: item.product_name || 'Product',
+        quantity: item.quantity,
+        weight: weight,
+      };
+    });
+
+    // Determine if COD
+    const paymentMethod = order.payment_method || '';
+    const isCod = paymentMethod.toLowerCase().includes('cod');
+
+    // Determine if fragile (based on product categories or notes)
+    const isFragile = order.notes?.toLowerCase().includes('fragile') || false;
+
+    // Build tracking URL
+    const trackingUrl = order.tracking_url || order.awb_url || '';
+
+    return {
+      invoice_number: order.invoice_number,
+      awb_number: order.awb_number,
+      tracking_url: trackingUrl,
+      biteship_order_id: order.biteship_order_id,
+      courier_name: order.courier_name || '',
+      courier_service: order.courier_service || '',
+      sender,
+      recipient,
+      items,
+      total_weight: totalWeight,
+      shipping_cost: order.shipping_cost || 0,
+      total_price: order.total_price,
+      is_cod: isCod,
+      is_fragile: isFragile,
+      status: order.status,
+      created_at: order.created_at,
+    };
+  }
+
+  /**
+   * Repair corrupt order state.
+   * Fixes orders stuck in inconsistent state (e.g. fulfillment_status=PACKING but status=LUNAS).
+   */
+  async repairOrderState(orderId: string): Promise<any> {
+    const order = await this.orderRepo.findOne({ where: { id: orderId } });
+    if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
+
+    const repairs: string[] = [];
+
+    // Fix 1: fulfillment_status = PACKING but status = LUNAS
+    if (order.fulfillment_status === 'PACKING' && order.status === 'LUNAS') {
+      order.status = 'DIKEMAS';
+      order.is_locked = true;
+      repairs.push('status LUNAS → DIKEMAS');
+    }
+
+    // Fix 2: booking_status = BOOKED but no awb_number
+    if (order.booking_status === 'BOOKED' && !order.awb_number) {
+      order.booking_status = 'FAILED';
+      repairs.push('booking_status BOOKED → FAILED (no AWB)');
+    }
+
+    // Fix 3: fulfillment_status = LABEL_READY but label_status not set
+    if (
+      order.fulfillment_status === 'LABEL_READY' &&
+      order.label_status === 'NOT_PRINTED'
+    ) {
+      order.label_status = 'READY';
+      repairs.push('label_status NOT_PRINTED → READY');
+    }
+
+    if (repairs.length === 0) {
+      return { message: 'Tidak ada perbaikan yang diperlukan.', order };
+    }
+
+    await this.orderRepo.save(order);
+    this.logger.log(
+      `[REPAIR] order=${order.invoice_number} repairs=${repairs.join(', ')}`,
+    );
+
+    return {
+      message: `Order diperbaiki: ${repairs.join(', ')}`,
+      repairs,
+      order,
+    };
+  }
+
+  async handleBiteshipWebhook(payload: any) {
+    this.logger.log(
+      `[BITESHIP WEBHOOK] Event: ${payload?.event}, order_id: ${payload?.order_id}, status: ${payload?.status}`,
+    );
+    if (!payload || payload.event !== 'order.status') {
+      return { message: 'Ignored: Event is not order.status' };
+    }
+    const biteshipOrderId = payload.order_id;
+    const biteshipStatus = payload.status;
+    if (!biteshipOrderId) {
+      throw new BadRequestException('order_id is required');
+    }
+    const order = await this.orderRepo.findOne({
+      where: { biteship_order_id: biteshipOrderId },
+      relations: ['items', 'items.product'],
+    });
+    if (!order) {
+      this.logger.warn(
+        `[BITESHIP WEBHOOK] Order not found for biteship_order_id: ${biteshipOrderId}`,
+      );
+      return { message: 'Order not found in database' };
+    }
+    let updated = false;
+    if (biteshipStatus === 'picked' || biteshipStatus === 'in_transit') {
+      if (order.status !== 'DIKIRIM' && order.status !== 'SELESAI') {
+        order.status = 'DIKIRIM';
+        order.delivered_at = new Date();
+        updated = true;
+      }
+    } else if (biteshipStatus === 'delivered') {
+      if (order.status !== 'SELESAI') {
+        order.status = 'SELESAI';
+        order.completed_at = new Date();
+        updated = true;
+      }
+    } else if (
+      biteshipStatus === 'cancelled' ||
+      biteshipStatus === 'rejected'
+    ) {
+      if (order.status !== 'BATAL') {
+        order.status = 'BATAL';
+        updated = true;
+      }
+    }
+    if (payload.courier_waybill_id && !order.awb_number) {
+      order.awb_number = payload.courier_waybill_id;
+      if (!order.tracking_number) {
+        order.tracking_number = payload.courier_waybill_id;
+      }
+      updated = true;
+    }
+    if (updated) {
+      const saved = await this.orderRepo.save(order);
+      this.logger.log(
+        `[BITESHIP WEBHOOK] SUCCESS: Updated INV ${order.invoice_number} status to ${saved.status}`,
+      );
+      return { message: 'Order status updated', status: saved.status };
+    }
+    return { message: 'No status update required', status: order.status };
+  }
 }
