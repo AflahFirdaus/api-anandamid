@@ -1740,7 +1740,20 @@ export class OrderService {
   }
 
   async createCheckout(userId: string, dto: any) {
-    const { cart_ids, product_id, variasi, quantity, notes, address_id, shipping_method, shipping_cost, courier_name, courier_service, payment_method, voucher_code } = dto;
+    // Handle both flat format and nested direct_item format from frontend
+    const cart_ids = dto.cart_ids;
+    const direct_item = dto.direct_item || null;
+    const product_id = dto.product_id || direct_item?.product_id;
+    const variasi = dto.variasi || direct_item?.variasi;
+    const quantity = dto.quantity || direct_item?.quantity;
+    const notes = dto.notes;
+    const address_id = dto.address_id;
+    const shipping_method = dto.shipping_method;
+    const shipping_cost = dto.shipping_cost;
+    const courier_name = dto.courier_name;
+    const courier_service = dto.courier_service;
+    const payment_method = dto.payment_method;
+    const voucher_code = dto.voucher_code;
 
     if (!dto.address_id)
       throw new BadRequestException('Alamat pengiriman wajib diisi.');
