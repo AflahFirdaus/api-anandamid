@@ -98,13 +98,27 @@ export class AddTrackingUrlToOrders1770785020000 implements MigrationInterface {
       ALTER TABLE "orders"
       ADD COLUMN IF NOT EXISTS "printed_at" TIMESTAMPTZ NULL
     `);
+    // label_status may already exist with VARCHAR(10) but 'NOT_PRINTED' is 11 chars
+    // Use VARCHAR(20) to accommodate the default value
     await queryRunner.query(`
-      ALTER TABLE "orders"
-      ADD COLUMN IF NOT EXISTS "label_status" VARCHAR(10) NOT NULL DEFAULT 'NOT_PRINTED'
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'orders' AND column_name = 'label_status'
+        ) THEN
+          ALTER TABLE "orders" ADD COLUMN "label_status" VARCHAR(20) NOT NULL DEFAULT 'NOT_PRINTED';
+        END IF;
+      END $$;
     `);
     await queryRunner.query(`
-      ALTER TABLE "orders"
-      ADD COLUMN IF NOT EXISTS "label_version" VARCHAR(10) NOT NULL DEFAULT 'v1'
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'orders' AND column_name = 'label_version'
+        ) THEN
+          ALTER TABLE "orders" ADD COLUMN "label_version" VARCHAR(20) NOT NULL DEFAULT 'v1';
+        END IF;
+      END $$;
     `);
 
     // Booking idempotency
