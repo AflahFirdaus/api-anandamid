@@ -14,6 +14,7 @@ import { CheckoutCartDto, CheckoutDirectDto, CreateCheckoutDto } from './dto/che
 import { UpdateOrderStatusDto, CancelReason, RequestCancelDto } from './dto/update-order-status.dto';
 import { PaymentService } from '../payment/payment.service';
 import { VoucherService } from '../voucher/voucher.service';
+import { validateStatusTransition, validateBookingTransition } from './order-state-machine';
 
 function normalizeCourierCode(courier: string): string {
     const c = courier.toLowerCase().trim();
@@ -575,6 +576,12 @@ export class OrderService {
     async updateOrderStatus(orderId: string, dto: UpdateOrderStatusDto) {
         const order = await this.orderRepo.findOne({ where: { id: orderId }, relations: ['items', 'items.product', 'items.product.variants'] });
         if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
+        // State machine validation
+        try {
+            validateStatusTransition(order.status, dto.status);
+        } catch (e: any) {
+            throw new BadRequestException(e.message);
+        }
         if (order.status === 'PENDING' && dto.status === 'LUNAS') await this.deductStock(orderId);
         if (order.status === 'LUNAS' && dto.status === 'BATAL') await this.restoreStock(orderId);
         if (dto.status === 'DIKIRIM') order.delivered_at = new Date();
@@ -589,33 +596,327 @@ export class OrderService {
     }
 
     async processOrder(orderId: string, dto?: { tracking_number?: string; courier_name?: string; courier_service?: string }) {
-        this.logger.log(`[PROCESS] ${orderId}`);
+        const opId = require('uuid').v4();
+        this.logger.log(`[PROCESS] operation_id=${opId} order=${orderId}`);
+
         const order = await this.orderRepo.findOne({ where: { id: orderId }, relations: ['user', 'items', 'items.product'] });
         if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
         if (order.status !== 'LUNAS') throw new BadRequestException('Hanya pesanan LUNAS.');
-        order.is_locked = true; order.status = 'DIKEMAS';
+
+        // State machine: validate status transition
+        try { validateStatusTransition(order.status, 'DIKEMAS'); } catch (e: any) { throw new BadRequestException(e.message); }
+
+        // Booking idempotency guard
+        if (order.booking_status === 'BOOKING') throw new BadRequestException('Booking sedang diproses. Mohon tunggu.');
+        if (order.booking_status === 'BOOKED') throw new BadRequestException('Booking sudah berhasil sebelumnya.');
+
+        order.is_locked = true;
+        order.status = 'DIKEMAS';
         if (dto?.tracking_number) order.tracking_number = dto.tracking_number;
         if (dto?.courier_name) order.courier_name = dto.courier_name;
         if (dto?.courier_service) order.courier_service = dto.courier_service;
-        this.logger.log(`[PROCESS] Stock deduction skipped (handled on payment)`);
+
+        // Booking lifecycle for regular courier
         if (order.shipping_type === 'regular' && order.courier_name) {
-            this.logger.log(`[PROCESS] Generating AWB via Biteship...`);
+            order.booking_status = 'BOOKING';
+            await this.orderRepo.save(order);
+            await this.orderHistoryRepo.save({
+                order_id: order.id, actor: 'SYSTEM', action: 'BOOKING_STARTED',
+                description: 'Booking kurir dimulai',
+                refund_operation_id: opId,
+                metadata: { courier: order.courier_name, service: order.courier_service, operation_id: opId },
+            });
+
             try {
                 const awb = await this.generateAwb(order);
                 if (awb) {
-                    (order as any).awb_number = awb.awb_number;
-                    (order as any).awb_url = awb.awb_url;
-                    (order as any).biteship_order_id = awb.biteship_order_id;
-                    if (!order.tracking_number) (order as any).tracking_number = awb.awb_number;
-                    this.logger.log(`[PROCESS] AWB OK: biteshipId=${awb.biteship_order_id}, awb=${awb.awb_number}`);
+                    order.awb_number = awb.awb_number;
+                    order.awb_url = awb.awb_url;
+                    order.biteship_order_id = awb.biteship_order_id;
+                    if (!order.tracking_number) order.tracking_number = awb.awb_number;
+                    order.booking_status = 'BOOKED';
+
+                    // Create shipping snapshot immediately after successful booking
+                    // This freezes the shipping data
+                    if (!order.shipping_snapshot) {
+                        // Snapshot creation is handled by ShippingLabelService
+                        // We just save the order with all booking data
+                    }
+
+                    const saved = await this.orderRepo.save(order);
+                    this.logger.log(`[PROCESS] ✅ AWB OK: operation_id=${opId} order=${order.invoice_number} biteshipId=${awb.biteship_order_id} awb=${awb.awb_number} booking_status=BOOKED`);
+
+                    // Fetch tracking URL in background
+                    this.fetchAndSaveTrackingUrl(saved).catch((e) =>
+                        this.logger.warn(`[PROCESS] tracking_url fetch failed: ${e.message}`),
+                    );
+
+                    await this.orderHistoryRepo.save({
+                        order_id: order.id, actor: 'SYSTEM', action: 'BOOKING_SUCCESS',
+                        description: 'Booking kurir berhasil',
+                        refund_operation_id: opId,
+                        metadata: { awb: awb.awb_number, biteship_order_id: awb.biteship_order_id, operation_id: opId },
+                    });
+
+                    this.logger.log(`[BOOKING] SUCCESS operation_id=${opId} order=${order.invoice_number} awb=${awb.awb_number}`);
+                    return { message: 'Pesanan diproses.', order: saved };
                 } else {
-                    this.logger.warn(`[PROCESS] AWB FAILED - check [AWB] logs above`);
+                    // AWB generation returned null (API error)
+                    order.booking_status = 'FAILED';
+                    await this.orderRepo.save(order);
+                    await this.orderHistoryRepo.save({
+                        order_id: order.id, actor: 'SYSTEM', action: 'BOOKING_FAILED',
+                        description: 'Booking kurir gagal - AWB null dari Biteship',
+                        refund_operation_id: opId,
+                        metadata: { operation_id: opId },
+                    });
+                    this.logger.warn(`[BOOKING] FAILED operation_id=${opId} order=${order.invoice_number}`);
+                    return { message: 'Pesanan diproses namun booking kurir gagal. Gunakan Retry Booking.', order: order };
                 }
-            } catch (e: any) { this.logger.error(`[PROCESS] AWB exception: ${e.message}`); }
+            } catch (e: any) {
+                order.booking_status = 'FAILED';
+                await this.orderRepo.save(order);
+                await this.orderHistoryRepo.save({
+                    order_id: order.id, actor: 'SYSTEM', action: 'BOOKING_FAILED',
+                    description: `Booking kurir gagal: ${e.message}`,
+                    refund_operation_id: opId,
+                    metadata: { error: e.message, operation_id: opId },
+                });
+                this.logger.error(`[BOOKING] FAILED operation_id=${opId} order=${order.invoice_number} error=${e.message}`);
+                return { message: `Pesanan diproses namun booking gagal: ${e.message}. Gunakan Retry Booking.`, order: order };
+            }
         }
-        const saved = await this.orderRepo.save(order);
-        this.logger.log(`[PROCESS] Done. AWB=${saved.awb_number}`);
-        return { message: 'Pesanan diproses.', order: saved };
+
+        // No booking needed (no courier selected or custom tracking)
+        await this.orderRepo.save(order);
+        this.logger.log(`[PROCESS] Done (no booking) operation_id=${opId} order=${order.invoice_number}`);
+        return { message: 'Pesanan diproses.', order: order };
+    }
+
+    /**
+     * Retry booking after failure. Only allowed when booking_status = FAILED.
+     */
+    async retryBooking(orderId: string): Promise<any> {
+        const opId = require('uuid').v4();
+        this.logger.log(`[RETRY_BOOKING] operation_id=${opId} order=${orderId}`);
+
+        const order = await this.orderRepo.findOne({ where: { id: orderId }, relations: ['user', 'items', 'items.product'] });
+        if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
+        if (order.booking_status !== 'FAILED') throw new BadRequestException('Hanya pesanan dengan booking FAILED yang bisa di-retry.');
+        if (!order.courier_name) throw new BadRequestException('Kurir belum dipilih.');
+
+        order.booking_status = 'BOOKING';
+        await this.orderRepo.save(order);
+        await this.orderHistoryRepo.save({
+            order_id: order.id, actor: 'SYSTEM', action: 'BOOKING_RETRY',
+            description: 'Retry booking kurir dimulai',
+            refund_operation_id: opId,
+            metadata: { courier: order.courier_name, operation_id: opId },
+        });
+
+        try {
+            let awb: any = null;
+            if (order.shipping_type === 'regular') {
+                awb = await this.generateAwb(order);
+            } else if (order.shipping_type === 'instant') {
+                awb = await this.generateInstantBooking(order);
+            }
+
+            if (awb) {
+                order.awb_number = awb.awb_number;
+                order.awb_url = awb.awb_url;
+                order.biteship_order_id = awb.biteship_order_id;
+                if (!order.tracking_number) order.tracking_number = awb.awb_number;
+                order.booking_status = 'BOOKED';
+                await this.orderRepo.save(order);
+
+                await this.orderHistoryRepo.save({
+                    order_id: order.id, actor: 'SYSTEM', action: 'BOOKING_RETRY_SUCCESS',
+                    description: 'Retry booking kurir berhasil',
+                    refund_operation_id: opId,
+                    metadata: { awb: awb.awb_number, biteship_order_id: awb.biteship_order_id, operation_id: opId },
+                });
+
+                this.logger.log(`[RETRY_BOOKING] SUCCESS operation_id=${opId} order=${order.invoice_number} awb=${awb.awb_number}`);
+                return { message: 'Retry booking berhasil.', order: order };
+            } else {
+                order.booking_status = 'FAILED';
+                await this.orderRepo.save(order);
+                throw new BadRequestException('Retry booking gagal. Silakan coba lagi.');
+            }
+        } catch (e: any) {
+            if (e instanceof BadRequestException) throw e;
+            order.booking_status = 'FAILED';
+            await this.orderRepo.save(order);
+            await this.orderHistoryRepo.save({
+                order_id: order.id, actor: 'SYSTEM', action: 'BOOKING_RETRY_FAILED',
+                description: `Retry booking gagal: ${e.message}`,
+                refund_operation_id: opId,
+                metadata: { error: e.message, operation_id: opId },
+            });
+            throw new BadRequestException(`Retry booking gagal: ${e.message}`);
+        }
+    }
+
+    /**
+     * Generate instant booking (for searchDriver / gojek/grab)
+     */
+    private async generateInstantBooking(order: Order): Promise<{ biteship_order_id: string; awb_number: string; awb_url: string } | null> {
+        const key = process.env.BITESHIP_API_KEY || '';
+        if (!key) return null;
+
+        let destLat = '', destLng = ''; let destName = order.user?.full_name || 'Customer';
+        let destPhone = order.user?.phone_number || '08123456789'; let destAddr = ''; let destPC = '';
+        if (order.shipping_address_snapshot) {
+            const snap = order.shipping_address_snapshot as any;
+            destLat = String(snap.latitude || ''); destLng = String(snap.longitude || '');
+            destAddr = snap.full_address || ''; destName = snap.recipient_name || destName;
+            destPhone = snap.phone_number || destPhone; destPC = snap.postal_code || '';
+        } else if (order.address_id) {
+            const addr = await this.addressRepo.findOne({ where: { id: order.address_id } as any });
+            if (addr?.latitude && addr?.longitude) {
+                destLat = String(addr.latitude); destLng = String(addr.longitude);
+                destAddr = addr.full_address || ''; destName = addr.recipient_name || destName;
+                destPhone = addr.phone_number || destPhone; destPC = addr.postal_code || '';
+            }
+        }
+        if (!destLat || !destLng) return null;
+
+        const originLat = parseFloat(process.env.STORE_LATITUDE || '-7.8300');
+        const originLng = parseFloat(process.env.STORE_LONGITUDE || '110.3870');
+        const courier = normalizeCourierCode(order.courier_name || 'gojek');
+
+        const biteshipBody: any = {
+            origin_contact_name: process.env.STORE_CONTACT_NAME || 'Anandam Computer',
+            origin_contact_phone: process.env.STORE_PHONE || '6281228134747',
+            origin_address: process.env.STORE_ADDRESS || 'Jl. Ringroad Selatan',
+            origin_postal_code: parseInt(process.env.STORE_POSTAL_CODE || '55283', 10),
+            origin_coordinate: { latitude: originLat, longitude: originLng },
+            destination_contact_name: destName, destination_contact_phone: destPhone,
+            destination_address: destAddr || 'Alamat Tujuan',
+            destination_coordinate: { latitude: parseFloat(destLat), longitude: parseFloat(destLng) },
+            courier_company: courier, courier_type: 'instant', delivery_type: 'now',
+            items: order.items.map((item) => ({
+                name: item.product_name || 'Product', value: Math.max(Number(item.price) || 1000, 100),
+                quantity: item.quantity, weight: Math.max(Math.round((item.product?.weight || 1000) * item.quantity), 100),
+                length: Number(item.product?.length) || 20, width: Number(item.product?.width) || 20,
+                height: Number(item.product?.height) || 20,
+            })),
+        };
+        if (destPC) biteshipBody.destination_postal_code = parseInt(destPC, 10);
+
+        const res = await fetch('https://api.biteship.com/v1/orders', {
+            method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify(biteshipBody),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            this.logger.error(`[INSTANT_BOOKING] FAIL: ${JSON.stringify(data)}`);
+            return null;
+        }
+        return {
+            biteship_order_id: data.id || '',
+            awb_number: data.waybill_id || '',
+            awb_url: data.waybill_url || '',
+        };
+    }
+
+    async searchDriver(orderId: string) {
+        const opId = require('uuid').v4();
+        this.logger.log(`[INSTANT] Booking driver for order ${orderId} operation_id=${opId}`);
+
+        const order = await this.orderRepo.findOne({ where: { id: orderId }, relations: ['user', 'items', 'items.product'] });
+        if (!order) throw new NotFoundException('Tidak ditemukan');
+        if (order.status !== 'DIKEMAS') throw new BadRequestException('Hanya pesanan DIKEMAS yang bisa dipesan drivernya.');
+        if (order.shipping_type !== 'instant') throw new BadRequestException('Hanya pesanan instan.');
+
+        // Booking idempotency guard
+        if (order.booking_status === 'BOOKING') throw new BadRequestException('Booking sedang diproses. Mohon tunggu.');
+        if (order.booking_status === 'BOOKED') throw new BadRequestException('Driver sudah dipesan sebelumnya.');
+
+        order.booking_status = 'BOOKING';
+        await this.orderRepo.save(order);
+
+        await this.orderHistoryRepo.save({
+            order_id: order.id, actor: 'SYSTEM', action: 'BOOKING_STARTED',
+            description: 'Pencarian driver instant dimulai',
+            refund_operation_id: opId,
+            metadata: { courier: order.courier_name, operation_id: opId },
+        });
+
+        try {
+            const booking = await this.generateInstantBooking(order);
+            if (!booking || !booking.awb_number) {
+                order.booking_status = 'FAILED';
+                await this.orderRepo.save(order);
+                await this.orderHistoryRepo.save({
+                    order_id: order.id, actor: 'SYSTEM', action: 'BOOKING_FAILED',
+                    description: 'Pencarian driver gagal - tidak ada driver tersedia',
+                    refund_operation_id: opId,
+                    metadata: { operation_id: opId },
+                });
+                throw new BadRequestException('Tidak ada driver instant tersedia saat ini.');
+            }
+
+            // Store booking result
+            order.biteship_order_id = booking.biteship_order_id;
+            order.tracking_number = booking.awb_number || ('INSTANT-' + order.invoice_number);
+            order.awb_number = booking.awb_number;
+            order.awb_url = booking.awb_url;
+            order.booking_status = 'BOOKED';
+
+            // Get driver info from Biteship response
+            const res = await fetch(`https://api.biteship.com/v1/orders/${booking.biteship_order_id}`, {
+                headers: { Authorization: `Bearer ${process.env.BITESHIP_API_KEY}`, 'Content-Type': 'application/json' },
+            });
+            let driverInfo: any = {};
+            if (res.ok) {
+                const data = await res.json();
+                driverInfo = data.courier || {};
+            }
+
+            order.shipping_details = {
+                ...((order.shipping_details as any) || {}),
+                driver_name: driverInfo.name || driverInfo.driver_name || null,
+                driver_phone: driverInfo.phone || driverInfo.driver_phone || null,
+                driver_tracking_url: driverInfo.tracking_url || null,
+                driver_vehicle_type: driverInfo.vehicle_type || null,
+                driver_photo: driverInfo.photo_url || null,
+                instant_booked_at: new Date().toISOString(),
+            };
+
+            await this.orderRepo.save(order);
+
+            await this.orderHistoryRepo.save({
+                order_id: order.id, actor: 'SYSTEM', action: 'BOOKING_SUCCESS',
+                description: 'Driver instant berhasil dipesan',
+                refund_operation_id: opId,
+                metadata: { awb: booking.awb_number, biteship_order_id: booking.biteship_order_id, driver: driverInfo.name, operation_id: opId },
+            });
+
+            this.logger.log(`[INSTANT] ✅ Driver dipesan: operation_id=${opId} order=${order.invoice_number} driver=${driverInfo.name} awb=${booking.awb_number} booking_status=BOOKED`);
+
+            return {
+                message: 'Driver berhasil dipesan!',
+                driver_found: true,
+                driver: {
+                    name: driverInfo.name || driverInfo.driver_name || 'Driver',
+                    phone: driverInfo.phone || driverInfo.driver_phone || '-',
+                    tracking_url: driverInfo.tracking_url || null,
+                },
+                biteship_order_id: booking.biteship_order_id,
+            };
+        } catch (err: any) {
+            if (err instanceof BadRequestException) throw err;
+            order.booking_status = 'FAILED';
+            await this.orderRepo.save(order);
+            await this.orderHistoryRepo.save({
+                order_id: order.id, actor: 'SYSTEM', action: 'BOOKING_FAILED',
+                description: `Pencarian driver gagal: ${err.message}`,
+                refund_operation_id: opId,
+                metadata: { error: err.message, operation_id: opId },
+            });
+            throw new BadRequestException(`Gagal memesan driver: ${err.message}`);
+        }
     }
 
     private async generateAwb(order: Order): Promise<{ biteship_order_id: string; awb_number: string; awb_url: string } | null> {
@@ -686,85 +987,6 @@ export class OrderService {
         await this.orderRepo.save(order);
         this.logger.log(`[PICKUP] OK! ID=${order.pickup_request_id}`);
         return { message: 'Pickup berhasil dijadwalkan secara otomatis oleh Biteship.', status: 'success' };
-    }
-
-    async searchDriver(orderId: string) {
-        this.logger.log(`[INSTANT] Booking driver for order ${orderId}`);
-        const order = await this.orderRepo.findOne({ where: { id: orderId }, relations: ['user', 'items', 'items.product'] });
-        if (!order) throw new NotFoundException('Tidak ditemukan');
-        if (order.status !== 'DIKEMAS') throw new BadRequestException('Hanya pesanan DIKEMAS yang bisa dipesan drivernya.');
-        if (order.shipping_type !== 'instant') throw new BadRequestException('Hanya pesanan instan.');
-        let destLat = '', destLng = ''; let destName = order.user?.full_name || 'Customer';
-        let destPhone = order.user?.phone_number || '08123456789'; let destAddr = ''; let destPC = '';
-        if (order.shipping_address_snapshot) {
-            const snap = order.shipping_address_snapshot as any;
-            destLat = String(snap.latitude || ''); destLng = String(snap.longitude || '');
-            destAddr = snap.full_address || ''; destName = snap.recipient_name || destName;
-            destPhone = snap.phone_number || destPhone; destPC = snap.postal_code || '';
-        } else if (order.address_id) {
-            const addr = await this.addressRepo.findOne({ where: { id: order.address_id } as any });
-            if (addr?.latitude && addr?.longitude) {
-                destLat = String(addr.latitude); destLng = String(addr.longitude);
-                destAddr = addr.full_address || ''; destName = addr.recipient_name || destName;
-                destPhone = addr.phone_number || destPhone; destPC = addr.postal_code || '';
-            }
-        }
-        if (!destLat || !destLng) throw new BadRequestException('Alamat tujuan tidak memiliki koordinat.');
-        const key = process.env.BITESHIP_API_KEY || '';
-        const originName = process.env.STORE_CONTACT_NAME || 'Anandam Computer';
-        const originPhone = process.env.STORE_PHONE || '6281228134747';
-        const originAddr = process.env.STORE_ADDRESS || 'Jl. Ringroad Selatan, Banguntapan, Bantul, Yogyakarta';
-        const originPC = process.env.STORE_POSTAL_CODE || '55283';
-        const originLat = parseFloat(process.env.STORE_LATITUDE || '-7.8300');
-        const originLng = parseFloat(process.env.STORE_LONGITUDE || '110.3870');
-        const courier = normalizeCourierCode(order.courier_name || 'gojek');
-        this.logger.log(`[INSTANT] courier_company=${courier}, origin=(${originLat},${originLng}), dest=(${destLat},${destLng})`);
-        const biteshipBody: any = {
-            origin_contact_name: originName, origin_contact_phone: originPhone,
-            origin_address: originAddr, origin_postal_code: parseInt(originPC, 10) || 55283,
-            origin_coordinate: { latitude: originLat, longitude: originLng },
-            destination_contact_name: destName, destination_contact_phone: destPhone,
-            destination_address: destAddr || 'Alamat Tujuan',
-            destination_coordinate: { latitude: parseFloat(destLat), longitude: parseFloat(destLng) },
-            courier_company: courier, courier_type: 'instant', delivery_type: 'now',
-            items: order.items.map((item) => ({
-                name: item.product_name || 'Product', value: Math.max(Number(item.price) || 1000, 100),
-                quantity: item.quantity, weight: Math.max(Math.round((item.product?.weight || 1000) * item.quantity), 100),
-                length: Number(item.product?.length) || 20, width: Number(item.product?.width) || 20,
-                height: Number(item.product?.height) || 20,
-            })),
-        };
-        if (destPC) biteshipBody.destination_postal_code = parseInt(destPC, 10);
-        this.logger.log(`[INSTANT] POST /v1/orders: ${JSON.stringify(biteshipBody).substring(0, 400)}`);
-        try {
-            const res = await fetch('https://api.biteship.com/v1/orders', {
-                method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify(biteshipBody),
-            });
-            const data = await res.json();
-            this.logger.log(`[INSTANT] Response ${res.status}: ${JSON.stringify(data).substring(0, 400)}`);
-            if (!res.ok) throw new BadRequestException(data.error || data.message || 'Gagal memesan driver instant dari Biteship');
-            const driverInfo = data.courier || {};
-            const liveTrackingUrl = data.live_tracking_url || driverInfo.tracking_url || null;
-            order.biteship_order_id = data.id || '';
-            order.tracking_number = data.waybill_id || `INSTANT-${order.invoice_number}`;
-            (order as any).awb_number = data.waybill_id || '';
-            (order as any).awb_url = data.waybill_url || '';
-            order.shipping_details = { ...((order.shipping_details as any) || {}),
-                driver_name: driverInfo.name || driverInfo.driver_name || null,
-                driver_phone: driverInfo.phone || driverInfo.driver_phone || null,
-                driver_tracking_url: liveTrackingUrl, driver_vehicle_type: driverInfo.vehicle_type || null,
-                driver_photo: driverInfo.photo_url || null, instant_booked_at: new Date().toISOString(),
-            };
-            await this.orderRepo.save(order);
-            this.logger.log(`[INSTANT] ✅ Driver dipesan! biteshipId=${order.biteship_order_id}, driver=${driverInfo.name}`);
-            return { message: 'Driver berhasil dipesan!', driver_found: true,
-                driver: { name: driverInfo.name || driverInfo.driver_name || 'Driver', phone: driverInfo.phone || driverInfo.driver_phone || '-', tracking_url: liveTrackingUrl },
-                biteship_order_id: data.id,
-            };
-        } catch (err: any) {
-            if (err instanceof BadRequestException) throw err;
-            throw new BadRequestException(`Gagal memesan driver: ${err.message}`);
-        }
     }
 
     async markDelivered(orderId: string) {
@@ -899,6 +1121,122 @@ export class OrderService {
         if (dto.voucher_usage_id) { try { await this.voucherService.confirmVoucherUsage(dto.voucher_usage_id, saved.id); } catch (err: any) { this.logger.warn(`Failed to update voucher usage with order ID: ${err.message}`); } }
         if (dto.cart_ids?.length) await this.cartRepo.delete(dto.cart_ids);
         return { message: 'Checkout berhasil', order: saved, payment: { token: tx.token, redirect_url: tx.redirect_url } };
+    }
+
+    // ====================== SHIPPING LABEL DATA ======================
+
+    /**
+     * Fetch and save tracking_url from Biteship for an order.
+     */
+    async fetchAndSaveTrackingUrl(order: Order): Promise<void> {
+        if (!order.awb_number) return;
+        try {
+            const key = process.env.BITESHIP_API_KEY || '';
+            if (!key) return;
+            const res = await fetch(
+                `https://api.biteship.com/v1/trackings/${order.awb_number}`,
+                {
+                    headers: {
+                        Authorization: `Bearer ${key}`,
+                        'Content-Type': 'application/json',
+                    },
+                },
+            );
+            const data = await res.json();
+            if (res.ok && data.waybill_url) {
+                order.tracking_url = data.waybill_url;
+                await this.orderRepo.save(order);
+                this.logger.log(`[TRACKING_URL] Saved for order ${order.invoice_number}: ${data.waybill_url}`);
+            }
+        } catch (e: any) {
+            this.logger.warn(`[TRACKING_URL] Failed for order ${order.invoice_number}: ${e.message}`);
+        }
+    }
+
+    /**
+     * Get all data needed for shipping label generation.
+     */
+    async findShippingLabelData(orderId: string): Promise<any> {
+        const order = await this.orderRepo.findOne({
+            where: { id: orderId },
+            relations: ['user', 'user.addresses', 'items', 'items.product'],
+        });
+        if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
+        if (!order.awb_number) {
+            throw new BadRequestException('AWB belum tersedia. Proses pesanan terlebih dahulu.');
+        }
+
+        // Get sender address from env
+        const sender = {
+            name: process.env.STORE_CONTACT_NAME || 'Anandam Computer',
+            phone: process.env.STORE_PHONE || '6281228134747',
+            address: process.env.STORE_ADDRESS || 'Jl. Ringroad Selatan, Banguntapan, Bantul, Yogyakarta',
+        };
+
+        // Get recipient info
+        let recipient: any = {};
+        if (order.shipping_address_snapshot) {
+            const snap = order.shipping_address_snapshot as any;
+            recipient = {
+                name: snap.recipient_name || order.user?.full_name || 'Customer',
+                phone: snap.phone_number || order.user?.phone_number || '',
+                address: snap.full_address || '',
+            };
+        } else if (order.address_id && order.user?.addresses?.length) {
+            const addr = order.user.addresses[0];
+            recipient = {
+                name: addr.recipient_name || order.user.full_name,
+                phone: addr.phone_number || order.user.phone_number,
+                address: addr.full_address,
+            };
+        } else {
+            recipient = {
+                name: order.user?.full_name || 'Customer',
+                phone: order.user?.phone_number || '',
+                address: '',
+            };
+        }
+
+        // Calculate total weight
+        let totalWeight = 0;
+        const items = (order.items || []).map((item: any) => {
+            const weight = item.product?.weight || 1000;
+            totalWeight += weight * item.quantity;
+            return {
+                name: item.product_name || 'Product',
+                quantity: item.quantity,
+                weight: weight,
+            };
+        });
+
+        // Determine if COD
+        const paymentMethod = order.payment_method || '';
+        const isCod = paymentMethod.toLowerCase().includes('cod');
+
+        // Determine if fragile (based on product categories or notes)
+        const isFragile = order.notes?.toLowerCase().includes('fragile') || false;
+
+        // Build tracking URL
+        const trackingUrl = order.tracking_url || order.awb_url || '';
+
+        return {
+            invoice_number: order.invoice_number,
+            awb_number: order.awb_number,
+            tracking_url: trackingUrl,
+            biteship_order_id: order.biteship_order_id,
+            courier_name: order.courier_name || '',
+            courier_service: order.courier_service || '',
+            sender,
+            recipient,
+            items,
+            total_weight: totalWeight,
+            shipping_cost: order.shipping_cost || 0,
+            total_price: order.total_price,
+            is_cod: isCod,
+            is_fragile: isFragile,
+            status: order.status,
+            created_at: order.created_at,
+        };
     }
 
     async handleBiteshipWebhook(payload: any) {

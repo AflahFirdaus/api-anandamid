@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { OrderService } from './order.service';
 import { OrderController } from './order.controller';
+import { ShippingLabelService } from './shipping-label.service';
 import { Order } from './entities/order.entity';
 import { OrderItem } from './entities/order-item.entity';
 import { OrderHistory } from './entities/order-history.entity';
@@ -31,7 +32,7 @@ import { VoucherModule } from '../voucher/voucher.module';
     VoucherModule,
   ],
   controllers: [OrderController],
-  providers: [OrderService],
-  exports: [OrderService],
+  providers: [OrderService, ShippingLabelService],
+  exports: [OrderService, ShippingLabelService],
 })
 export class OrderModule {}

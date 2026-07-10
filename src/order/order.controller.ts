@@ -8,6 +8,7 @@ import {
   Param,
   Get,
   Query,
+  Res,
   HttpException,
   HttpStatus,
   Logger,
@@ -20,6 +21,7 @@ import {
   ApiBody,
 } from '@nestjs/swagger';
 import { OrderService } from './order.service';
+import { ShippingLabelService } from './shipping-label.service';
 import {
   CheckoutCartDto,
   CheckoutDirectDto,
@@ -35,7 +37,10 @@ import { JwtAuthGuard } from '../auth/guards/jwt.guards';
 export class OrderController {
   private readonly logger = new Logger(OrderController.name);
 
-  constructor(private readonly orderService: OrderService) {}
+  constructor(
+    private readonly orderService: OrderService,
+    private readonly shippingLabelService: ShippingLabelService,
+  ) {}
 
   // ====================== ENDPOINT USER (PEMBELI) ======================
 
@@ -217,6 +222,84 @@ export class OrderController {
   @ApiResponse({ status: 400, description: 'Only DIKEMAS orders' })
   async markDelivered(@Param('id') orderId: string) {
     return this.orderService.markDelivered(orderId);
+  }
+
+  // ====================== ADMIN SHIPPING LABEL DATA (JSON) ======================
+  @UseGuards(JwtAuthGuard)
+  @Get(':id/shipping-label')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ 
+    summary: 'Get shipping label data (Admin)',
+    description: 'Returns all data needed to generate a professional shipping label including barcode, QR code, sender/recipient info, courier, items, etc.'
+  })
+  @ApiResponse({ status: 200, description: 'Shipping label data' })
+  @ApiResponse({ status: 400, description: 'AWB not available' })
+  async getShippingLabel(@Param('id') orderId: string) {
+    return this.orderService.findShippingLabelData(orderId);
+  }
+
+  // ====================== ADMIN SHIPPING LABEL PDF ======================
+  @UseGuards(JwtAuthGuard)
+  @Get(':id/shipping-label.pdf')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ 
+    summary: 'Download shipping label PDF (Admin)',
+    description: 'Returns a PDF file ready for thermal printing (100x150mm). Download only - does NOT increment print_count.'
+  })
+  @ApiResponse({ status: 200, description: 'PDF file' })
+  @ApiResponse({ status: 400, description: 'AWB or snapshot not available' })
+  async downloadShippingLabelPdf(
+    @Param('id') orderId: string,
+    @Res() res: any,
+  ) {
+    const pdfBuffer = await this.shippingLabelService.generateShippingLabelPdf(orderId);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="shipping-label-${orderId.substring(0, 8)}.pdf"`,
+      'Content-Length': pdfBuffer.length,
+    });
+    res.end(pdfBuffer);
+  }
+
+  // ====================== ADMIN MARK LABEL PRINTED ======================
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/mark-label-printed')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ 
+    summary: 'Mark shipping label as printed (Admin)',
+    description: 'Increments label_print_count, updates label_status to PRINTED/REPRINTED, records printed_by and printed_at. Call this when admin actually prints the label.'
+  })
+  @ApiResponse({ status: 200, description: 'Label marked as printed' })
+  @ApiResponse({ status: 400, description: 'AWB not available' })
+  async markLabelPrinted(
+    @Param('id') orderId: string,
+    @Req() req: any,
+  ) {
+    const adminName = req.user?.full_name || req.user?.email || 'Admin';
+    await this.shippingLabelService.markLabelPrinted(orderId, adminName);
+    return { message: 'Label ditandai sebagai sudah dicetak.' };
+  }
+
+  // ====================== ADMIN PACKING SLIP PDF ======================
+  @UseGuards(JwtAuthGuard)
+  @Get(':id/packing-slip.pdf')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ 
+    summary: 'Download packing slip PDF (Admin)',
+    description: 'Returns an A4 PDF packing slip for warehouse use. Includes invoice, customer info, items list with variants, quantities, prices, and order barcode.'
+  })
+  @ApiResponse({ status: 200, description: 'PDF file' })
+  async downloadPackingSlipPdf(
+    @Param('id') orderId: string,
+    @Res() res: any,
+  ) {
+    const pdfBuffer = await this.shippingLabelService.generatePackingSlipPdf(orderId);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="packing-slip-${orderId.substring(0, 8)}.pdf"`,
+      'Content-Length': pdfBuffer.length,
+    });
+    res.end(pdfBuffer);
   }
 
   // ====================== ADMIN PRINT AWB LABEL ======================

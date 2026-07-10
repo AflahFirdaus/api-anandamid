@@ -106,6 +106,9 @@ export class Order {
   @Column({ type: 'text', nullable: true })
   awb_url: string;
 
+  @Column({ type: 'text', nullable: true })
+  tracking_url: string;
+
   @Column({ nullable: true })
   biteship_order_id: string;
 
@@ -126,6 +129,32 @@ export class Order {
 
   @Column({ nullable: true })
   payment_token: string;
+
+  // ── Shipping Label / Packing Slip ──
+  @Column({ type: 'jsonb', nullable: true })
+  shipping_snapshot: Record<string, any>;
+
+  @Column({ type: 'int', default: 0 })
+  label_print_count: number;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  last_label_printed_at: Date;
+
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  printed_by: string;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  printed_at: Date;
+
+  @Column({ type: 'varchar', length: 10, default: 'NOT_PRINTED' })
+  label_status: string; // NOT_PRINTED | PRINTED | REPRINTED
+
+  @Column({ type: 'varchar', length: 10, default: 'v1' })
+  label_version: string;
+
+  // ── Booking Idempotency ──
+  @Column({ type: 'varchar', length: 20, default: 'NOT_BOOKED' })
+  booking_status: string; // NOT_BOOKED | BOOKING | BOOKED | FAILED
 
   @OneToMany(() => OrderItem, (item) => item.order, { cascade: true })
   items: OrderItem[];
