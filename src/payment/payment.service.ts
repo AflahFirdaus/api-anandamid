@@ -64,19 +64,18 @@ export class PaymentService {
     this.logger.log(`[REFUND] Requesting refund for ${orderId}, amount=${amount}, reason=${reason}`);
     try {
       const parameter = {
-        transaction_id: orderId,
         amount: amount,
         reason: reason,
       };
-      // Midtrans CoreApi: use this.core.transaction.refund() with parameter { transaction_id, ... }
+      // Midtrans CoreApi: use this.core.transaction.refund() or refundDirect() with (orderId, parameter)
       // The method name depends on the version - try refundDirect or refund
       let result: any;
       if (typeof this.core.transaction?.refundDirect === 'function') {
-        result = await this.core.transaction.refundDirect(parameter);
+        result = await this.core.transaction.refundDirect(orderId, parameter);
       } else if (typeof this.core.transaction?.refund === 'function') {
-        result = await this.core.transaction.refund(parameter);
+        result = await this.core.transaction.refund(orderId, parameter);
       } else if (typeof this.core.transactions?.refundDirect === 'function') {
-        result = await this.core.transactions.refundDirect(parameter);
+        result = await this.core.transactions.refundDirect(orderId, parameter);
       } else {
         // Fallback: call the snap API for refund via /v2/{order_id}/refund
         const isProd = process.env.MIDTRANS_IS_PRODUCTION === 'true';
@@ -88,10 +87,7 @@ export class PaymentService {
             Authorization: `Basic ${auth}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            amount: amount,
-            reason: reason,
-          }),
+          body: JSON.stringify(parameter),
         });
         result = await res.json();
         if (!res.ok) {
