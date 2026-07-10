@@ -1,9 +1,10 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { OrderService } from './order.service';
 import { OrderController } from './order.controller';
 import { ShippingLabelService } from './shipping-label.service';
 import { FulfillmentService } from './fulfillment.service';
+import { FulfillmentWorkflowService } from './fulfillment-workflow.service';
 import { Order } from './entities/order.entity';
 import { OrderItem } from './entities/order-item.entity';
 import { OrderHistory } from './entities/order-history.entity';
@@ -15,6 +16,7 @@ import { User } from '../user/entities/user.entity';
 import { UserAddress } from '../user/entities/user-address.entity';
 import { PaymentModule } from '../payment/payment.module';
 import { VoucherModule } from '../voucher/voucher.module';
+import { ShipmentModule } from '../shipment/shipment.module';
 
 @Module({
   imports: [
@@ -31,9 +33,10 @@ import { VoucherModule } from '../voucher/voucher.module';
     ]),
     PaymentModule,
     VoucherModule,
+    forwardRef(() => ShipmentModule),
   ],
   controllers: [OrderController],
-  providers: [OrderService, ShippingLabelService, FulfillmentService],
-  exports: [OrderService, ShippingLabelService, FulfillmentService],
+  providers: [OrderService, ShippingLabelService, FulfillmentService, FulfillmentWorkflowService],
+  exports: [OrderService, ShippingLabelService, FulfillmentService, FulfillmentWorkflowService],
 })
 export class OrderModule {}

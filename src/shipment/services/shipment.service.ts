@@ -1,6 +1,6 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { Shipment } from '../entities/shipment.entity';
 import { ShipmentItem } from '../entities/shipment-item.entity';
 import { ShipmentStatus } from '../enums/shipment-status.enum';
@@ -22,7 +22,31 @@ export class ShipmentService {
     private readonly bookingService: BookingService,
     private readonly labelService: LabelService,
     private readonly trackingService: TrackingService,
+    private readonly dataSource: DataSource,
   ) {}
+
+  /**
+   * Generate a unique shipment number.
+   */
+  private async generateShipmentNumber(): Promise<string> {
+    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const count = await this.shipmentRepo.count({
+      where: { created_at: new Date() } as any,
+    });
+    return `SHIP-${dateStr}-${String(count + 1).padStart(5, '0')}`;
+  }
+
+  /**
+   * Generate internal tracking code.
+   */
+  private generateTrackingCode(): string {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let code = 'ANM-';
+    for (let i = 0; i < 6; i++) {
+      code += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return code;
+  }
 
   /**
    * Create a new shipment for an order with product snapshots.
@@ -47,6 +71,8 @@ export class ShipmentService {
   ): Promise<Shipment> {
     const shipment = this.shipmentRepo.create({
       order_id: orderId,
+      shipment_number: await this.generateShipmentNumber(),
+      tracking_code: this.generateTrackingCode(),
       courier_name: data.courier_name,
       courier_service: data.courier_service,
       shipping_method: data.shipping_method,
@@ -77,12 +103,7 @@ export class ShipmentService {
       saved.id, 'SHIPMENT_CREATED', 'Shipment created',
     );
 
-    // Domain event
-    const event = new ShipmentCreatedEvent(
-      saved.id, orderId, data.shipping_method || 'REGULAR',
-    );
-
-    this.logger.log(`[SHIPMENT] Created shipment=${saved.id} for order=${orderId} items=${data.items?.length || 0}`);
+    this.logger.log(`[SHIPMENT] Created shipment=${saved.id} number=${saved.shipment_number} for order=${orderId} items=${data.items?.length || 0}`);
     return saved;
   }
 

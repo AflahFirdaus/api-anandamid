@@ -11,6 +11,7 @@ import { CourierCapability } from './entities/courier-capability.entity';
 import { ShipmentService } from './services/shipment.service';
 import { BookingService } from './services/booking.service';
 import { LabelService } from './services/label.service';
+import { PdfLabelService } from './services/pdf-label.service';
 import { TrackingService } from './services/tracking.service';
 import { CourierCapabilityService } from './services/courier-capability.service';
 import { OutboxService } from './services/outbox.service';
@@ -25,6 +26,7 @@ import { ShipmentCronService } from './shipment-cron.service';
     ShipmentService,
     BookingService,
     LabelService,
+    PdfLabelService,
     TrackingService,
     CourierCapabilityService,
     OutboxService,
@@ -35,6 +37,7 @@ import { ShipmentCronService } from './shipment-cron.service';
     ShipmentService,
     BookingService,
     LabelService,
+    PdfLabelService,
     TrackingService,
     CourierCapabilityService,
     OutboxService,

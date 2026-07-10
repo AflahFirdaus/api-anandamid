@@ -23,6 +23,8 @@ import {
 import { OrderService } from './order.service';
 import { ShippingLabelService } from './shipping-label.service';
 import { FulfillmentService } from './fulfillment.service';
+import { FulfillmentWorkflowService } from './fulfillment-workflow.service';
+import { PdfLabelService } from '../shipment/services/pdf-label.service';
 import {
   CheckoutCartDto,
   CheckoutDirectDto,
@@ -43,6 +45,8 @@ export class OrderController {
     private readonly orderService: OrderService,
     private readonly shippingLabelService: ShippingLabelService,
     private readonly fulfillmentService: FulfillmentService,
+    private readonly fulfillmentWorkflowService: FulfillmentWorkflowService,
+    private readonly pdfLabelService: PdfLabelService,
   ) {}
 
   // ====================== ENDPOINT USER (PEMBELI) ======================
@@ -171,49 +175,88 @@ export class OrderController {
     return this.orderService.findOneOrder(id);
   }
 
-  // ====================== ADMIN PROCESS ORDER ======================
+  // ====================== ADMIN PROCESS ORDER (START PACKING) ======================
   @UseGuards(JwtAuthGuard)
   @Post(':id/process')
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
-    summary: 'Process order (Admin)',
+    summary: 'Process order - Start packing (Admin)',
     description:
-      'Lock order, deduct stock, generate AWB via Biteship, change status to DIKEMAS.',
+      'Lock order, set status to DIKEMAS. This is the first step after payment. For courier booking, use search-driver (instant) or setup-shipping (regular).',
   })
-  @ApiResponse({ status: 200, description: 'Order processed and locked' })
+  @ApiResponse({ status: 200, description: 'Order processed' })
   @ApiResponse({ status: 400, description: 'Only LUNAS orders can be processed' })
   async processOrder(
     @Param('id') orderId: string,
-    @Body()
-    body?: {
-      tracking_number?: string;
-      courier_name?: string;
-      courier_service?: string;
-    },
+    @Req() req: any,
   ) {
-    return this.orderService.processOrder(orderId, body);
+    const adminName = req.user?.full_name || req.user?.email || 'Admin';
+    return this.fulfillmentService.startPacking(orderId, adminName);
   }
 
-  // ====================== ADMIN REQUEST PICKUP (REGULAR) ======================
+  // ====================== ADMIN COMPLETE PACKING ======================
   @UseGuards(JwtAuthGuard)
-  @Post(':id/request-pickup')
+  @Post(':id/complete-packing')
   @ApiBearerAuth('JWT-auth')
-  @ApiOperation({ summary: 'Request pickup via Biteship (Admin, Regular courier)' })
-  @ApiResponse({ status: 200, description: 'Pickup requested' })
-  @ApiResponse({ status: 400, description: 'Only DIKEMAS regular orders' })
-  async requestPickup(@Param('id') orderId: string) {
-    return this.orderService.requestPickup(orderId);
+  @ApiOperation({
+    summary: 'Complete packing (Admin)',
+    description: 'Mark packing as complete. Order status becomes DIKEMAS. Ready for shipping setup.',
+  })
+  @ApiResponse({ status: 200, description: 'Packing completed' })
+  @ApiResponse({ status: 400, description: 'Order not in packing status' })
+  async completePacking(@Param('id') orderId: string, @Req() req: any) {
+    const adminName = req.user?.full_name || req.user?.email || 'Admin';
+    return this.fulfillmentService.completePacking(orderId, adminName);
   }
 
   // ====================== ADMIN SEARCH DRIVER (INSTANT) ======================
   @UseGuards(JwtAuthGuard)
   @Post(':id/search-driver')
   @ApiBearerAuth('JWT-auth')
-  @ApiOperation({ summary: 'Search driver (Admin, Instant courier)' })
-  @ApiResponse({ status: 200, description: 'Driver search result' })
+  @ApiOperation({ summary: 'Search & book driver (Admin, Instant courier)' })
+  @ApiResponse({ status: 200, description: 'Driver booked successfully' })
   @ApiResponse({ status: 400, description: 'Only DIKEMAS instant orders' })
   async searchDriver(@Param('id') orderId: string) {
-    return this.orderService.searchDriver(orderId);
+    return this.fulfillmentWorkflowService.processInstantBooking(orderId);
+  }
+
+  // ====================== ADMIN SETUP SHIPPING + BOOK (REGULAR) ======================
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/book-shipping')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Book regular shipping (Admin)',
+    description: 'Generate AWB + create shipment + mark label READY for regular orders. Requires handover_method to be set via setup-shipping first.',
+  })
+  @ApiResponse({ status: 200, description: 'Shipping booked - label ready' })
+  @ApiResponse({ status: 400, description: 'Handover method must be set first' })
+  async bookRegularShipping(@Param('id') orderId: string) {
+    return this.fulfillmentWorkflowService.processRegularBooking(orderId);
+  }
+
+  // ====================== ADMIN MARK HANDED OVER (DROP-OFF) ======================
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/handover-dropoff')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Mark as handed over (Admin, Drop-off)',
+    description: 'For DROP_OFF orders: mark that package has been handed to courier outlet. Transitions to DIKIRIM.',
+  })
+  @ApiResponse({ status: 200, description: 'Marked as handed over' })
+  @ApiResponse({ status: 400, description: 'Not DROP_FF method' })
+  async markHandedOver(@Param('id') orderId: string) {
+    return this.fulfillmentWorkflowService.markHandedOver(orderId);
+  }
+
+  // ====================== ADMIN REQUEST PICKUP (LEGACY COMPAT) ======================
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/request-pickup')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Request pickup via Biteship (Admin, Legacy)' })
+  @ApiResponse({ status: 200, description: 'Pickup requested' })
+  @ApiResponse({ status: 400, description: 'Only DIKEMAS regular orders' })
+  async requestPickup(@Param('id') orderId: string) {
+    return this.orderService.requestPickup(orderId);
   }
 
   // ====================== ADMIN MARK DELIVERED ======================
@@ -255,7 +298,9 @@ export class OrderController {
     @Param('id') orderId: string,
     @Res() res: any,
   ) {
-    const pdfBuffer = await this.shippingLabelService.generateShippingLabelPdf(orderId);
+    // Get the active shipment for this order to generate PDF from shipment snapshot
+    const shipment = await this.fulfillmentWorkflowService.getActiveShipment(orderId);
+    const pdfBuffer = await this.pdfLabelService.generateShippingLabelPdf(shipment.id);
     res.set({
       'Content-Type': 'application/pdf',
       'Content-Disposition': `attachment; filename="shipping-label-${orderId.substring(0, 8)}.pdf"`,
@@ -358,95 +403,6 @@ export class OrderController {
   })
   async createCheckout(@Req() req: any, @Body() dto: CreateCheckoutDto) {
     return this.orderService.createCheckout(req.user.id, dto);
-  }
-
-  // ====================== FULFILLMENT: START PACKING ======================
-  @UseGuards(JwtAuthGuard)
-  @Post(':id/fulfillment/start-packing')
-  @ApiBearerAuth('JWT-auth')
-  @ApiOperation({
-    summary: 'Start packing (Admin)',
-    description: 'Transition fulfillment to PACKING. Only for LUNAS orders.',
-  })
-  @ApiResponse({ status: 200, description: 'Packing started' })
-  @ApiResponse({ status: 400, description: 'Only LUNAS orders can be packed' })
-  async startPacking(@Param('id') orderId: string, @Req() req: any) {
-    const adminName = req.user?.full_name || req.user?.email || 'Admin';
-    return this.fulfillmentService.startPacking(orderId, adminName);
-  }
-
-  // ====================== FULFILLMENT: COMPLETE PACKING (REGULAR) ======================
-  @UseGuards(JwtAuthGuard)
-  @Post(':id/fulfillment/complete-packing')
-  @ApiBearerAuth('JWT-auth')
-  @ApiOperation({
-    summary: 'Complete packing (Admin, Regular)',
-    description: 'Transition fulfillment to READY_TO_SHIP. Only for regular orders after packing.',
-  })
-  @ApiResponse({ status: 200, description: 'Packing completed' })
-  @ApiResponse({ status: 400, description: 'Order not in packing status' })
-  async completePacking(@Param('id') orderId: string, @Req() req: any) {
-    const adminName = req.user?.full_name || req.user?.email || 'Admin';
-    return this.fulfillmentService.completePacking(orderId, adminName);
-  }
-
-  // ====================== FULFILLMENT: SETUP SHIPPING ======================
-  @UseGuards(JwtAuthGuard)
-  @Post(':id/fulfillment/setup-shipping')
-  @ApiBearerAuth('JWT-auth')
-  @ApiOperation({
-    summary: 'Setup shipping (Admin, Regular)',
-    description: 'Choose handover method: PICKUP or DROP_OFF. Only for regular orders.',
-  })
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: {
-        handover_method: {
-          type: 'string',
-          enum: ['PICKUP', 'DROP_OFF'],
-          example: 'PICKUP',
-        },
-      },
-    },
-  })
-  @ApiResponse({ status: 200, description: 'Shipping setup completed' })
-  @ApiResponse({ status: 400, description: 'Invalid handover method' })
-  async setupShipping(
-    @Param('id') orderId: string,
-    @Body() body: { handover_method: HandoverMethod },
-    @Req() req: any,
-  ) {
-    const adminName = req.user?.full_name || req.user?.email || 'Admin';
-    return this.fulfillmentService.setupShipping(orderId, body.handover_method, adminName);
-  }
-
-  // ====================== FULFILLMENT: GET STATUS ======================
-  @UseGuards(JwtAuthGuard)
-  @Get(':id/fulfillment/status')
-  @ApiBearerAuth('JWT-auth')
-  @ApiOperation({
-    summary: 'Get fulfillment status (Admin)',
-    description: 'Returns internal fulfillment status, shipping method, handover method, and label readiness.',
-  })
-  @ApiResponse({ status: 200, description: 'Fulfillment status' })
-  async getFulfillmentStatus(@Param('id') orderId: string) {
-    return this.fulfillmentService.getFulfillmentStatus(orderId);
-  }
-
-  // ====================== FULFILLMENT: CANCEL ======================
-  @UseGuards(JwtAuthGuard)
-  @Post(':id/fulfillment/cancel')
-  @ApiBearerAuth('JWT-auth')
-  @ApiOperation({
-    summary: 'Cancel fulfillment (Admin)',
-    description: 'Cancel fulfillment and unlock order. Only from PACKING, READY_TO_SHIP, or SHIPPING_SETUP.',
-  })
-  @ApiResponse({ status: 200, description: 'Fulfillment cancelled' })
-  @ApiResponse({ status: 400, description: 'Cannot cancel at this stage' })
-  async cancelFulfillment(@Param('id') orderId: string, @Req() req: any) {
-    const adminName = req.user?.full_name || req.user?.email || 'Admin';
-    return this.fulfillmentService.cancelFulfillment(orderId, adminName);
   }
 
   // ====================== BITESHIP WEBHOOK ======================

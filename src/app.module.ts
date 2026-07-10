@@ -1,10 +1,10 @@
-import { Module, NestModule, MiddlewareConsumer } from "@nestjs/common";
-import { AppController } from "./app.controller";
-import { AppService } from "./app.service";
-import { ProductModule } from "./product/product.module";
-import { ConfigModule, ConfigService } from "@nestjs/config";
-import { TypeOrmModule } from "@nestjs/typeorm";
-import { TypeOrmConfig } from "./config/database.config"
+import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+import { ProductModule } from './product/product.module';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { TypeOrmConfig } from './config/database.config';
 import { CategoryModule } from './category/category.module';
 import { ProductImageModule } from './product-image/product-image.module';
 import { AuthModule } from './auth/auth.module';
@@ -24,8 +24,8 @@ import { UserService } from './user/user.service';
 import { UserModule } from './user/user.module';
 import { CartModule } from './cart/cart.module';
 import { OrderModule } from './order/order.module';
-import { ProductVariantModule } from "./product/product-variant.module";
-import { HotlinkProtectionMiddleware } from "./middleware/hotlink-protection.middleware";
+import { ProductVariantModule } from './product/product-variant.module';
+import { HotlinkProtectionMiddleware } from './middleware/hotlink-protection.middleware';
 import { ChatModule } from './chat/chat.module';
 import { SitemapModule } from './sitemap/sitemap.module';
 import { ThrottlerModule } from './common/throttler';
@@ -42,7 +42,8 @@ import { ShipmentModule } from './shipment/shipment.module';
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => TypeOrmConfig(configService)
+      useFactory: (configService: ConfigService) =>
+        TypeOrmConfig(configService),
     }),
     ProductModule,
     CategoryModule,
