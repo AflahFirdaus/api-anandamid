@@ -169,7 +169,7 @@ export class BookingService {
       courier_type: svc,
       delivery_type: 'now',
       items: items.map((item) => ({
-        name: item.product_name || 'Product',
+        name: item.product_name ? item.product_name.replace(/<[^>]*>/g, '').replace(/[<>]/g, '').trim() : 'Product',
         value: Math.max(Number(item.price) || 1000, 100),
         quantity: item.quantity,
         weight: Math.max(Math.round((item.weight || 1000) * item.quantity), 100),
@@ -283,7 +283,7 @@ export class BookingService {
       courier_type: 'instant',
       delivery_type: 'now',
       items: items.map((item) => ({
-        name: item.product_name || 'Product',
+        name: item.product_name ? item.product_name.replace(/<[^>]*>/g, '').replace(/[<>]/g, '').trim() : 'Product',
         value: Math.max(Number(item.price) || 1000, 100),
         quantity: item.quantity,
         weight: Math.max(Math.round((item.weight || 1000) * item.quantity), 100),

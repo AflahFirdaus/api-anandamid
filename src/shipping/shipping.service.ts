@@ -259,6 +259,17 @@ export class ShippingService {
       items = [],
     } = dto;
 
+    const sanitizeText = (text: string): string => {
+      if (!text) return '';
+      return text.replace(/<[^>]*>/g, '').replace(/[<>]/g, '').trim();
+    };
+
+    const sanitizedItems = items.map((item) => ({
+      ...item,
+      name: sanitizeText(item.name),
+      description: item.description ? sanitizeText(item.description) : undefined,
+    }));
+
     let originAreaId: string | undefined;
     let originLat: number | undefined = originLatitude ? parseFloat(originLatitude.toString()) : undefined;
     let originLng: number | undefined = originLongitude ? parseFloat(originLongitude.toString()) : undefined;
@@ -341,7 +352,7 @@ export class ShippingService {
         originPostalCode: originPostalCode || this.defaultOriginPostalCode,
         destinationPostalCode,
         couriers: courier,
-        items,
+        items: sanitizedItems,
       };
 
       // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
@@ -410,7 +421,19 @@ export class ShippingService {
       ) || 55283;
     const dest =
       parseInt((destinationPostalCode || '').toString(), 10) || undefined;
-    const itemsInKg = items.map((item) => ({
+
+    const sanitizeText = (text: string): string => {
+      if (!text) return '';
+      return text.replace(/<[^>]*>/g, '').replace(/[<>]/g, '').trim();
+    };
+
+    const sanitizedItems = items.map((item) => ({
+      ...item,
+      name: sanitizeText(item.name),
+      description: item.description ? sanitizeText(item.description) : undefined,
+    }));
+
+    const itemsInKg = sanitizedItems.map((item) => ({
       ...item,
       weight: item.weight / 1000,
     }));
