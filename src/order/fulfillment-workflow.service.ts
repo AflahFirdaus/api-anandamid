@@ -1,4 +1,9 @@
-import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  BadRequestException,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { Order } from './entities/order.entity';
@@ -46,24 +51,42 @@ export class FulfillmentWorkflowService {
    */
   async processInstantBooking(orderId: string): Promise<any> {
     const opId = uuid.v4();
-    this.logger.log(`[WORKFLOW] operation_id=${opId} order=${orderId} action=INSTANT_BOOKING`);
+    this.logger.log(
+      `[WORKFLOW] operation_id=${opId} order=${orderId} action=INSTANT_BOOKING`,
+    );
 
     const order = await this.orderRepo.findOne({
       where: { id: orderId },
       relations: ['user', 'items', 'items.product'],
     });
     if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
-    if (order.status !== 'DIKEMAS') throw new BadRequestException('Hanya pesanan DIKEMAS yang bisa diproses.');
-    if (order.shipping_method !== ShippingMethod.INSTANT && order.shipping_method !== ShippingMethod.SAME_DAY) {
+    if (order.status !== 'DIKEMAS')
+      throw new BadRequestException(
+        'Hanya pesanan DIKEMAS yang bisa diproses.',
+      );
+    // Check both shipping_method (new) and shipping_type (legacy)
+    const shippingMethod =
+      order.shipping_method || order.shipping_type?.toUpperCase();
+    if (
+      shippingMethod !== ShippingMethod.INSTANT &&
+      shippingMethod !== ShippingMethod.SAME_DAY
+    ) {
       throw new BadRequestException('Bukan pesanan instant/same-day.');
     }
 
     // Idempotency: check if shipment already exists
-    const existingShipment = await this.shipmentService.getShipmentByOrder(orderId);
-    if (existingShipment && existingShipment.shipment_status === ShipmentStatus.BOOKED) {
+    const existingShipment =
+      await this.shipmentService.getShipmentByOrder(orderId);
+    if (
+      existingShipment &&
+      existingShipment.shipment_status === ShipmentStatus.BOOKED
+    ) {
       throw new BadRequestException('Driver sudah dipesan sebelumnya.');
     }
-    if (existingShipment && existingShipment.shipment_status === ShipmentStatus.FAILED) {
+    if (
+      existingShipment &&
+      existingShipment.shipment_status === ShipmentStatus.FAILED
+    ) {
       // Allow retry
     }
 
@@ -80,7 +103,8 @@ export class FulfillmentWorkflowService {
       recipient_phone: destInfo.recipient_phone,
       full_address: destInfo.full_address,
       latitude: destInfo.latitude || process.env.STORE_LATITUDE || '-7.8300',
-      longitude: destInfo.longitude || process.env.STORE_LONGITUDE || '110.3870',
+      longitude:
+        destInfo.longitude || process.env.STORE_LONGITUDE || '110.3870',
       postal_code: destInfo.postal_code,
     };
 
@@ -95,7 +119,9 @@ export class FulfillmentWorkflowService {
       if (order.fulfillment_status === FulfillmentStatus.DRIVER_SEARCHING) {
         await this.fulfillmentService.cancelFulfillment(orderId, 'SYSTEM');
       }
-      throw new BadRequestException('Tidak ada driver instant tersedia saat ini.');
+      throw new BadRequestException(
+        'Tidak ada driver instant tersedia saat ini.',
+      );
     }
 
     // Step 3: Create or update Shipment
@@ -132,8 +158,12 @@ export class FulfillmentWorkflowService {
     shipment = await this.labelService.markReady(shipment);
 
     // Step 7: Update order fulfillment status through the chain
-    await this.fulfillmentService.handleDriverFound(order, awbResult.driver_info || {}, awbResult);
-    
+    await this.fulfillmentService.handleDriverFound(
+      order,
+      awbResult.driver_info || {},
+      awbResult,
+    );
+
     // Step 8: Update order with shipment reference
     order.shipping_details = {
       ...((order.shipping_details as any) || {}),
@@ -160,7 +190,9 @@ export class FulfillmentWorkflowService {
       },
     });
 
-    this.logger.log(`[WORKFLOW] ✅ Instant booking complete: operation_id=${opId} order=${order.invoice_number} shipment=${shipment.id} awb=${awbResult.awb_number} label=READY`);
+    this.logger.log(
+      `[WORKFLOW] ✅ Instant booking complete: operation_id=${opId} order=${order.invoice_number} shipment=${shipment.id} awb=${awbResult.awb_number} label=READY`,
+    );
 
     return {
       message: 'Driver berhasil dipesan! Label siap cetak.',
@@ -186,28 +218,43 @@ export class FulfillmentWorkflowService {
    */
   async processRegularBooking(orderId: string): Promise<any> {
     const opId = uuid.v4();
-    this.logger.log(`[WORKFLOW] operation_id=${opId} order=${orderId} action=REGULAR_BOOKING`);
+    this.logger.log(
+      `[WORKFLOW] operation_id=${opId} order=${orderId} action=REGULAR_BOOKING`,
+    );
 
     const order = await this.orderRepo.findOne({
       where: { id: orderId },
       relations: ['user', 'items', 'items.product'],
     });
     if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
-    if (order.status !== 'DIKEMAS') throw new BadRequestException('Hanya pesanan DIKEMAS yang bisa diproses.');
-    
-    const shippingMethod = order.shipping_method || (order.shipping_type === 'instant' ? ShippingMethod.INSTANT : ShippingMethod.REGULAR);
+    if (order.status !== 'DIKEMAS')
+      throw new BadRequestException(
+        'Hanya pesanan DIKEMAS yang bisa diproses.',
+      );
+
+    const shippingMethod =
+      order.shipping_method ||
+      (order.shipping_type === 'instant'
+        ? ShippingMethod.INSTANT
+        : ShippingMethod.REGULAR);
     if (shippingMethod !== ShippingMethod.REGULAR) {
       throw new BadRequestException('Bukan pesanan regular.');
     }
 
     // Must have handover method set
     if (!order.handover_method) {
-      throw new BadRequestException('Metode penyerahan belum dipilih. Gunakan Atur Pengiriman terlebih dahulu.');
+      throw new BadRequestException(
+        'Metode penyerahan belum dipilih. Gunakan Atur Pengiriman terlebih dahulu.',
+      );
     }
 
     // Idempotency
-    const existingShipment = await this.shipmentService.getShipmentByOrder(orderId);
-    if (existingShipment && existingShipment.shipment_status === ShipmentStatus.BOOKED) {
+    const existingShipment =
+      await this.shipmentService.getShipmentByOrder(orderId);
+    if (
+      existingShipment &&
+      existingShipment.shipment_status === ShipmentStatus.BOOKED
+    ) {
       throw new BadRequestException('Booking sudah berhasil sebelumnya.');
     }
 
@@ -298,7 +345,9 @@ export class FulfillmentWorkflowService {
       },
     });
 
-    this.logger.log(`[WORKFLOW] ✅ Regular booking complete: operation_id=${opId} order=${order.invoice_number} shipment=${shipment.id} awb=${awbResult.awb_number} handover=${order.handover_method}`);
+    this.logger.log(
+      `[WORKFLOW] ✅ Regular booking complete: operation_id=${opId} order=${order.invoice_number} shipment=${shipment.id} awb=${awbResult.awb_number} handover=${order.handover_method}`,
+    );
 
     return {
       message: `Booking berhasil. Label siap cetak.`,
@@ -319,7 +368,8 @@ export class FulfillmentWorkflowService {
     const opId = uuid.v4();
     const order = await this.orderRepo.findOne({ where: { id: orderId } });
     if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
-    if (order.status !== 'DIKEMAS') throw new BadRequestException('Hanya pesanan DIKEMAS.');
+    if (order.status !== 'DIKEMAS')
+      throw new BadRequestException('Hanya pesanan DIKEMAS.');
     if (order.handover_method !== HandoverMethod.DROP_OFF) {
       throw new BadRequestException('Bukan metode drop-off.');
     }
@@ -328,7 +378,10 @@ export class FulfillmentWorkflowService {
     const shipment = await this.shipmentService.getShipmentByOrder(orderId);
     if (shipment && shipment.shipment_status === ShipmentStatus.BOOKED) {
       await this.bookingService.markPickedUp(shipment, 'Outlet drop-off');
-      await this.bookingService.markInTransit(shipment, 'In transit to courier hub');
+      await this.bookingService.markInTransit(
+        shipment,
+        'In transit to courier hub',
+      );
     }
 
     // Update order status
@@ -342,7 +395,10 @@ export class FulfillmentWorkflowService {
       action: 'HANDED_OVER',
       description: 'Paket sudah diserahkan ke outlet ekspedisi',
       refund_operation_id: opId,
-      metadata: { handover_method: HandoverMethod.DROP_OFF, shipment_id: shipment?.id },
+      metadata: {
+        handover_method: HandoverMethod.DROP_OFF,
+        shipment_id: shipment?.id,
+      },
     });
 
     return { message: 'Paket ditandai sudah diserahkan.', status: 'DIKIRIM' };
@@ -354,7 +410,9 @@ export class FulfillmentWorkflowService {
   async getActiveShipment(orderId: string): Promise<Shipment> {
     const shipment = await this.shipmentService.getShipmentByOrder(orderId);
     if (!shipment) {
-      throw new NotFoundException('Shipment tidak ditemukan untuk pesanan ini.');
+      throw new NotFoundException(
+        'Shipment tidak ditemukan untuk pesanan ini.',
+      );
     }
     return shipment;
   }
@@ -373,8 +431,10 @@ export class FulfillmentWorkflowService {
     if (order.shipping_address_snapshot) {
       const snap = order.shipping_address_snapshot as any;
       return {
-        recipient_name: snap.recipient_name || order.user?.full_name || 'Customer',
-        recipient_phone: snap.phone_number || order.user?.phone_number || '08123456789',
+        recipient_name:
+          snap.recipient_name || order.user?.full_name || 'Customer',
+        recipient_phone:
+          snap.phone_number || order.user?.phone_number || '08123456789',
         full_address: snap.full_address || '',
         postal_code: snap.postal_code || '',
         area_id: snap.area_id || undefined,
@@ -432,10 +492,14 @@ export class FulfillmentWorkflowService {
         await this.shipmentService.getShipment(shipment.id); // reload
         const repo = this.dataSource.getRepository(Shipment);
         await repo.update(shipment.id, { tracking_url: data.waybill_url });
-        this.logger.log(`[TRACKING_URL] Saved for shipment ${shipment.id}: ${data.waybill_url}`);
+        this.logger.log(
+          `[TRACKING_URL] Saved for shipment ${shipment.id}: ${data.waybill_url}`,
+        );
       }
     } catch (e: any) {
-      this.logger.warn(`[TRACKING_URL] Failed for shipment ${shipment.id}: ${e.message}`);
+      this.logger.warn(
+        `[TRACKING_URL] Failed for shipment ${shipment.id}: ${e.message}`,
+      );
     }
   }
 }
