@@ -1748,8 +1748,9 @@ export class OrderService {
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user) throw new NotFoundException('User tidak ditemukan');
 
-    const address = await this.addressRepo.findOne({ where: { id: address_id, user_id: userId } as any });
+    const address = await this.addressRepo.findOne({ where: { id: address_id } as any, relations: ['user'] });
     if (!address) throw new NotFoundException('Alamat tidak ditemukan');
+    if (address.user?.id !== userId) throw new BadRequestException('Alamat bukan milik user ini.');
 
     let discount = 0;
     if (voucher_code) {
