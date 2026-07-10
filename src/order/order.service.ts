@@ -742,10 +742,6 @@ export class OrderService {
 
         await queryRunner.commitTransaction();
 
-        this.logger.error(
-          `[REFUND] operation_id=${operationId} order=${order.invoice_number} status=REFUND_FAILED error=${err.message}`,
-        );
-
         const isManualRefund =
           err.message?.includes('412') ||
           err.message?.includes('400') ||
@@ -754,6 +750,9 @@ export class OrderService {
           err.message?.toLowerCase().includes('refund is not supported');
 
         if (isManualRefund) {
+          this.logger.warn(
+            `[REFUND] operation_id=${operationId} order=${order.invoice_number} status=REFUND_FAILED (Manual refund required) info=${err.message}`,
+          );
           return {
             message:
               'Pengajuan pembatalan berhasil diterima. Dana Anda akan dikembalikan secara manual oleh admin karena metode pembayaran tidak mendukung refund otomatis.',
@@ -762,6 +761,10 @@ export class OrderService {
             refund_transaction_id: order.refund_transaction_id,
           };
         }
+
+        this.logger.error(
+          `[REFUND] operation_id=${operationId} order=${order.invoice_number} status=REFUND_FAILED error=${err.message}`,
+        );
 
         throw new BadRequestException(
           `Refund gagal: ${err.message}. Silakan hubungi admin.`,
