@@ -172,7 +172,6 @@ export class OrderService {
   }
 
   async checkoutFromCart(userId: string, dto: CheckoutCartDto) {
-    // ... unchanged
     const cartItems = await this.cartRepo.find({
       where: { id: In(dto.cart_ids), user_id: userId },
       relations: ['product', 'product.variants'],
@@ -429,11 +428,6 @@ export class OrderService {
 
   // ====================== ENTERPRISE REFUND: SHARED HELPERS ======================
 
-  /**
-   * Shared helper: restock order items inside a queryRunner transaction.
-   * Records inventory history with product_name/sku snapshot.
-   * Used by both processRefundSuccess and PaymentService to eliminate duplicate restock logic.
-   */
   private async restockItemsAndRecordHistory(
     queryRunner: any,
     orderId: string,
@@ -475,9 +469,6 @@ export class OrderService {
     }
   }
 
-  /**
-   * Shared helper: save OrderHistory with metadata (before/after snapshots).
-   */
   private async saveOrderHistory(
     queryRunner: any,
     orderId: string,
@@ -776,11 +767,6 @@ export class OrderService {
     }
   }
 
-  /**
-   * Process successful refund from Midtrans webhook.
-   * Uses shared restock helper to eliminate duplicate logic.
-   * Idempotent via refund_operation_id + status check.
-   */
   async processRefundSuccess(
     orderId: string,
     operationId?: string,
@@ -794,7 +780,6 @@ export class OrderService {
       return;
     }
 
-    // Multi-layer idempotency: status + refund_operation_id + refund_key
     if (order.status === 'CANCELLED' || order.status === 'BATAL') {
       this.logger.log(
         `[REFUND] operation_id=${operationId || order.refund_operation_id || '?'} order=${order.invoice_number} already_cancelled=true`,
@@ -806,7 +791,6 @@ export class OrderService {
       order.refund_operation_id &&
       order.refund_operation_id !== operationId
     ) {
-      // Different operation already processed — skip to prevent double restock
       this.logger.warn(
         `[REFUND] operation_id=${operationId} order=${order.invoice_number} different_operation_exists=${order.refund_operation_id}`,
       );
@@ -821,7 +805,6 @@ export class OrderService {
     await queryRunner.startTransaction();
 
     try {
-      // 1. History: MIDTRANS_WEBHOOK_RECEIVED
       const webhookReceivedAt = new Date();
       await this.saveOrderHistory(
         queryRunner,
@@ -838,7 +821,6 @@ export class OrderService {
         },
       );
 
-      // 2. Update order status
       await queryRunner.manager.update(Order, order.id, {
         status: 'CANCELLED',
         cancelled_at: new Date(),
@@ -847,10 +829,8 @@ export class OrderService {
         refund_operation_id: opId,
       });
 
-      // 3. Restock items using shared helper
       await this.restockItemsAndRecordHistory(queryRunner, order.id, opId);
 
-      // 4. History: REFUND_SUCCESS + ORDER_CANCELLED
       await this.saveOrderHistory(
         queryRunner,
         order.id,
@@ -875,7 +855,6 @@ export class OrderService {
 
       await queryRunner.commitTransaction();
 
-      // Calculate duration
       const refundDuration = order.refund_requested_at
         ? Math.round((Date.now() - order.refund_requested_at.getTime()) / 1000)
         : null;
@@ -894,9 +873,6 @@ export class OrderService {
     }
   }
 
-  /**
-   * Admin retries a failed refund. Capped at MAX_REFUND_RETRY (default 3).
-   */
   async retryRefund(orderId: string, note?: string): Promise<any> {
     const maxRetry = parseInt(process.env.MAX_REFUND_RETRY || '3', 10);
     const order = await this.orderRepo.findOne({
@@ -919,7 +895,6 @@ export class OrderService {
     order.refund_status = 'retrying';
     await this.orderRepo.save(order);
 
-    // Reuse the refund logic (same as requestCancel but simpler)
     try {
       const refundResult = await this.paymentService.refundTransaction(
         order.invoice_number,
@@ -963,7 +938,6 @@ export class OrderService {
       relations: ['items', 'items.product', 'items.product.variants'],
     });
     if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
-    // State machine validation
     try {
       validateStatusTransition(order.status, dto.status);
     } catch (e: any) {
@@ -1008,14 +982,12 @@ export class OrderService {
     if (order.status !== 'LUNAS')
       throw new BadRequestException('Hanya pesanan LUNAS.');
 
-    // State machine: validate status transition
     try {
       validateStatusTransition(order.status, 'DIKEMAS');
     } catch (e: any) {
       throw new BadRequestException(e.message);
     }
 
-    // Booking idempotency guard
     if (order.booking_status === 'BOOKING')
       throw new BadRequestException('Booking sedang diproses. Mohon tunggu.');
     if (order.booking_status === 'BOOKED')
@@ -1027,7 +999,6 @@ export class OrderService {
     if (dto?.courier_name) order.courier_name = dto.courier_name;
     if (dto?.courier_service) order.courier_service = dto.courier_service;
 
-    // Booking lifecycle for regular courier
     if (order.shipping_type === 'regular' && order.courier_name) {
       order.booking_status = 'BOOKING';
       await this.orderRepo.save(order);
@@ -1053,19 +1024,11 @@ export class OrderService {
           if (!order.tracking_number) order.tracking_number = awb.awb_number;
           order.booking_status = 'BOOKED';
 
-          // Create shipping snapshot immediately after successful booking
-          // This freezes the shipping data
-          if (!order.shipping_snapshot) {
-            // Snapshot creation is handled by ShippingLabelService
-            // We just save the order with all booking data
-          }
-
           const saved = await this.orderRepo.save(order);
           this.logger.log(
             `[PROCESS] ✅ AWB OK: operation_id=${opId} order=${order.invoice_number} biteshipId=${awb.biteship_order_id} awb=${awb.awb_number} booking_status=BOOKED`,
           );
 
-          // Fetch tracking URL in background
           this.fetchAndSaveTrackingUrl(saved).catch((e) =>
             this.logger.warn(
               `[PROCESS] tracking_url fetch failed: ${e.message}`,
@@ -1090,7 +1053,6 @@ export class OrderService {
           );
           return { message: 'Pesanan diproses.', order: saved };
         } else {
-          // AWB generation returned null (API error)
           order.booking_status = 'FAILED';
           await this.orderRepo.save(order);
           await this.orderHistoryRepo.save({
@@ -1131,7 +1093,6 @@ export class OrderService {
       }
     }
 
-    // No booking needed (no courier selected or custom tracking)
     await this.orderRepo.save(order);
     this.logger.log(
       `[PROCESS] Done (no booking) operation_id=${opId} order=${order.invoice_number}`,
@@ -1139,9 +1100,6 @@ export class OrderService {
     return { message: 'Pesanan diproses.', order: order };
   }
 
-  /**
-   * Retry booking after failure. Only allowed when booking_status = FAILED.
-   */
   async retryBooking(orderId: string): Promise<any> {
     const opId = require('uuid').v4();
     this.logger.log(`[RETRY_BOOKING] operation_id=${opId} order=${orderId}`);
@@ -1225,9 +1183,6 @@ export class OrderService {
     }
   }
 
-  /**
-   * Generate instant booking (for searchDriver / gojek/grab)
-   */
   private async generateInstantBooking(
     order: Order,
   ): Promise<{
@@ -1343,7 +1298,6 @@ export class OrderService {
     if (order.shipping_type !== 'instant')
       throw new BadRequestException('Hanya pesanan instan.');
 
-    // Booking idempotency guard
     if (order.booking_status === 'BOOKING')
       throw new BadRequestException('Booking sedang diproses. Mohon tunggu.');
     if (order.booking_status === 'BOOKED')
@@ -1379,7 +1333,6 @@ export class OrderService {
         );
       }
 
-      // Store booking result
       order.biteship_order_id = booking.biteship_order_id;
       order.tracking_number =
         booking.awb_number || 'INSTANT-' + order.invoice_number;
@@ -1387,7 +1340,6 @@ export class OrderService {
       order.awb_url = booking.awb_url;
       order.booking_status = 'BOOKED';
 
-      // Get driver info from Biteship response
       const res = await fetch(
         `https://api.biteship.com/v1/orders/${booking.biteship_order_id}`,
         {
@@ -1625,7 +1577,6 @@ export class OrderService {
     if (!order.awb_number)
       throw new BadRequestException('AWB number not available. Book courier first.');
 
-    // Build shipping snapshot from order data
     const snapshot = order.shipping_snapshot || {
       recipient_name: order.user?.full_name || '',
       phone_number: order.user?.phone_number || '',
@@ -1665,7 +1616,6 @@ export class OrderService {
     if (order.status !== 'DIKEMAS')
       throw new BadRequestException('Hanya pesanan DIKEMAS.');
 
-    // Generate AWB if not already
     if (!order.awb_number) {
       const awb = await this.generateAwb(order);
       if (awb) {
@@ -1679,7 +1629,6 @@ export class OrderService {
       }
     }
 
-    // Request pickup via Biteship
     const key = process.env.BITESHIP_API_KEY || '';
     const res = await fetch(
       `https://api.biteship.com/v1/orders/${order.biteship_order_id}/pickup`,
@@ -1705,7 +1654,6 @@ export class OrderService {
 
     this.logger.log(`[PICKUP] Requested for order ${orderId}`);
 
-    // Also update tracking_url
     this.fetchAndSaveTrackingUrl(order).catch((e) =>
       this.logger.warn(`[PICKUP] tracking_url fetch failed: ${e.message}`),
     );
@@ -1791,7 +1739,7 @@ export class OrderService {
     return result.affected || 0;
   }
 
-  async createCheckout(userId: string, dto: CreateCheckoutDto) {
+  async createCheckout(userId: string, dto: any) {
     const { cart_ids, product_id, variasi, quantity, notes, address_id, shipping_method, shipping_cost, courier_name, courier_service, payment_method, voucher_code } = dto;
 
     if (!dto.address_id)
@@ -1803,14 +1751,12 @@ export class OrderService {
     const address = await this.addressRepo.findOne({ where: { id: address_id, user_id: userId } as any });
     if (!address) throw new NotFoundException('Alamat tidak ditemukan');
 
-    // Check voucher if provided
     let discount = 0;
     if (voucher_code) {
-      const voucherResult = await this.voucherService.applyVoucher(voucher_code, userId, undefined);
+      const voucherResult = await (this.voucherService as any).applyVoucher(voucher_code, userId, undefined) as any;
       discount = voucherResult.discount || 0;
     }
 
-    // Calculate item total
     let items: any[] = [];
     let subtotal = 0;
 
@@ -1842,7 +1788,6 @@ export class OrderService {
     const shippingCost = shipping_cost || 0;
     const totalPrice = subtotal + Number(shippingCost) - discount;
 
-    // Create order
     const order = this.orderRepo.create({
       user_id: userId,
       invoice_number: this.generateInvoiceNumber(),
@@ -1873,9 +1818,8 @@ export class OrderService {
       },
     } as any);
 
-    const savedOrder = await this.orderRepo.save(order);
+    const savedOrder = await this.orderRepo.save(order) as any;
 
-    // Generate Midtrans payment
     const customerName = user.full_name || 'Customer';
     const tx = await this.paymentService.createTransaction(
       savedOrder.invoice_number,
@@ -1891,7 +1835,6 @@ export class OrderService {
     savedOrder.payment_redirect_url = tx.redirect_url;
     const result = await this.orderRepo.save(savedOrder);
 
-    // Log
     await this.orderHistoryRepo.save({
       order_id: result.id,
       actor: 'USER',
@@ -1907,7 +1850,6 @@ export class OrderService {
   }
 
   async checkoutPCBuilder(userId: string, dto: any) {
-    // Simplified: create order with PC builder items
     if (!dto.items || dto.items.length === 0)
       throw new BadRequestException('Item tidak boleh kosong.');
 
@@ -1951,9 +1893,6 @@ export class OrderService {
     return { message: 'Checkout PC Builder berhasil', order: saved };
   }
 
-  /**
-   * Handle Biteship webhook for order status updates.
-   */
   async handleBiteshipWebhook(payload: any): Promise<any> {
     this.logger.log(`[WEBHOOK] Biteship payload: ${JSON.stringify(payload)}`);
 
@@ -1963,7 +1902,6 @@ export class OrderService {
       return { received: true };
     }
 
-    // Find order by biteship_order_id
     const order = await this.orderRepo.findOne({
       where: { biteship_order_id: orderId } as any,
     });
@@ -1975,7 +1913,6 @@ export class OrderService {
     const status = payload.status || '';
     this.logger.log(`[WEBHOOK] Order ${order.invoice_number} status=${status}`);
 
-    // Map Biteship status to internal status
     switch (status) {
       case 'dropped_off':
       case 'picked_up':
@@ -2003,7 +1940,6 @@ export class OrderService {
         });
         break;
       case 'on_delivery':
-        // status remains DIKIRIM
         break;
       default:
         this.logger.log(`[WEBHOOK] Unhandled status ${status} for order ${order.invoice_number}`);
@@ -2012,9 +1948,6 @@ export class OrderService {
     return { received: true };
   }
 
-  /**
-   * Repair corrupt order state: sync order.status with fulfillment_status.
-   */
   async repairOrderState(orderId: string): Promise<any> {
     const order = await this.orderRepo.findOne({ where: { id: orderId } });
     if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
@@ -2024,7 +1957,6 @@ export class OrderService {
 
     let newStatus = currentOrderStatus;
 
-    // If fulfillment is in early stage but order status is LUNAS (from legacy bug), fix it
     if (
       (fulfillmentStatus === 'PACKING' ||
         fulfillmentStatus === 'READY_TO_SHIP' ||
@@ -2035,7 +1967,6 @@ export class OrderService {
       order.is_locked = true;
     }
 
-    // If fulfillment is NONE but order is DIKEMAS (from legacy bug), revert
     if (
       fulfillmentStatus === 'NONE' &&
       currentOrderStatus === 'DIKEMAS'
