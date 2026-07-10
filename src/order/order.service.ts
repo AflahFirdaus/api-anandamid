@@ -538,9 +538,9 @@ export class OrderService {
 
     try {
       // 1. Pessimistic lock: SELECT ... FOR UPDATE
+      // NOTE: relations cannot be used with FOR UPDATE on PostgreSQL (nullable side of outer join)
       const order = await queryRunner.manager.findOne(Order, {
         where: { id: orderId, user_id: userId },
-        relations: ['user'],
         lock: { mode: 'pessimistic_write' },
       } as any);
 
