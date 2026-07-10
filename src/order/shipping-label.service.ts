@@ -3,6 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Order } from './entities/order.entity';
 import { OrderHistory } from './entities/order-history.entity';
+import { FulfillmentService } from './fulfillment.service';
+import { FulfillmentStatus } from './enums/fulfillment-status.enum';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const PDFDocument = require('pdfkit');
 import * as uuid from 'uuid';
@@ -19,6 +21,7 @@ export class ShippingLabelService {
     private readonly orderRepo: Repository<Order>,
     @InjectRepository(OrderHistory)
     private readonly orderHistoryRepo: Repository<OrderHistory>,
+    private readonly fulfillmentService: FulfillmentService,
   ) {}
 
   /**
@@ -302,12 +305,18 @@ export class ShippingLabelService {
   /**
    * Mark label as printed - ONLY this endpoint increments print_count.
    * Called via POST /orders/:id/mark-label-printed
+   * Also updates fulfillment status to LABEL_PRINTED.
    */
   async markLabelPrinted(orderId: string, adminName?: string): Promise<void> {
     const order = await this.orderRepo.findOne({ where: { id: orderId } });
     if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
     if (!order.awb_number) {
       throw new BadRequestException('AWB belum tersedia. Proses pesanan terlebih dahulu.');
+    }
+
+    // Validate fulfillment status - label must be in LABEL_READY state
+    if (order.fulfillment_status !== 'LABEL_READY') {
+      throw new BadRequestException('Label belum siap dicetak. Pastikan AWB dan snapshot sudah tersedia.');
     }
 
     const now = new Date();
@@ -317,6 +326,9 @@ export class ShippingLabelService {
     order.printed_at = now;
     if (adminName) order.printed_by = adminName;
     await this.orderRepo.save(order);
+
+    // Update fulfillment status to LABEL_PRINTED
+    await this.fulfillmentService.markLabelPrinted(order, adminName || 'ADMIN');
 
     // Audit trail
     await this.orderHistoryRepo.save({

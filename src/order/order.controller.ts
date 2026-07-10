@@ -22,6 +22,7 @@ import {
 } from '@nestjs/swagger';
 import { OrderService } from './order.service';
 import { ShippingLabelService } from './shipping-label.service';
+import { FulfillmentService } from './fulfillment.service';
 import {
   CheckoutCartDto,
   CheckoutDirectDto,
@@ -31,6 +32,7 @@ import {
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { JwtUserGuard } from '../user/guards/jwt-user.guard';
 import { JwtAuthGuard } from '../auth/guards/jwt.guards';
+import { HandoverMethod } from './enums/handover-method.enum';
 
 @ApiTags('Orders')
 @Controller('orders')
@@ -40,6 +42,7 @@ export class OrderController {
   constructor(
     private readonly orderService: OrderService,
     private readonly shippingLabelService: ShippingLabelService,
+    private readonly fulfillmentService: FulfillmentService,
   ) {}
 
   // ====================== ENDPOINT USER (PEMBELI) ======================
@@ -355,6 +358,95 @@ export class OrderController {
   })
   async createCheckout(@Req() req: any, @Body() dto: CreateCheckoutDto) {
     return this.orderService.createCheckout(req.user.id, dto);
+  }
+
+  // ====================== FULFILLMENT: START PACKING ======================
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/fulfillment/start-packing')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Start packing (Admin)',
+    description: 'Transition fulfillment to PACKING. Only for LUNAS orders.',
+  })
+  @ApiResponse({ status: 200, description: 'Packing started' })
+  @ApiResponse({ status: 400, description: 'Only LUNAS orders can be packed' })
+  async startPacking(@Param('id') orderId: string, @Req() req: any) {
+    const adminName = req.user?.full_name || req.user?.email || 'Admin';
+    return this.fulfillmentService.startPacking(orderId, adminName);
+  }
+
+  // ====================== FULFILLMENT: COMPLETE PACKING (REGULAR) ======================
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/fulfillment/complete-packing')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Complete packing (Admin, Regular)',
+    description: 'Transition fulfillment to READY_TO_SHIP. Only for regular orders after packing.',
+  })
+  @ApiResponse({ status: 200, description: 'Packing completed' })
+  @ApiResponse({ status: 400, description: 'Order not in packing status' })
+  async completePacking(@Param('id') orderId: string, @Req() req: any) {
+    const adminName = req.user?.full_name || req.user?.email || 'Admin';
+    return this.fulfillmentService.completePacking(orderId, adminName);
+  }
+
+  // ====================== FULFILLMENT: SETUP SHIPPING ======================
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/fulfillment/setup-shipping')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Setup shipping (Admin, Regular)',
+    description: 'Choose handover method: PICKUP or DROP_OFF. Only for regular orders.',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        handover_method: {
+          type: 'string',
+          enum: ['PICKUP', 'DROP_OFF'],
+          example: 'PICKUP',
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 200, description: 'Shipping setup completed' })
+  @ApiResponse({ status: 400, description: 'Invalid handover method' })
+  async setupShipping(
+    @Param('id') orderId: string,
+    @Body() body: { handover_method: HandoverMethod },
+    @Req() req: any,
+  ) {
+    const adminName = req.user?.full_name || req.user?.email || 'Admin';
+    return this.fulfillmentService.setupShipping(orderId, body.handover_method, adminName);
+  }
+
+  // ====================== FULFILLMENT: GET STATUS ======================
+  @UseGuards(JwtAuthGuard)
+  @Get(':id/fulfillment/status')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Get fulfillment status (Admin)',
+    description: 'Returns internal fulfillment status, shipping method, handover method, and label readiness.',
+  })
+  @ApiResponse({ status: 200, description: 'Fulfillment status' })
+  async getFulfillmentStatus(@Param('id') orderId: string) {
+    return this.fulfillmentService.getFulfillmentStatus(orderId);
+  }
+
+  // ====================== FULFILLMENT: CANCEL ======================
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/fulfillment/cancel')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Cancel fulfillment (Admin)',
+    description: 'Cancel fulfillment and unlock order. Only from PACKING, READY_TO_SHIP, or SHIPPING_SETUP.',
+  })
+  @ApiResponse({ status: 200, description: 'Fulfillment cancelled' })
+  @ApiResponse({ status: 400, description: 'Cannot cancel at this stage' })
+  async cancelFulfillment(@Param('id') orderId: string, @Req() req: any) {
+    const adminName = req.user?.full_name || req.user?.email || 'Admin';
+    return this.fulfillmentService.cancelFulfillment(orderId, adminName);
   }
 
   // ====================== BITESHIP WEBHOOK ======================

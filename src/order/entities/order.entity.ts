@@ -4,9 +4,9 @@ import {
   Column, 
   CreateDateColumn, 
   UpdateDateColumn, 
-  OneToMany, 
-  ManyToOne, 
-  JoinColumn 
+  OneToMany,
+  ManyToOne,
+  JoinColumn
 } from 'typeorm';
 import { User } from '../../user/entities/user.entity';
 import { OrderItem } from './order-item.entity';
@@ -155,6 +155,18 @@ export class Order {
   // ── Booking Idempotency ──
   @Column({ type: 'varchar', length: 20, default: 'NOT_BOOKED' })
   booking_status: string; // NOT_BOOKED | BOOKING | BOOKED | FAILED
+
+  // ── Fulfillment Status (internal, NOT shown in UI) ──
+  @Column({ type: 'varchar', length: 30, default: 'NONE' })
+  fulfillment_status: string; // FulfillmentStatus enum value
+
+  // ── Shipping Method (internal) ──
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  shipping_method: string; // INSTANT | SAME_DAY | REGULAR
+
+  // ── Handover Method (internal, for regular shipping) ──
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  handover_method: string; // PICKUP | DROP_OFF
 
   @OneToMany(() => OrderItem, (item) => item.order, { cascade: true })
   items: OrderItem[];

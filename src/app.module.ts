@@ -34,6 +34,7 @@ import { ShippingModule } from './shipping/shipping.module';
 import { LocationModule } from './location/location.module';
 import { ReviewModule } from './review/review.module';
 import { VoucherModule } from './voucher/voucher.module';
+import { ShipmentModule } from './shipment/shipment.module';
 
 @Module({
   imports: [
@@ -69,6 +70,7 @@ import { VoucherModule } from './voucher/voucher.module';
     LocationModule,
     ReviewModule,
     VoucherModule,
+    ShipmentModule,
   ],
   controllers: [AppController],
   providers: [AppService],

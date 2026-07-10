@@ -1116,7 +1116,9 @@ export class OrderService {
         const finalAmount = Math.max(grossAmount - voucherDiscount, 0); const roundedAmount = Math.round(finalAmount);
         const inv = this.generateInvoiceNumber();
         const tx = await this.paymentService.createTransaction(inv, roundedAmount, cd);
-        const no = this.orderRepo.create({ user_id: userId, invoice_number: inv, total_price: finalAmount, status: 'PENDING', notes: dto.notes, items: oi as OrderItem[], shipping_cost: sc, shipping_type: dto.shipping_type || 'regular', courier_name: dto.courier_name || null, courier_service: dto.courier_service || null, address_id: dto.address_id || null, shipping_details: dto.shipping_details || null, shipping_address_snapshot: addressSnapshot, payment_token: tx.token } as any);
+        const shippingType = dto.shipping_type || 'regular';
+        const shippingMethod = shippingType === 'instant' ? 'INSTANT' : 'REGULAR';
+        const no = this.orderRepo.create({ user_id: userId, invoice_number: inv, total_price: finalAmount, status: 'PENDING', notes: dto.notes, items: oi as OrderItem[], shipping_cost: sc, shipping_type: shippingType, shipping_method: shippingMethod, courier_name: dto.courier_name || null, courier_service: dto.courier_service || null, address_id: dto.address_id || null, shipping_details: dto.shipping_details || null, shipping_address_snapshot: addressSnapshot, payment_token: tx.token } as any);
         const saved = (await this.orderRepo.save(no)) as unknown as Order;
         if (dto.voucher_usage_id) { try { await this.voucherService.confirmVoucherUsage(dto.voucher_usage_id, saved.id); } catch (err: any) { this.logger.warn(`Failed to update voucher usage with order ID: ${err.message}`); } }
         if (dto.cart_ids?.length) await this.cartRepo.delete(dto.cart_ids);
