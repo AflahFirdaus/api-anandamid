@@ -746,6 +746,23 @@ export class OrderService {
           `[REFUND] operation_id=${operationId} order=${order.invoice_number} status=REFUND_FAILED error=${err.message}`,
         );
 
+        const isManualRefund =
+          err.message?.includes('412') ||
+          err.message?.includes('400') ||
+          err.message?.includes('406') ||
+          err.message?.toLowerCase().includes('transaction status cannot be updated') ||
+          err.message?.toLowerCase().includes('refund is not supported');
+
+        if (isManualRefund) {
+          return {
+            message:
+              'Pengajuan pembatalan berhasil diterima. Dana Anda akan dikembalikan secara manual oleh admin karena metode pembayaran tidak mendukung refund otomatis.',
+            status: 'REFUND_FAILED',
+            refund_operation_id: operationId,
+            refund_transaction_id: order.refund_transaction_id,
+          };
+        }
+
         throw new BadRequestException(
           `Refund gagal: ${err.message}. Silakan hubungi admin.`,
         );
@@ -945,8 +962,13 @@ export class OrderService {
     }
     if (order.status === 'PENDING' && dto.status === 'LUNAS')
       await this.deductStock(orderId);
-    if (order.status === 'LUNAS' && dto.status === 'BATAL')
+    if (
+      (order.status === 'LUNAS' && dto.status === 'BATAL') ||
+      (['REFUNDING', 'REFUND_FAILED', 'CANCEL_REQUESTED', 'LUNAS'].includes(order.status) &&
+        ((dto.status as string) === 'CANCELLED' || dto.status === 'BATAL'))
+    ) {
       await this.restoreStock(orderId);
+    }
     if (dto.status === 'DIKIRIM') order.delivered_at = new Date();
     if (dto.status === 'SELESAI') order.completed_at = new Date();
     order.status = dto.status as string;
