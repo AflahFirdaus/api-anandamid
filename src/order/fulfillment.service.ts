@@ -296,7 +296,7 @@ export class FulfillmentService {
     const order = await this.orderRepo.findOne({ where: { id: orderId } });
     if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
 
-    const currentStatus = order.fulfillment_status || FulfillmentStatus.NONE;
+    let currentStatus = order.fulfillment_status || FulfillmentStatus.NONE;
     const shippingMethod = this.determineShippingMethod(order);
 
     // Validate: shipping setup only for regular
@@ -309,6 +309,35 @@ export class FulfillmentService {
       );
     }
 
+    // Auto-transition from PACKING or NONE → READY_TO_SHIP if needed
+    // Handles legacy orders where processOrder didn't set fulfillment_status
+    if (
+      currentStatus === FulfillmentStatus.PACKING ||
+      currentStatus === FulfillmentStatus.NONE
+    ) {
+      if (currentStatus === FulfillmentStatus.NONE) {
+        // Legacy order: set fulfillment to PACKING first, then transition to READY_TO_SHIP
+        order.fulfillment_status = FulfillmentStatus.PACKING;
+        await this.orderRepo.save(order);
+        await this.recordHistory(
+          order.id,
+          actor,
+          'FULFILLMENT_STARTED',
+          'Fulfillment dimulai (legacy recovery)',
+          opId,
+          { before: 'NONE', after: FulfillmentStatus.PACKING },
+        );
+      }
+      await this.transitionFulfillmentStatus(
+        order,
+        FulfillmentStatus.READY_TO_SHIP,
+        opId,
+        actor,
+      );
+      currentStatus = order.fulfillment_status || FulfillmentStatus.READY_TO_SHIP;
+    }
+
+    // Validate transition from current status (should be READY_TO_SHIP) to SHIPPING_SETUP
     try {
       validateFulfillmentTransition(
         currentStatus,
