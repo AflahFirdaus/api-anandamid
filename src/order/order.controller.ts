@@ -220,7 +220,21 @@ export class OrderController {
     return this.fulfillmentWorkflowService.processInstantBooking(orderId);
   }
 
-  // ====================== ADMIN SETUP SHIPPING + BOOK (REGULAR) ======================
+  // ====================== ADMIN SETUP SHIPPING (ATUR PENGIRIMAN) ======================
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/setup-shipping')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ 
+    summary: 'Setup shipping method (Admin, Regular)',
+    description: 'Set handover_method to PICKUP (jemput kurir) or DROP_OFF (antar ke outlet). Required before book-shipping.'
+  })
+  @ApiResponse({ status: 200, description: 'Shipping setup completed' })
+  @ApiResponse({ status: 400, description: 'Validation error' })
+  async setupShipping(@Param('id') orderId: string, @Body() body: { handover_method: HandoverMethod }) {
+    return this.fulfillmentService.setupShipping(orderId, body.handover_method);
+  }
+
+  // ====================== ADMIN BOOK SHIPPING (REGULAR) ======================
   @UseGuards(JwtAuthGuard)
   @Post(':id/book-shipping')
   @ApiBearerAuth('JWT-auth')
