@@ -157,6 +157,8 @@ export class FulfillmentService {
 
     order.fulfillment_status = FulfillmentStatus.PACKING;
     order.is_locked = true;
+    // Also update order.status to DIKEMAS for UI
+    order.status = 'DIKEMAS';
     await this.orderRepo.save(order);
 
     // Record histories
