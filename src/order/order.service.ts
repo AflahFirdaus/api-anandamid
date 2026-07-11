@@ -1598,6 +1598,12 @@ export class OrderService {
         { search: `%${query.search}%` },
       );
     }
+    if (query.startDate) {
+      qb.andWhere('order.created_at >= :startDate', { startDate: new Date(query.startDate) });
+    }
+    if (query.endDate) {
+      qb.andWhere('order.created_at <= :endDate', { endDate: new Date(query.endDate + 'T23:59:59.999Z') });
+    }
     if (query.payment_method) qb.andWhere('order.payment_method = :payment_method', { payment_method: query.payment_method });
 
     const page = parseInt(query.page, 10) || 1;
@@ -1607,9 +1613,31 @@ export class OrderService {
     qb.skip(skip).take(limit);
     const [orders, total] = await qb.getManyAndCount();
 
+    // Count orders per status (without pagination & status filter)
+    const countQb = this.orderRepo.createQueryBuilder('order');
+    if (query.startDate) {
+      countQb.andWhere('order.created_at >= :startDate', { startDate: new Date(query.startDate) });
+    }
+    if (query.endDate) {
+      countQb.andWhere('order.created_at <= :endDate', { endDate: new Date(query.endDate + 'T23:59:59.999Z') });
+    }
+    const countsRaw = await countQb
+      .select('order.status, COUNT(order.id) as count')
+      .groupBy('order.status')
+      .getRawMany();
+
+    const counts: Record<string, number> = {};
+    for (const row of countsRaw) {
+      counts[row.status] = parseInt(row.count, 10);
+    }
+
     return {
       data: orders,
-      meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
+      total,
+      totalPages: Math.ceil(total / limit),
+      page,
+      limit,
+      counts,
     };
   }
 
