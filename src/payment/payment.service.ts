@@ -270,10 +270,23 @@ export class PaymentService {
         return { status: 'error', message: 'Order not found' };
       }
 
-      // Handle refund notifications
+      // Handle refund notifications (settlement refund)
       if (transactionStatus === 'refund' || transactionStatus === 'refund_complete' || transactionStatus === 'return') {
         await this.processRefundNotification(order);
         return { status: 'success', message: 'Refund processed' };
+      }
+
+      // Handle cancel webhook triggered by void (credit card capture → cancel/void flow)
+      // If order is already in REFUNDING or CANCEL_REQUESTED, this cancel is part of the refund flow
+      if (
+        transactionStatus === 'cancel' &&
+        (order.status === 'REFUNDING' || order.status === 'CANCEL_REQUESTED')
+      ) {
+        this.logger.log(
+          `Order ${orderId}: cancel webhook received while order is in ${order.status} — treating as refund success (void)`,
+        );
+        await this.processRefundNotification(order);
+        return { status: 'success', message: 'Refund via void processed' };
       }
 
       // Normal payment status update
