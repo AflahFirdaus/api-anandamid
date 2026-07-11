@@ -309,25 +309,40 @@ export class OrderService {
       ? 'https://api.midtrans.com/v2'
       : 'https://api.sandbox.midtrans.com/v2';
     const auth = Buffer.from(`${sk}:`).toString('base64');
-    let res = await fetch(`${base}/${order.invoice_number}/status`, {
-      headers: {
-        Authorization: `Basic ${auth}`,
-        'Content-Type': 'application/json',
-      },
-    });
-    let data = await res.json();
-    if (!res.ok || res.status === 404) {
-      const retryId = `${order.invoice_number}-R${order.id.slice(0, 8)}`;
-      res = await fetch(`${base}/${retryId}/status`, {
+    let res: Response;
+    let data: any;
+    try {
+      res = await fetch(`${base}/${order.invoice_number}/status`, {
         headers: {
           Authorization: `Basic ${auth}`,
           'Content-Type': 'application/json',
         },
       });
       data = await res.json();
+      if (!res.ok || res.status === 404) {
+        const retryId = `${order.invoice_number}-R${order.id.slice(0, 8)}`;
+        res = await fetch(`${base}/${retryId}/status`, {
+          headers: {
+            Authorization: `Basic ${auth}`,
+            'Content-Type': 'application/json',
+          },
+        });
+        data = await res.json();
+      }
+      if (!res.ok)
+        throw new BadRequestException(data.error_messages?.[0] || 'Failed');
+    } catch (fetchErr: any) {
+      if (fetchErr instanceof BadRequestException) {
+        throw fetchErr;
+      }
+      this.logger.warn(
+        `Failed to fetch payment status from Midtrans for ${order.invoice_number} due to network error: ${fetchErr.message}`,
+      );
+      return {
+        message: `Koneksi ke Midtrans terganggu (${fetchErr.message}). Menampilkan status lokal.`,
+        status: order.status,
+      };
     }
-    if (!res.ok)
-      throw new BadRequestException(data.error_messages?.[0] || 'Failed');
     const ts = data.transaction_status,
       fs = data.fraud_status;
     let ns = order.status;
