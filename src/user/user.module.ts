@@ -7,10 +7,12 @@ import { UserController } from './user.controller';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { UserAddress } from './entities/user-address.entity';
+import { NotificationModule } from '../notification/notification.module';
+import { Voucher } from '../voucher/entities/voucher.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User, UserAddress]), 
+    TypeOrmModule.forFeature([User, UserAddress, Voucher]), 
     
     ConfigModule,
     JwtModule.registerAsync({
@@ -21,6 +23,7 @@ import { UserAddress } from './entities/user-address.entity';
         signOptions: { expiresIn: '1h' },
       }),
     }),
+    NotificationModule,
   ],
   controllers: [UserController],
   providers: [UserService],

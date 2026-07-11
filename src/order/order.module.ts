@@ -17,6 +17,7 @@ import { UserAddress } from '../user/entities/user-address.entity';
 import { PaymentModule } from '../payment/payment.module';
 import { VoucherModule } from '../voucher/voucher.module';
 import { ShipmentModule } from '../shipment/shipment.module';
+import { NotificationModule } from '../notification/notification.module';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { ShipmentModule } from '../shipment/shipment.module';
     PaymentModule,
     VoucherModule,
     forwardRef(() => ShipmentModule),
+    NotificationModule,
   ],
   controllers: [OrderController],
   providers: [OrderService, ShippingLabelService, FulfillmentService, FulfillmentWorkflowService],

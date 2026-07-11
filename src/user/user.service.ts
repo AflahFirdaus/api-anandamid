@@ -6,9 +6,10 @@ import { UserAddress } from './entities/user-address.entity';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { OAuth2Client } from 'google-auth-library';
-
 import { Resend } from 'resend';
 import * as crypto from 'crypto';
+import { NotificationService } from '../notification/notification.service';
+import { Voucher, VoucherType } from '../voucher/entities/voucher.entity';
 
 @Injectable()
 export class UserService {
@@ -20,7 +21,10 @@ export class UserService {
     private userRepo: Repository<User>,
     @InjectRepository(UserAddress) 
     private addressRepo: Repository<UserAddress>, 
+    @InjectRepository(Voucher)
+    private voucherRepo: Repository<Voucher>,
     private jwtService: JwtService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   // ================= REGISTER =================
@@ -40,7 +44,33 @@ export class UserService {
 
     const savedUser = await this.userRepo.save(newUser);
     const { password, ...result } = savedUser;
+
+    // Send welcome notification (fire-and-forget — never blocks registration)
+    this.findActiveNewUserVoucherCode()
+      .then((voucherCode) =>
+        this.notificationService.sendWelcomeVoucherNotif(savedUser.id, savedUser.full_name, voucherCode),
+      )
+      .catch(() => {/* silent — notif failure must not affect registration */});
+
     return result;
+  }
+
+  /**
+   * Cari voucher NEW_USER yang aktif dan masih berlaku.
+   * Return kode voucher pertama yang ditemukan, atau null jika tidak ada.
+   */
+  private async findActiveNewUserVoucherCode(): Promise<string | null> {
+    const now = new Date();
+    const voucher = await this.voucherRepo
+      .createQueryBuilder('v')
+      .where('v.type = :type', { type: VoucherType.NEW_USER })
+      .andWhere('v.is_active = true')
+      .andWhere('v.start_date <= :now', { now })
+      .andWhere('v.end_date >= :now', { now })
+      .andWhere('(v.max_usage = 0 OR v.current_usage < v.max_usage)')
+      .orderBy('v.created_at', 'DESC')
+      .getOne();
+    return voucher?.code ?? null;
   }
 
   // ================= LOGIN =================
@@ -106,6 +136,14 @@ export class UserService {
           avatar_url: picture,
         });
         user = await this.userRepo.save(newUser);
+
+        // Notif: welcome voucher untuk pendaftar baru via Google
+        this.findActiveNewUserVoucherCode()
+          .then((voucherCode) =>
+            this.notificationService.sendWelcomeVoucherNotif(user!.id, user!.full_name, voucherCode),
+          )
+          .catch(() => {/* silent */});
+
       } else if (!user.avatar_url && picture) {
         user.avatar_url = picture;
         await this.userRepo.save(user);

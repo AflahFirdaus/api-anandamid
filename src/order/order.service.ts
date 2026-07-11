@@ -32,6 +32,7 @@ import {
   validateBookingTransition,
 } from './order-state-machine';
 import { FulfillmentStatus } from './enums/fulfillment-status.enum';
+import { NotificationService } from '../notification/notification.service';
 
 function normalizeCourierCode(courier: string): string {
   const c = courier.toLowerCase().trim();
@@ -119,6 +120,7 @@ export class OrderService {
     private readonly paymentService: PaymentService,
     private readonly voucherService: VoucherService,
     private readonly dataSource: DataSource,
+    private readonly notificationService: NotificationService,
   ) {}
 
   private generateInvoiceNumber(): string {
@@ -214,9 +216,13 @@ export class OrderService {
       total_price: tp,
       notes: dto.notes,
       items: oi as OrderItem[],
-    } as any);
+    } as any) as unknown as Order;
     const saved = await this.orderRepo.save(no);
     await this.cartRepo.delete(dto.cart_ids);
+
+    // Notif: pesanan baru (PENDING)
+    this.notificationService.sendOrderStatusNotif(userId, saved, 'PENDING').catch(() => {});
+
     return { message: 'Checkout keranjang berhasil', order: saved };
   }
 
@@ -251,10 +257,15 @@ export class OrderService {
           price: fp,
         } as OrderItem,
       ],
-    } as any);
+    } as any) as unknown as Order;
+    const saved = await this.orderRepo.save(no);
+
+    // Notif: pesanan baru (PENDING)
+    this.notificationService.sendOrderStatusNotif(userId, saved, 'PENDING').catch(() => {});
+
     return {
       message: 'Checkout langsung berhasil',
-      order: await this.orderRepo.save(no),
+      order: saved,
     };
   }
 
@@ -356,6 +367,10 @@ export class OrderService {
         await this.deductStock(order.id);
       }
       await this.orderRepo.save(order);
+
+      // Notif: status pembayaran berubah
+      this.notificationService.sendOrderStatusNotif(order.user_id, order, ns).catch(() => {});
+
       return { message: `→ ${ns}`, status: ns };
     }
     return { message: `Status masih ${order.status}`, status: order.status };
@@ -620,6 +635,9 @@ export class OrderService {
       order.status = 'CANCEL_REQUESTED';
       await queryRunner.manager.save(Order, order);
 
+      // Notif: CANCEL_REQUESTED
+      this.notificationService.sendOrderStatusNotif(order.user_id, order, 'CANCEL_REQUESTED').catch(() => {});
+
       // 8. History: USER_REQUEST_CANCEL
       await this.saveOrderHistory(
         queryRunner,
@@ -693,6 +711,9 @@ export class OrderService {
         this.logger.log(
           `[REFUND] operation_id=${operationId} order=${order.invoice_number} status=REFUNDING amount=${Math.round(Number(order.total_price))} actor=USER fulfillment=${currentFulfillment}`,
         );
+
+        // Notif: REFUNDING
+        this.notificationService.sendOrderStatusNotif(order.user_id, order, 'REFUNDING').catch(() => {});
 
         return {
           message:
@@ -903,6 +924,10 @@ export class OrderService {
       this.logger.log(
         `[REFUND] operation_id=${opId} order=${order.invoice_number} status=CANCELLED duration=${refundDuration ? `${refundDuration}s` : '?'} actor=MIDTRANS`,
       );
+
+      // Notif: CANCELLED (refund berhasil)
+      this.notificationService.sendOrderStatusNotif(order.user_id, order, 'CANCELLED').catch(() => {});
+
     } catch (err: any) {
       await queryRunner.rollbackTransaction();
       this.logger.error(
@@ -1003,9 +1028,14 @@ export class OrderService {
       order.courier_service = dto.courier_service;
     if (dto.awb_number !== undefined) order.awb_number = dto.awb_number;
     if (dto.awb_url !== undefined) order.awb_url = dto.awb_url;
+    const savedOrder = await this.orderRepo.save(order);
+
+    // Notif: update status oleh admin
+    this.notificationService.sendOrderStatusNotif(savedOrder.user_id, savedOrder, dto.status as string).catch(() => {});
+
     return {
       message: `Status diubah: ${dto.status}`,
-      order: await this.orderRepo.save(order),
+      order: savedOrder,
     };
   }
 
@@ -1075,6 +1105,9 @@ export class OrderService {
             `[PROCESS] ✅ AWB OK: operation_id=${opId} order=${order.invoice_number} biteshipId=${awb.biteship_order_id} awb=${awb.awb_number} booking_status=BOOKED`,
           );
 
+          // Notif: DIKEMAS (setelah AWB berhasil)
+          this.notificationService.sendOrderStatusNotif(saved.user_id, saved, 'DIKEMAS').catch(() => {});
+
           this.fetchAndSaveTrackingUrl(saved).catch((e) =>
             this.logger.warn(
               `[PROCESS] tracking_url fetch failed: ${e.message}`,
@@ -1143,6 +1176,10 @@ export class OrderService {
     this.logger.log(
       `[PROCESS] Done (no booking) operation_id=${opId} order=${order.invoice_number}`,
     );
+
+    // Notif: DIKEMAS (untuk instant/same-day yang tidak butuh AWB booking)
+    this.notificationService.sendOrderStatusNotif(order.user_id, order, 'DIKEMAS').catch(() => {});
+
     return { message: 'Pesanan diproses.', order: order };
   }
 
