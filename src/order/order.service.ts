@@ -1859,7 +1859,8 @@ export class OrderService {
     const quantity = dto.quantity || direct_item?.quantity;
     const notes = dto.notes;
     const address_id = dto.address_id;
-    const shipping_method = dto.shipping_method;
+    const shipping_type = dto.shipping_type || (dto.shipping_method === 'instant' ? 'instant' : 'regular');
+    const shipping_method = dto.shipping_method || (shipping_type === 'instant' ? 'INSTANT' : 'REGULAR');
     const shipping_cost = dto.shipping_cost;
     const courier_name = dto.courier_name;
     const courier_service = dto.courier_service;
@@ -1920,7 +1921,7 @@ export class OrderService {
       notes: notes || null,
       shipping_cost: Number(shippingCost) || 0,
       shipping_method: shipping_method || null,
-      shipping_type: shipping_method === 'instant' ? 'instant' : 'regular',
+      shipping_type: shipping_type,
       courier_name: courier_name || null,
       courier_service: courier_service || null,
       payment_method: payment_method || null,
