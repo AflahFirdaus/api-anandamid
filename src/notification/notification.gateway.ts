@@ -18,7 +18,6 @@ import { Logger } from '@nestjs/common';
  * Server dapat push event `notification` ke room user tertentu.
  */
 @WebSocketGateway({
-  namespace: '/notifications',
   cors: {
     origin: [
       'http://localhost:5173',
@@ -45,35 +44,44 @@ export class NotificationGateway
 
   handleConnection(client: Socket) {
     try {
-      const token =
-        (client.handshake.auth?.token as string) ||
-        (client.handshake.headers?.authorization as string)?.replace(
-          'Bearer ',
-          '',
-        );
+      // 1. Cek apakah middleware auth sudah mengisi socket.data.user
+      let userId = client.data?.user?.sub || client.data?.user?.id;
 
-      if (!token) {
-        client.disconnect();
+      if (!userId) {
+        // 2. Fallback: Ekstrak token dan verifikasi sendiri
+        const token =
+          (client.handshake.auth?.token as string) ||
+          (client.handshake.headers?.authorization as string)?.replace(
+            'Bearer ',
+            '',
+          );
+
+        if (token) {
+          const payload = this.jwtService.verify(token);
+          userId = payload.sub || payload.id;
+        }
+      }
+
+      if (!userId) {
+        this.logger.warn(`Connection rejected: no authenticated user found for socket=${client.id}`);
+        // Jangan putuskan koneksi di sini agar chat tetap berfungsi jika token chat valid tapi format berbeda,
+        // melainkan log saja atau abaikan registrasi room.
         return;
       }
 
-      const payload = this.jwtService.verify(token);
-      const userId: string = payload.sub;
-
-      // Store userId on socket for later reference
+      // Store userId on socket data
       (client as any).userId = userId;
 
       // User join their personal room
       client.join(`user_${userId}`);
-      this.logger.log(`Client connected: userId=${userId} socketId=${client.id}`);
-    } catch {
-      this.logger.warn(`Unauthorized socket connection: ${client.id}`);
-      client.disconnect();
+      this.logger.log(`Notification client registered: userId=${userId} socketId=${client.id}`);
+    } catch (err: any) {
+      this.logger.warn(`Error registering notification socket: ${err.message}`);
     }
   }
 
   handleDisconnect(client: Socket) {
-    const userId = (client as any).userId;
+    const userId = (client as any).userId || client.data?.user?.sub;
     this.logger.log(`Client disconnected: userId=${userId ?? 'unknown'} socketId=${client.id}`);
   }
 
@@ -82,11 +90,12 @@ export class NotificationGateway
    */
   @SubscribeMessage('join_notification_room')
   handleJoinRoom(@ConnectedSocket() client: Socket) {
-    const userId = (client as any).userId;
+    const userId = (client as any).userId || client.data?.user?.sub || client.data?.user?.id;
     if (userId) {
       client.join(`user_${userId}`);
+      return { status: 'joined', userId };
     }
-    return { status: 'joined' };
+    return { status: 'failed', error: 'user not authenticated' };
   }
 
   /**

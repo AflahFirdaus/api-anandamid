@@ -7,6 +7,7 @@ import { Order } from '../order/entities/order.entity';
 import { OrderHistory } from '../order/entities/order-history.entity';
 import { InventoryHistory } from '../order/entities/inventory-history.entity';
 import { ProductVariant } from '../product/entities/product-variant.entity';
+import { NotificationService } from '../notification/notification.service';
 
 @Injectable()
 export class PaymentService {
@@ -23,6 +24,7 @@ export class PaymentService {
     private readonly inventoryHistoryRepo: Repository<InventoryHistory>,
     @InjectRepository(ProductVariant)
     private readonly variantRepo: Repository<ProductVariant>,
+    private readonly notificationService: NotificationService,
   ) {
     this.logger.log(`Initializing Midtrans with serverKey: ${process.env.MIDTRANS_SERVER_KEY ? 'SET' : 'NOT SET'}, isProduction: ${process.env.MIDTRANS_IS_PRODUCTION}`);
     this.snap = new midtransClient.Snap({
@@ -334,6 +336,23 @@ export class PaymentService {
         order.status = newStatus;
         await this.orderRepo.save(order);
         this.logger.log(`Order ${orderId} status updated: → ${newStatus}`);
+
+        // ── Kirim notifikasi ke user setelah status berubah ──────────────────
+        if (order.user_id) {
+          try {
+            await this.notificationService.sendOrderStatusNotif(
+              order.user_id,
+              {
+                id: order.id,
+                invoice_number: order.invoice_number ?? orderId,
+                courier_name: (order as any).courier_name ?? null,
+              },
+              newStatus,
+            );
+          } catch (notifErr: any) {
+            this.logger.warn(`[Webhook] Notification failed for ${orderId}: ${notifErr.message}`);
+          }
+        }
       } else {
         this.logger.log(`Order ${orderId} already at status ${newStatus}`);
       }
