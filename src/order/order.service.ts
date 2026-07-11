@@ -755,10 +755,16 @@ export class OrderService {
           );
           return {
             message:
-              'Pengajuan pembatalan berhasil diterima. Dana Anda akan dikembalikan secara manual oleh admin karena metode pembayaran tidak mendukung refund otomatis.',
+              'Pengajuan pembatalan berhasil diterima dan sedang diproses oleh admin. Dana Anda akan dikembalikan dalam 1-3 hari kerja melalui metode pembayaran asal.',
             status: 'REFUND_FAILED',
             refund_operation_id: operationId,
             refund_transaction_id: order.refund_transaction_id,
+            next_steps: [
+              'Tim kami akan memproses pengembalian dana secara manual.',
+              'Dana akan dikembalikan dalam 1-3 hari kerja.',
+              'Jika ada pertanyaan, silakan hubungi admin dengan mencantumkan nomor pesanan Anda.',
+            ],
+            order_number: order.invoice_number,
           };
         }
 

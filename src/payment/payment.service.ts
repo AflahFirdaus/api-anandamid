@@ -58,18 +58,55 @@ export class PaymentService {
 
   /**
    * Refund a transaction via Midtrans Core API.
-   * Uses the /v2/{order_id}/refund endpoint (direct refund).
+   * - If status is 'capture' (credit card not yet settled), calls cancel/void API.
+   * - If status is 'settlement', calls refund API.
    */
   async refundTransaction(orderId: string, amount: number, reason: string): Promise<any> {
     this.logger.log(`[REFUND] Requesting refund for ${orderId}, amount=${amount}, reason=${reason}`);
     try {
-      const parameter = {
-        amount: amount,
-        reason: reason,
-      };
-      // Midtrans CoreApi: use this.core.transaction.refund() or refundDirect() with (orderId, parameter)
-      // The method name depends on the version - try refundDirect or refund
+      // Step 1: Check current transaction status from Midtrans
+      const isProd = process.env.MIDTRANS_IS_PRODUCTION === 'true';
+      const base = isProd ? 'https://api.midtrans.com/v2' : 'https://api.sandbox.midtrans.com/v2';
+      const auth = Buffer.from(`${process.env.MIDTRANS_SERVER_KEY}:`).toString('base64');
+
+      let transactionStatus: string | null = null;
+      try {
+        const statusRes = await fetch(`${base}/${orderId}/status`, {
+          method: 'GET',
+          headers: { Authorization: `Basic ${auth}` },
+        });
+        const statusData = await statusRes.json();
+        transactionStatus = statusData?.transaction_status || null;
+        this.logger.log(`[REFUND] Midtrans transaction_status for ${orderId}: ${transactionStatus}`);
+      } catch (statusErr: any) {
+        this.logger.warn(`[REFUND] Could not fetch transaction status for ${orderId}: ${statusErr.message}`);
+      }
+
       let result: any;
+
+      // Step 2: If status is 'capture', call cancel (void) — refund is not possible yet
+      if (transactionStatus === 'capture') {
+        this.logger.log(`[REFUND] Status is 'capture', calling cancel (void) API for ${orderId}`);
+        const cancelRes = await fetch(`${base}/${orderId}/cancel`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Basic ${auth}`,
+            'Content-Type': 'application/json',
+          },
+        });
+        result = await cancelRes.json();
+        if (!cancelRes.ok && result?.status_code !== '200') {
+          throw new Error(
+            `Cancel (void) API error: HTTP ${cancelRes.status}. API response: ${JSON.stringify(result)}`,
+          );
+        }
+        this.logger.log(`[REFUND] Cancel (void) success for ${orderId}: ${JSON.stringify(result)}`);
+        return result;
+      }
+
+      // Step 3: For 'settlement' and other statuses, call refund API
+      const parameter = { amount, reason };
+
       if (typeof this.core.transaction?.refundDirect === 'function') {
         result = await this.core.transaction.refundDirect(orderId, parameter);
       } else if (typeof this.core.transaction?.refund === 'function') {
@@ -77,10 +114,7 @@ export class PaymentService {
       } else if (typeof this.core.transactions?.refundDirect === 'function') {
         result = await this.core.transactions.refundDirect(orderId, parameter);
       } else {
-        // Fallback: call the snap API for refund via /v2/{order_id}/refund
-        const isProd = process.env.MIDTRANS_IS_PRODUCTION === 'true';
-        const base = isProd ? 'https://api.midtrans.com/v2' : 'https://api.sandbox.midtrans.com/v2';
-        const auth = Buffer.from(`${process.env.MIDTRANS_SERVER_KEY}:`).toString('base64');
+        // Fallback: call REST API directly
         const res = await fetch(`${base}/${orderId}/refund`, {
           method: 'POST',
           headers: {
@@ -91,14 +125,20 @@ export class PaymentService {
         });
         result = await res.json();
         if (!res.ok) {
-          throw new Error(result.message || result.error_messages?.[0] || 'Refund API error');
+          throw new Error(
+            `Refund API error: HTTP ${res.status}. API response: ${JSON.stringify(result)}`,
+          );
         }
       }
+
       this.logger.log(`[REFUND] Success for ${orderId}: ${JSON.stringify(result)}`);
       return result;
     } catch (error: any) {
       const apiResponse = error?.ApiResponse || error?.apiResponse;
-      this.logger.error(`[REFUND] Failed for ${orderId}: ${error.message}`, apiResponse ? JSON.stringify(apiResponse) : '');
+      this.logger.error(
+        `[REFUND] Failed for ${orderId}: ${error.message}`,
+        apiResponse ? JSON.stringify(apiResponse) : '',
+      );
       throw new Error(`Refund failed: ${error.message}`);
     }
   }
