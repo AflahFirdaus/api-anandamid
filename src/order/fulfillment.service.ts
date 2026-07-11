@@ -19,6 +19,7 @@ import {
   canPrintLabel,
 } from './fulfillment-state-machine';
 import * as uuid from 'uuid';
+import { NotificationService } from '../notification/notification.service';
 
 interface FulfillmentLogContext {
   operation_id: string;
@@ -42,6 +43,7 @@ export class FulfillmentService {
     @InjectRepository(OrderHistory)
     private readonly orderHistoryRepo: Repository<OrderHistory>,
     private readonly dataSource: DataSource,
+    private readonly notificationService: NotificationService,
   ) {}
 
   private logFulfillment(
@@ -205,7 +207,16 @@ export class FulfillmentService {
     order.fulfillment_status = FulfillmentStatus.PACKING;
     order.is_locked = true;
     order.status = 'DIKEMAS';
-    await this.orderRepo.save(order);
+    const savedOrder = await this.orderRepo.save(order);
+
+    // ── Notifikasi ke user: pesanan mulai dikemas ────────────────────────────
+    if (savedOrder.user_id) {
+      this.notificationService
+        .sendOrderStatusNotif(savedOrder.user_id, savedOrder, 'DIKEMAS')
+        .catch((err) =>
+          this.logger.warn(`[FULFILLMENT] Notif DIKEMAS failed: ${err.message}`),
+        );
+    }
 
     // Record histories
     await this.recordHistory(
@@ -232,13 +243,13 @@ export class FulfillmentService {
     );
 
     this.logger.log(
-      `[FULFILLMENT] operation_id=${opId} order=${order.invoice_number} fulfillment=PACKING shipping_method=${shippingMethod}`,
+      `[FULFILLMENT] operation_id=${opId} order=${savedOrder.invoice_number} fulfillment=PACKING shipping_method=${shippingMethod}`,
     );
 
     return {
       message: 'Packing dimulai.',
       fulfillment_status: FulfillmentStatus.PACKING,
-      order: order,
+      order: savedOrder,
     };
   }
 

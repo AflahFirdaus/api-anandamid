@@ -30,9 +30,20 @@ export class ShipmentService {
    */
   private async generateShipmentNumber(): Promise<string> {
     const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-    const count = await this.shipmentRepo.count({
-      where: { created_at: new Date() } as any,
-    });
+    // Count shipments created today using a date-range query (exact timestamp comparison always returns 0)
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
+
+    const count = await this.shipmentRepo
+      .createQueryBuilder('s')
+      .where('s.created_at >= :start AND s.created_at <= :end', {
+        start: todayStart,
+        end: todayEnd,
+      })
+      .getCount();
+
     return `SHIP-${dateStr}-${String(count + 1).padStart(5, '0')}`;
   }
 
