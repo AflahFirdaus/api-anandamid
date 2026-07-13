@@ -214,6 +214,11 @@ export class NotificationService {
       this.configService.get<string>('RESEND_FROM_EMAIL') ?? 'noreply@anandam.id';
     this.frontendUrl =
       this.configService.get<string>('FRONTEND_URL') ?? 'https://anandam.id';
+
+    // Log config saat startup — untuk verifikasi env terbaca dengan benar
+    this.logger.log(
+      `[EMAIL] Config loaded → from=${this.fromEmail} apiKey=${apiKey ? apiKey.slice(0, 10) + '...' : 'MISSING!'} frontend=${this.frontendUrl}`,
+    );
   }
 
   // ── Internal: create + push ───────────────────────────────────────────────
@@ -323,6 +328,10 @@ export class NotificationService {
         return;
       }
 
+      this.logger.log(
+        `[EMAIL] Memulai pengiriman → to=${user.email} invoice=${order.invoice_number} status=${status}`,
+      );
+
       const { title, body } = getOrderNotifTemplate(
         status,
         order.invoice_number,
@@ -341,8 +350,9 @@ export class NotificationService {
       await this.sendEmailWithRetry(user.email, title, html, order.invoice_number);
     } catch (err: any) {
       // Jangan pernah crash flow utama karena kegagalan email
+      // Error ini HARUS ter-log agar bisa dideteksi di PM2 logs
       this.logger.error(
-        `[EMAIL] dispatchOrderEmail error | userId=${userId} invoice=${order.invoice_number} | ${err.message}`,
+        `[EMAIL] dispatchOrderEmail FATAL | userId=${userId} invoice=${order.invoice_number} status=${status} | ${err.message}`,
       );
     }
   }
@@ -404,8 +414,12 @@ export class NotificationService {
     });
 
     // 2. Kirim email hanya untuk 4 status penting (fire-and-forget)
+    // Note: .catch() di sini hanya sebagai safety net — error sesungguhnya
+    // sudah di-log di dalam dispatchOrderEmail itu sendiri
     if (EMAIL_TRIGGER_STATUSES.has(newStatus)) {
-      this.dispatchOrderEmail(userId, order, newStatus).catch(() => {});
+      this.dispatchOrderEmail(userId, order, newStatus).catch((err: any) => {
+        this.logger.error(`[EMAIL] Unhandled dispatch error | userId=${userId} status=${newStatus} | ${err?.message}`);
+      });
     }
 
     this.logger.log(
