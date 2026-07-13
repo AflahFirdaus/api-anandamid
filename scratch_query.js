@@ -13,7 +13,7 @@ async function run() {
   try {
     await client.connect();
     const res = await client.query(
-      "SELECT id, invoice_number, status, booking_status, shipping_address_snapshot FROM orders WHERE invoice_number = 'INV-20260711-2728'"
+      "SELECT id, invoice_number, awb_number, courier_name, courier_service, shipping_address_snapshot FROM orders WHERE id = '76a3231e-d980-44a4-aa6d-4c529c948675'"
     );
     console.log(JSON.stringify(res.rows, null, 2));
   } catch (err) {
@@ -24,3 +24,6 @@ async function run() {
 }
 
 run();
+
+
+
