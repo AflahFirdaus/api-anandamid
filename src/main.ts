@@ -5,11 +5,17 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { join } from 'path';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { ThrottlerExceptionFilter } from './common/filters/throttler-exception.filter';
+import helmet from 'helmet';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
+  app.use(helmet({
+    contentSecurityPolicy: false,
+  }));
+
   app.enableCors({
+
     origin: [
       'http://localhost:5173',
       'http://192.168.1.178:5173',

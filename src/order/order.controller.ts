@@ -12,6 +12,8 @@ import {
   HttpException,
   HttpStatus,
   Logger,
+  Headers,
+  UnauthorizedException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -432,14 +434,25 @@ export class OrderController {
     return this.orderService.repairOrderState(orderId);
   }
 
-  // ====================== BITESHIP WEBHOOK ======================
   @Post('webhook/biteship')
   @ApiOperation({ summary: 'Biteship webhook for order status updates' })
   @ApiResponse({ status: 200, description: 'OK' })
-  async handleBiteshipWebhook(@Body() payload: any) {
+  async handleBiteshipWebhook(
+    @Body() payload: any,
+    @Query('token') token?: string,
+    @Headers('x-biteship-token') headerToken?: string,
+  ) {
     try {
+      const expectedToken = process.env.BITESHIP_WEBHOOK_TOKEN;
+      if (expectedToken) {
+        const clientToken = token || headerToken;
+        if (clientToken !== expectedToken) {
+          throw new UnauthorizedException('Invalid webhook token');
+        }
+      }
       return await this.orderService.handleBiteshipWebhook(payload);
     } catch (err: any) {
+      if (err instanceof UnauthorizedException) throw err;
       throw new HttpException(err.message, HttpStatus.BAD_REQUEST);
     }
   }
