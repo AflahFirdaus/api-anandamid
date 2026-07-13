@@ -1,8 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { ConfigService } from '@nestjs/config';
+import { Resend } from 'resend';
 import { Notification, NotificationType } from './entities/notification.entity';
 import { NotificationGateway } from './notification.gateway';
+import { User } from '../user/entities/user.entity';
 
 // ── Copy template pesan ala Shopee/Gojek ──────────────────────────────────
 
@@ -30,7 +33,7 @@ function getOrderNotifTemplate(
     },
     DIKEMAS: {
       title: '📦 Pesananmu Lagi Dikemas!',
-      body: `Tim kami lagi sibuk (dengan penuh cinta 💕) masukin pesanan ${inv} ke dalam kotak. Bentar lagi siap dikirim!`,
+      body: `Pesanan ${inv} sedang kami kemas dengan rapi. Mohon tunggu sebentar ya, pesananmu akan segera dikirim!`,
     },
     DIKIRIM: {
       title: '🚀 Pesananmu Udah Jalan!',
@@ -70,17 +73,148 @@ function getOrderNotifTemplate(
   );
 }
 
+// ── Email HTML template ────────────────────────────────────────────────────
+
+/**
+ * Status order yang memicu pengiriman email notifikasi.
+ * Hanya 4 event penting, sisanya hanya push WebSocket.
+ */
+const EMAIL_TRIGGER_STATUSES = new Set(['PENDING', 'CANCELLED', 'REFUNDING', 'SELESAI']);
+
+interface EmailTemplateData {
+  userName: string;
+  invoice: string;
+  status: string;
+  title: string;
+  message: string;
+  frontendUrl: string;
+}
+
+function buildEmailHtml(data: EmailTemplateData): string {
+  const { userName, invoice, status, title, message, frontendUrl } = data;
+
+  const statusColorMap: Record<string, { bg: string; text: string; label: string }> = {
+    PENDING: { bg: '#FFF7ED', text: '#C2410C', label: 'Menunggu Pembayaran' },
+    CANCELLED: { bg: '#FEF2F2', text: '#B91C1C', label: 'Dibatalkan' },
+    REFUNDING: { bg: '#EFF6FF', text: '#1D4ED8', label: 'Refund Diproses' },
+    SELESAI: { bg: '#F0FDF4', text: '#15803D', label: 'Pesanan Selesai' },
+  };
+
+  const badge = statusColorMap[status] ?? {
+    bg: '#F9FAFB',
+    text: '#374151',
+    label: status,
+  };
+
+  return `<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${title}</title>
+</head>
+<body style="margin:0;padding:0;background-color:#F3F4F6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#F3F4F6;padding:32px 16px;">
+    <tr>
+      <td align="center">
+        <table width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background-color:#FFFFFF;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+
+          <!-- Header -->
+          <tr>
+            <td style="background:linear-gradient(135deg,#1A1A2E 0%,#16213E 50%,#0F3460 100%);padding:32px 40px;text-align:center;">
+              <p style="margin:0;font-size:28px;font-weight:800;color:#FFFFFF;letter-spacing:-0.5px;">Anandam</p>
+              <p style="margin:6px 0 0;font-size:13px;color:rgba(255,255,255,0.6);letter-spacing:1px;text-transform:uppercase;">Notifikasi Pesanan</p>
+            </td>
+          </tr>
+
+          <!-- Body -->
+          <tr>
+            <td style="padding:36px 40px;">
+
+              <!-- Greeting -->
+              <p style="margin:0 0 8px;font-size:15px;color:#6B7280;">Halo, <strong style="color:#111827;">${userName}</strong> 👋</p>
+
+              <!-- Title -->
+              <h1 style="margin:0 0 20px;font-size:22px;font-weight:700;color:#111827;line-height:1.3;">${title}</h1>
+
+              <!-- Status Badge -->
+              <div style="display:inline-block;background-color:${badge.bg};color:${badge.text};font-size:12px;font-weight:600;padding:4px 12px;border-radius:100px;letter-spacing:0.5px;margin-bottom:20px;">
+                ${badge.label}
+              </div>
+
+              <!-- Invoice Box -->
+              <div style="background-color:#F9FAFB;border:1px solid #E5E7EB;border-radius:10px;padding:16px 20px;margin-bottom:20px;">
+                <p style="margin:0;font-size:12px;color:#6B7280;text-transform:uppercase;letter-spacing:0.5px;">Nomor Pesanan</p>
+                <p style="margin:4px 0 0;font-size:18px;font-weight:700;color:#111827;letter-spacing:0.5px;">#${invoice}</p>
+              </div>
+
+              <!-- Message -->
+              <p style="margin:0 0 28px;font-size:15px;color:#374151;line-height:1.7;">${message}</p>
+
+              <!-- CTA Button -->
+              <div style="text-align:center;">
+                <a href="${frontendUrl}/orders"
+                   style="display:inline-block;background:linear-gradient(135deg,#1A1A2E,#0F3460);color:#FFFFFF;text-decoration:none;font-size:15px;font-weight:600;padding:14px 36px;border-radius:10px;letter-spacing:0.3px;">
+                  Lihat Pesanan Saya →
+                </a>
+              </div>
+
+            </td>
+          </tr>
+
+          <!-- Divider -->
+          <tr>
+            <td style="padding:0 40px;">
+              <hr style="border:none;border-top:1px solid #F3F4F6;margin:0;" />
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding:24px 40px;text-align:center;">
+              <p style="margin:0;font-size:12px;color:#9CA3AF;line-height:1.6;">
+                Email ini dikirim otomatis, mohon jangan membalas email ini.<br/>
+                Butuh bantuan? Hubungi kami di
+                <a href="mailto:support@anandam.id" style="color:#0F3460;text-decoration:none;">support@anandam.id</a>
+              </p>
+              <p style="margin:12px 0 0;font-size:11px;color:#D1D5DB;">
+                © ${new Date().getFullYear()} Anandam. All rights reserved.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Injectable()
 export class NotificationService {
   private readonly logger = new Logger(NotificationService.name);
+  private readonly resend: Resend;
+  private readonly fromEmail: string;
+  private readonly frontendUrl: string;
 
   constructor(
     @InjectRepository(Notification)
     private readonly notifRepo: Repository<Notification>,
+    @InjectRepository(User)
+    private readonly userRepo: Repository<User>,
     private readonly gateway: NotificationGateway,
-  ) {}
+    private readonly configService: ConfigService,
+  ) {
+    const apiKey = this.configService.get<string>('RESEND_API_KEY') ?? '';
+    this.resend = new Resend(apiKey);
+    this.fromEmail =
+      this.configService.get<string>('RESEND_FROM_EMAIL') ?? 'noreply@anandam.id';
+    this.frontendUrl =
+      this.configService.get<string>('FRONTEND_URL') ?? 'https://anandam.id';
+  }
 
   // ── Internal: create + push ───────────────────────────────────────────────
 
@@ -113,6 +247,106 @@ export class NotificationService {
     return saved;
   }
 
+  // ── Email: kirim dengan retry maksimal 2 percobaan ────────────────────────
+
+  /**
+   * Mengirim email via Resend dengan maksimal 2 percobaan.
+   * - Percobaan 1: langsung kirim
+   * - Jika gagal, percobaan 2 (terakhir): kirim sekali lagi
+   * - Jika keduanya gagal: log warning, berhenti (tidak throw error)
+   *
+   * Dibatasi 2 percobaan untuk menghemat API quota Resend.
+   */
+  private async sendEmailWithRetry(
+    to: string,
+    subject: string,
+    html: string,
+    invoiceNumber: string,
+  ): Promise<void> {
+    const MAX_ATTEMPTS = 2;
+
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      try {
+        const { error } = await this.resend.emails.send({
+          from: `Anandam <${this.fromEmail}>`,
+          to,
+          subject,
+          html,
+        });
+
+        if (error) {
+          // Resend mengembalikan error object (bukan throw) saat request gagal
+          throw new Error(error.message ?? JSON.stringify(error));
+        }
+
+        this.logger.log(
+          `[EMAIL] Terkirim ke ${to} | invoice=${invoiceNumber} | attempt=${attempt}/${MAX_ATTEMPTS}`,
+        );
+        return; // Berhasil, keluar dari loop
+      } catch (err: any) {
+        if (attempt < MAX_ATTEMPTS) {
+          this.logger.warn(
+            `[EMAIL] Percobaan ${attempt}/${MAX_ATTEMPTS} gagal ke ${to} | invoice=${invoiceNumber} | error=${err.message} | Mencoba lagi...`,
+          );
+          // Tidak ada delay, langsung retry (hemat waktu)
+        } else {
+          // Percobaan ke-2 (terakhir) juga gagal → stop, jangan crash
+          this.logger.error(
+            `[EMAIL] GAGAL setelah ${MAX_ATTEMPTS} percobaan ke ${to} | invoice=${invoiceNumber} | error=${err.message}`,
+          );
+        }
+      }
+    }
+  }
+
+  // ── Internal: kirim email notifikasi order ────────────────────────────────
+
+  /**
+   * Mengambil email user dari DB lalu mengirim email notifikasi order.
+   * Hanya dipanggil untuk status yang ada di EMAIL_TRIGGER_STATUSES.
+   * Fire-and-forget — tidak akan crash flow utama.
+   */
+  private async dispatchOrderEmail(
+    userId: string,
+    order: { id: string; invoice_number: string; courier_name?: string | null },
+    status: string,
+  ): Promise<void> {
+    try {
+      // Ambil email user dari DB
+      const user = await this.userRepo.findOne({
+        where: { id: userId },
+        select: ['id', 'full_name', 'email'],
+      });
+
+      if (!user?.email) {
+        this.logger.warn(`[EMAIL] User tidak ditemukan atau tidak punya email | userId=${userId}`);
+        return;
+      }
+
+      const { title, body } = getOrderNotifTemplate(
+        status,
+        order.invoice_number,
+        order.courier_name ?? undefined,
+      );
+
+      const html = buildEmailHtml({
+        userName: user.full_name?.split(' ')[0] ?? 'Pelanggan',
+        invoice: order.invoice_number,
+        status,
+        title,
+        message: body,
+        frontendUrl: this.frontendUrl,
+      });
+
+      await this.sendEmailWithRetry(user.email, title, html, order.invoice_number);
+    } catch (err: any) {
+      // Jangan pernah crash flow utama karena kegagalan email
+      this.logger.error(
+        `[EMAIL] dispatchOrderEmail error | userId=${userId} invoice=${order.invoice_number} | ${err.message}`,
+      );
+    }
+  }
+
   // ── Welcome Voucher (on new user register) ────────────────────────────────
 
   /**
@@ -142,6 +376,9 @@ export class NotificationService {
 
   /**
    * Dipanggil setiap kali status pesanan berubah.
+   * - Push WebSocket: semua status
+   * - Kirim email: hanya PENDING, CANCELLED, REFUNDING, SELESAI
+   *
    * order param: minimal butuh { id, invoice_number, user_id, courier_name? }
    */
   async sendOrderStatusNotif(
@@ -159,14 +396,20 @@ export class NotificationService {
       order.courier_name ?? undefined,
     );
 
+    // 1. Simpan ke DB + push WebSocket (semua status)
     await this.createAndPush(userId, NotificationType.ORDER_UPDATE, title, body, {
       order_id: order.id,
       invoice_number: order.invoice_number,
       status: newStatus,
     });
 
+    // 2. Kirim email hanya untuk 4 status penting (fire-and-forget)
+    if (EMAIL_TRIGGER_STATUSES.has(newStatus)) {
+      this.dispatchOrderEmail(userId, order, newStatus).catch(() => {});
+    }
+
     this.logger.log(
-      `[NOTIF] Order status notif → userId=${userId} order=${order.invoice_number} status=${newStatus}`,
+      `[NOTIF] Order status notif → userId=${userId} order=${order.invoice_number} status=${newStatus} email=${EMAIL_TRIGGER_STATUSES.has(newStatus) ? 'YES' : 'NO'}`,
     );
   }
 

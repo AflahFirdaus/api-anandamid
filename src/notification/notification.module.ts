@@ -6,10 +6,11 @@ import { Notification } from './entities/notification.entity';
 import { NotificationService } from './notification.service';
 import { NotificationController } from './notification.controller';
 import { NotificationGateway } from './notification.gateway';
+import { User } from '../user/entities/user.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Notification]),
+    TypeOrmModule.forFeature([Notification, User]),
     ConfigModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
