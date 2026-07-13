@@ -21,6 +21,7 @@ import { Shipment } from '../shipment/entities/shipment.entity';
 import { ShipmentStatus } from '../shipment/enums/shipment-status.enum';
 import { LabelStatus } from '../shipment/enums/label-status.enum';
 import * as uuid from 'uuid';
+import { NotificationService } from '../notification/notification.service';
 
 @Injectable()
 export class FulfillmentWorkflowService {
@@ -37,7 +38,9 @@ export class FulfillmentWorkflowService {
     private readonly labelService: LabelService,
     private readonly pdfLabelService: PdfLabelService,
     private readonly dataSource: DataSource,
+    private readonly notificationService: NotificationService,
   ) {}
+
 
   // ====================== INSTANT FLOW ======================
 
@@ -400,6 +403,8 @@ export class FulfillmentWorkflowService {
         shipment_id: shipment?.id,
       },
     });
+
+    this.notificationService.sendOrderStatusNotif(order.user_id, order, 'DIKIRIM').catch(() => {});
 
     return { message: 'Paket ditandai sudah diserahkan.', status: 'DIKIRIM' };
   }
