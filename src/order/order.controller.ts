@@ -450,6 +450,13 @@ export class OrderController {
           throw new UnauthorizedException('Invalid webhook token');
         }
       }
+
+      // Biteship sends an empty body during verification upon installation.
+      // We must accept it and respond 200 OK immediately.
+      if (!payload || Object.keys(payload).length === 0) {
+        return { received: true, message: 'Biteship webhook active' };
+      }
+
       return await this.orderService.handleBiteshipWebhook(payload);
     } catch (err: any) {
       if (err instanceof UnauthorizedException) throw err;
