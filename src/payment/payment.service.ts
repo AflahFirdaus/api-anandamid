@@ -217,6 +217,26 @@ export class PaymentService {
 
       await queryRunner.commitTransaction();
       this.logger.log(`[REFUND NOTIFICATION] Successfully processed refund for order ${order.invoice_number}`);
+
+      // Kirim notifikasi CANCELLED ke user (WebSocket + email)
+      // Dipanggil setelah commitTransaction agar data sudah tersimpan
+      if (order.user_id) {
+        this.notificationService
+          .sendOrderStatusNotif(
+            order.user_id,
+            {
+              id: order.id,
+              invoice_number: order.invoice_number,
+              courier_name: (order as any).courier_name ?? null,
+            },
+            'CANCELLED',
+          )
+          .catch((err: any) => {
+            this.logger.warn(
+              `[REFUND NOTIFICATION] Notif gagal untuk ${order.invoice_number}: ${err?.message}`,
+            );
+          });
+      }
     } catch (err: any) {
       await queryRunner.rollbackTransaction();
       this.logger.error(`[REFUND NOTIFICATION] Failed, rolled back: ${err.message}`);
@@ -225,6 +245,7 @@ export class PaymentService {
       await queryRunner.release();
     }
   }
+
 
   /**
    * Handle Midtrans webhook notification
