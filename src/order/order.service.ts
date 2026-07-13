@@ -1843,6 +1843,7 @@ export class OrderService {
       action: 'DELIVERED',
       description: 'Pesanan ditandai terkirim',
     });
+    this.notificationService.sendOrderStatusNotif(order.user_id, order, 'DIKIRIM').catch(() => {});
     return { message: 'Pesanan ditandai terkirim.', order };
   }
 
@@ -2079,6 +2080,7 @@ export class OrderService {
           description: `Paket diambil kurir (Biteship webhook: ${status})`,
           metadata: { webhook_payload: payload },
         });
+        this.notificationService.sendOrderStatusNotif(order.user_id, order, 'DIKIRIM').catch(() => {});
         break;
       case 'delivered':
         order.status = 'DIKIRIM';
@@ -2091,6 +2093,7 @@ export class OrderService {
           description: 'Paket telah terkirim (Biteship webhook)',
           metadata: { webhook_payload: payload },
         });
+        this.notificationService.sendOrderStatusNotif(order.user_id, order, 'DIKIRIM').catch(() => {});
         break;
       case 'on_delivery':
         break;
