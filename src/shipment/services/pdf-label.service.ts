@@ -289,10 +289,16 @@ export class PdfLabelService {
       mx, y, { align: 'center', width: maxW },
     );
 
-    doc.end();
+
+    await new Promise<void>((resolve, reject) => {
+      doc.on('end', resolve);
+      doc.on('error', reject);
+      doc.end();
+    });
 
     return Buffer.concat(buffers);
   }
+
 
   /**
    * Generate packing slip PDF - uses shipment snapshot data.
@@ -414,7 +420,12 @@ export class PdfLabelService {
     normal(6);
     doc.text(order.invoice_number, mx, y);
 
-    doc.end();
+    await new Promise<void>((resolve, reject) => {
+      doc.on('end', resolve);
+      doc.on('error', reject);
+      doc.end();
+    });
+
     return Buffer.concat(buffers);
   }
 

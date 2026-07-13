@@ -123,8 +123,7 @@ export class ShippingLabelService {
       },
     });
 
-    const buffers: Buffer[] = [];
-    doc.on('data', (chunk: Buffer) => buffers.push(chunk));
+
 
     const pageWidth = 100;
     let y = 3;
@@ -288,7 +287,13 @@ export class ShippingLabelService {
     normal(2.5);
     doc.text(`${STORE_NAME} | ${snap.invoice} | ${snap.awb} | v${LABEL_VERSION}`, mx, y, { align: 'center', width: maxW });
 
-    doc.end();
+    const pdfBuffer = await new Promise<Buffer>((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', reject);
+      doc.end();
+    });
 
     // Audit trail: LABEL_DOWNLOADED
     await this.orderHistoryRepo.save({
@@ -299,7 +304,7 @@ export class ShippingLabelService {
       metadata: { label_version: LABEL_VERSION, awb: order.awb_number },
     });
 
-    return Buffer.concat(buffers);
+    return pdfBuffer;
   }
 
   /**
@@ -366,8 +371,7 @@ export class ShippingLabelService {
       },
     });
 
-    const buffers: Buffer[] = [];
-    doc.on('data', (chunk: Buffer) => buffers.push(chunk));
+
 
     const mx = 20;
     let y = 25;
@@ -469,7 +473,13 @@ export class ShippingLabelService {
     normal(6);
     doc.text(order.invoice_number, mx, y);
 
-    doc.end();
+    const pdfBuffer = await new Promise<Buffer>((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', reject);
+      doc.end();
+    });
 
     // Audit trail
     await this.orderHistoryRepo.save({
@@ -479,7 +489,7 @@ export class ShippingLabelService {
       description: 'Packing slip PDF diunduh',
     });
 
-    return Buffer.concat(buffers);
+    return pdfBuffer;
   }
 
   private encodeCode128(text: string): string {
