@@ -1688,24 +1688,33 @@ export class OrderService {
     if (!order.awb_number)
       throw new BadRequestException('AWB number not available. Book courier first.');
 
-    const snapshot = order.shipping_snapshot || {
-      recipient_name: order.user?.full_name || '',
-      phone_number: order.user?.phone_number || '',
-      address: '',
-      courier_name: order.courier_name || '',
-      courier_service: order.courier_service || '',
-      awb_number: order.awb_number || '',
-      awb_url: order.awb_url || '',
-      items: order.items.map((item) => ({
-        name: item.product_name || '',
-        quantity: item.quantity,
-        price: Number(item.price) || 0,
-      })),
-      total_weight: order.items.reduce(
-        (sum, item) => sum + (item.product?.weight || 200) * item.quantity,
-        0,
-      ),
+    // Build recipient from shipping_address_snapshot (always reliable)
+    const addrSnap = (order.shipping_address_snapshot || {}) as Record<string, any>;
+    const recipient = {
+      name: addrSnap.recipient_name || order.user?.full_name || '',
+      phone: addrSnap.phone_number || order.user?.phone_number || '',
+      address: addrSnap.full_address || addrSnap.address || '',
     };
+
+    // Sender from env
+    const sender = {
+      name: process.env.STORE_CONTACT_NAME || 'Anandam Computer',
+      phone: process.env.STORE_PHONE || '6281228134747',
+      address: process.env.STORE_ADDRESS || 'Jl. Affandi No.17, Soropadan, Condongcatur, Kec. Depok, Kabupaten Sleman, Yogyakarta 55283',
+    };
+
+    // Items
+    const items = (order.items || []).map((item) => ({
+      name: item.product_name || '',
+      quantity: item.quantity,
+      weight: item.product?.weight || 200,
+    }));
+
+    const totalWeight = items.reduce((sum, i) => sum + i.weight * i.quantity, 0);
+
+    // If there is already an immutable shipping_snapshot on the order, prefer its values
+    // (it may have been created by the old shipping-label.service.ts flow)
+    const snap = (order.shipping_snapshot || {}) as Record<string, any>;
 
     return {
       order: {
@@ -1714,9 +1723,27 @@ export class OrderService {
         status: order.status,
         created_at: order.created_at,
       },
-      shipping: snapshot,
+      shipping: {
+        // Always return nested objects so the frontend mapping works reliably
+        invoice: snap.invoice || order.invoice_number,
+        awb: snap.awb || order.awb_number,
+        trackingUrl: snap.trackingUrl || order.awb_url || '',
+        sender: snap.sender || sender,
+        recipient: snap.recipient || recipient,
+        courier: snap.courier || {
+          name: order.courier_name || '',
+          service: order.courier_service || '',
+        },
+        weightKg: snap.weightKg || (totalWeight / 1000).toFixed(1),
+        items: snap.items || items,
+        isCod: snap.isCod ?? (order.payment_method || '').toLowerCase().includes('cod'),
+        isFragile: snap.isFragile ?? false,
+        printCount: snap.printCount ?? 0,
+        version: snap.version || 'v2',
+      },
     };
   }
+
 
   async requestPickup(orderId: string) {
     const order = await this.orderRepo.findOne({
