@@ -443,18 +443,18 @@ export class OrderController {
     @Headers('x-biteship-token') headerToken?: string,
   ) {
     try {
+      // Biteship sends an empty body during verification upon installation.
+      // We must accept it and respond 200 OK immediately, bypassing token check.
+      if (!payload || Object.keys(payload).length === 0) {
+        return { received: true, message: 'Biteship webhook active' };
+      }
+
       const expectedToken = process.env.BITESHIP_WEBHOOK_TOKEN;
       if (expectedToken) {
         const clientToken = token || headerToken;
         if (clientToken !== expectedToken) {
           throw new UnauthorizedException('Invalid webhook token');
         }
-      }
-
-      // Biteship sends an empty body during verification upon installation.
-      // We must accept it and respond 200 OK immediately.
-      if (!payload || Object.keys(payload).length === 0) {
-        return { received: true, message: 'Biteship webhook active' };
       }
 
       return await this.orderService.handleBiteshipWebhook(payload);
