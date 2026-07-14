@@ -10,17 +10,19 @@ import helmet from 'helmet';
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
-  app.use(helmet({
-    contentSecurityPolicy: false,
-  }));
+  app.use(
+    helmet({
+      contentSecurityPolicy: false,
+    }),
+  );
 
   app.enableCors({
-
     origin: [
       'http://localhost:5173',
       'http://192.168.1.178:5173',
       'https://staging.anandam.id',
       'https://anandam.id',
+      'https://fe-ecommerce-anandam-id.pages.dev',
     ],
     credentials: true,
   });
