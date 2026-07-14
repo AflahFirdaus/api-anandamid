@@ -25,14 +25,14 @@ export class User {
     phone_number: string;
 
     @Column({ type: 'date', nullable: true })
-    birth_date: Date;
+    birth_date: Date | null;
 
     @Column({
         type: 'enum',
         enum: UserGender,
         nullable: true,
     })
-    gender: UserGender;
+    gender: UserGender | null;
 
     @OneToMany(() => UserAddress, (address) => address.user)
     addresses: UserAddress[];
@@ -57,4 +57,13 @@ export class User {
 
     @Column({ type: 'timestamp', nullable: true })
     reset_token_expires: Date | null;
+
+    @Column({ default: false })
+    is_whatsapp_verified: boolean;
+
+    @Column({ type: 'varchar', length: 10, nullable: true })
+    whatsapp_otp: string | null;
+
+    @Column({ type: 'timestamp', nullable: true })
+    whatsapp_otp_expires: Date | null;
 }

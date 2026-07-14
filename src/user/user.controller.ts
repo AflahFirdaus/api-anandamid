@@ -9,6 +9,11 @@ import { JwtAuthGuard } from 'src/auth/guards/jwt.guards';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
+import { RegisterDto } from './dto/register.dto';
+import { LoginDto } from './dto/login.dto';
+import { VerifyOtpDto } from './dto/verify-otp.dto';
+import { ResendOtpDto } from './dto/resend-otp.dto';
+import { GoogleRegisterPhoneDto } from './dto/google-register-phone.dto';
 
 @Controller('user/auth')
 export class UserController {
@@ -23,12 +28,12 @@ export class UserController {
     }
 
     @Post('register')
-    async register(@Body() body: any) {
+    async register(@Body() body: RegisterDto) {
         return this.userService.register(body);
     }
 
     @Post('login')
-    async login(@Body() body: any) {
+    async login(@Body() body: LoginDto) {
         return this.userService.login(body.email, body.password);
     }
 
@@ -46,6 +51,21 @@ export class UserController {
     @Post('google')
     async googleLogin(@Body('token') token: string) {
         return this.userService.googleLogin(token);
+    }
+
+    @Post('verify-otp')
+    async verifyOtp(@Body() body: VerifyOtpDto) {
+        return this.userService.verifyOtp(body.phone_number, body.otp);
+    }
+
+    @Post('resend-otp')
+    async resendOtp(@Body() body: ResendOtpDto) {
+        return this.userService.resendOtp(body.phone_number);
+    }
+
+    @Post('google-register-phone')
+    async googleRegisterPhone(@Body() body: GoogleRegisterPhoneDto) {
+        return this.userService.googleRegisterPhone(body);
     }
 
     // ================= PROFILE ENDPOINTS =================

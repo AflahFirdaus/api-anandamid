@@ -7,6 +7,7 @@ import { NotificationService } from './notification.service';
 import { NotificationController } from './notification.controller';
 import { NotificationGateway } from './notification.gateway';
 import { User } from '../user/entities/user.entity';
+import { WhatsappService } from './whatsapp.service';
 
 @Module({
   imports: [
@@ -22,7 +23,7 @@ import { User } from '../user/entities/user.entity';
     }),
   ],
   controllers: [NotificationController],
-  providers: [NotificationService, NotificationGateway],
-  exports: [NotificationService],
+  providers: [NotificationService, NotificationGateway, WhatsappService],
+  exports: [NotificationService, WhatsappService],
 })
 export class NotificationModule {}

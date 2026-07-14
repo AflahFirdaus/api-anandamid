@@ -1,4 +1,4 @@
-import { Injectable, ConflictException, UnauthorizedException } from '@nestjs/common';
+import { Injectable, ConflictException, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from './entities/user.entity';
@@ -10,6 +10,9 @@ import { Resend } from 'resend';
 import * as crypto from 'crypto';
 import { NotificationService } from '../notification/notification.service';
 import { Voucher, VoucherType } from '../voucher/entities/voucher.entity';
+import { WhatsappService } from '../notification/whatsapp.service';
+import { RegisterDto } from './dto/register.dto';
+import { GoogleRegisterPhoneDto } from './dto/google-register-phone.dto';
 
 @Injectable()
 export class UserService {
@@ -25,34 +28,47 @@ export class UserService {
     private voucherRepo: Repository<Voucher>,
     private jwtService: JwtService,
     private readonly notificationService: NotificationService,
+    private readonly whatsappService: WhatsappService,
   ) {}
 
   // ================= REGISTER =================
-  async register(dto: any) {
-    const existingUser = await this.userRepo.findOne({ where: { email: dto.email } });
+  async register(dto: RegisterDto) {
+    const formattedPhone = this.whatsappService.formatPhoneNumber(dto.phone_number);
+    const normalizedEmail = dto.email.toLowerCase().trim();
+
+    const existingUser = await this.userRepo.findOne({ where: { email: normalizedEmail } });
     if (existingUser) throw new ConflictException('Email sudah terdaftar!');
 
+    const existingPhone = await this.userRepo.findOne({ where: { phone_number: formattedPhone } });
+    if (existingPhone) throw new ConflictException('Nomor WhatsApp sudah terdaftar!');
+
     const hashedPassword = await bcrypt.hash(dto.password, 10);
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpExpires = new Date(Date.now() + 5 * 60 * 1000); // 5 menit
+
     const newUser = this.userRepo.create({
       full_name: dto.full_name,
-      email: dto.email,
+      email: normalizedEmail,
       password: hashedPassword,
-      phone_number: dto.phone_number,
-      birth_date: dto.birth_date,
+      phone_number: formattedPhone,
+      birth_date: dto.birth_date ? new Date(dto.birth_date) : null,
       gender: dto.gender,
+      is_whatsapp_verified: false,
+      whatsapp_otp: otpCode,
+      whatsapp_otp_expires: otpExpires,
     });
 
     const savedUser = await this.userRepo.save(newUser);
-    const { password, ...result } = savedUser;
 
-    // Send welcome notification (fire-and-forget — never blocks registration)
-    this.findActiveNewUserVoucherCode()
-      .then((voucherCode) =>
-        this.notificationService.sendWelcomeVoucherNotif(savedUser.id, savedUser.full_name, voucherCode),
-      )
-      .catch(() => {/* silent — notif failure must not affect registration */});
+    // Kirim OTP via WhatsApp (non-blocking agar registrasi tetap cepat)
+    this.whatsappService.sendOtp(savedUser.phone_number, otpCode)
+      .catch((err) => this.whatsappService['logger'].error('Gagal kirim register OTP', err));
 
-    return result;
+    return {
+      status: 'NEED_VERIFICATION',
+      phone_number: savedUser.phone_number,
+      message: 'Registrasi berhasil. Silakan verifikasi OTP WhatsApp Anda.',
+    };
   }
 
   /**
@@ -85,6 +101,26 @@ export class UserService {
     }
     if (!user.is_active) throw new UnauthorizedException('Akun Anda dinonaktifkan');
 
+    // Cek verifikasi WhatsApp
+    if (!user.is_whatsapp_verified) {
+      const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+      const otpExpires = new Date(Date.now() + 5 * 60 * 1000); // 5 menit
+
+      user.whatsapp_otp = otpCode;
+      user.whatsapp_otp_expires = otpExpires;
+      await this.userRepo.save(user);
+
+      // Kirim OTP via WhatsApp (non-blocking)
+      this.whatsappService.sendOtp(user.phone_number, otpCode)
+        .catch((err) => this.whatsappService['logger'].error('Gagal kirim login OTP', err));
+
+      return {
+        status: 'NEED_VERIFICATION',
+        phone_number: user.phone_number,
+        message: 'Nomor WhatsApp belum terverifikasi. OTP baru telah dikirim.',
+      };
+    }
+
     const payload = { sub: user.id, email: user.email, role: 'USER' };
     const accessToken = this.jwtService.sign(payload, { expiresIn: '1h' });
     const refreshToken = this.jwtService.sign(payload, { expiresIn: '7d' });
@@ -109,6 +145,95 @@ export class UserService {
     };
   }
 
+  // ================= VERIFY OTP =================
+  async verifyOtp(phone_number: string, otp: string) {
+    if (!phone_number || !otp) {
+      throw new BadRequestException('Nomor WhatsApp dan OTP wajib diisi!');
+    }
+
+    const formattedPhone = this.whatsappService.formatPhoneNumber(phone_number);
+    const user = await this.userRepo.findOne({
+      where: { phone_number: formattedPhone },
+      relations: ['addresses'],
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('User dengan nomor WhatsApp tersebut tidak ditemukan!');
+    }
+
+    if (!user.whatsapp_otp || user.whatsapp_otp !== otp) {
+      throw new UnauthorizedException('Kode OTP salah!');
+    }
+
+    if (!user.whatsapp_otp_expires || user.whatsapp_otp_expires < new Date()) {
+      throw new UnauthorizedException('Kode OTP sudah kadaluarsa!');
+    }
+
+    user.is_whatsapp_verified = true;
+    user.whatsapp_otp = null;
+    user.whatsapp_otp_expires = null;
+    await this.userRepo.save(user);
+
+    // Kirim Welcome Voucher (fire-and-forget)
+    this.findActiveNewUserVoucherCode()
+      .then((voucherCode) =>
+        this.notificationService.sendWelcomeVoucherNotif(user.id, user.full_name, voucherCode),
+      )
+      .catch(() => {/* silent */});
+
+    const payload = { sub: user.id, email: user.email, role: 'USER' };
+    const accessToken = this.jwtService.sign(payload, { expiresIn: '1h' });
+    const refreshToken = this.jwtService.sign(payload, { expiresIn: '7d' });
+    const hashedRT = await bcrypt.hash(refreshToken, 10);
+
+    await this.userRepo.update(user.id, { hashed_refresh_token: hashedRT });
+
+    return {
+      access_token: accessToken,
+      refresh_token: refreshToken,
+      expires_in: 3600,
+      user: {
+        id: user.id,
+        full_name: user.full_name,
+        email: user.email,
+        phone_number: user.phone_number,
+        avatar_url: user.avatar_url,
+        birth_date: user.birth_date,
+        gender: user.gender,
+        addresses: user.addresses || [],
+      },
+    };
+  }
+
+  // ================= RESEND OTP =================
+  async resendOtp(phone_number: string) {
+    if (!phone_number) {
+      throw new BadRequestException('Nomor WhatsApp wajib diisi!');
+    }
+
+    const formattedPhone = this.whatsappService.formatPhoneNumber(phone_number);
+    const user = await this.userRepo.findOne({ where: { phone_number: formattedPhone } });
+    if (!user) {
+      throw new UnauthorizedException('User dengan nomor WhatsApp tersebut tidak ditemukan!');
+    }
+
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpExpires = new Date(Date.now() + 5 * 60 * 1000); // 5 menit
+
+    user.whatsapp_otp = otpCode;
+    user.whatsapp_otp_expires = otpExpires;
+    await this.userRepo.save(user);
+
+    const sent = await this.whatsappService.sendOtp(user.phone_number, otpCode);
+    if (!sent) {
+      throw new BadRequestException('Gagal mengirim WhatsApp OTP. Silakan coba lagi.');
+    }
+
+    return {
+      message: 'Kode OTP baru berhasil dikirim ke WhatsApp Anda.',
+    };
+  }
+
   // ================= GOOGLE LOGIN =================
   async googleLogin(token: string) {
     try {
@@ -126,27 +251,22 @@ export class UserService {
       });
 
       if (!user) {
-        const randomPassword = Math.random().toString(36).slice(-10);
-        const hashedPassword = await bcrypt.hash(randomPassword, 10);
+        return {
+          status: 'NEED_PHONE_NUMBER',
+          email,
+          name: name || 'Google User',
+          picture,
+        };
+      }
 
-        const newUser = this.userRepo.create({
-          email: email,
-          full_name: name || 'Google User',
-          password: hashedPassword,
-          avatar_url: picture,
-        });
-        user = await this.userRepo.save(newUser);
-
-        // Notif: welcome voucher untuk pendaftar baru via Google
-        this.findActiveNewUserVoucherCode()
-          .then((voucherCode) =>
-            this.notificationService.sendWelcomeVoucherNotif(user!.id, user!.full_name, voucherCode),
-          )
-          .catch(() => {/* silent */});
-
-      } else if (!user.avatar_url && picture) {
-        user.avatar_url = picture;
-        await this.userRepo.save(user);
+      if (!user.phone_number || !user.is_whatsapp_verified) {
+        return {
+          status: 'NEED_PHONE_NUMBER',
+          email: user.email,
+          name: user.full_name,
+          picture: user.avatar_url,
+          phone_number: user.phone_number || null,
+        };
       }
 
       if (!user.is_active) throw new UnauthorizedException('Akun Anda dinonaktifkan');
@@ -174,7 +294,82 @@ export class UserService {
         },
       };
     } catch (error) {
+      if (error instanceof UnauthorizedException) throw error;
       throw new UnauthorizedException('Gagal autentikasi dengan Google');
+    }
+  }
+
+  // ================= GOOGLE REGISTER PHONE =================
+  async googleRegisterPhone(dto: GoogleRegisterPhoneDto) {
+    const { token, phone_number, birth_date, gender, full_name } = dto;
+    const formattedPhone = this.whatsappService.formatPhoneNumber(phone_number);
+
+    try {
+      const response = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!response.ok) throw new UnauthorizedException('Token Google tidak valid');
+      const payload = await response.json();
+      const { email, name, picture } = payload;
+      const normalizedEmail = email.toLowerCase().trim();
+
+      let user = await this.userRepo.findOne({ where: { email: normalizedEmail } });
+
+      const existingPhone = await this.userRepo.findOne({ where: { phone_number: formattedPhone } });
+      if (existingPhone && (!user || existingPhone.id !== user.id)) {
+        throw new ConflictException('Nomor WhatsApp sudah digunakan oleh akun lain!');
+      }
+
+      const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+      const otpExpires = new Date(Date.now() + 5 * 60 * 1000); // 5 menit
+
+      if (!user) {
+        const randomPassword = Math.random().toString(36).slice(-10);
+        const hashedPassword = await bcrypt.hash(randomPassword, 10);
+
+        user = this.userRepo.create({
+          email: normalizedEmail,
+          full_name: full_name || name || 'Google User',
+          password: hashedPassword,
+          avatar_url: picture,
+          phone_number: formattedPhone,
+          birth_date: birth_date ? new Date(birth_date) : null,
+          gender: gender || null,
+          is_whatsapp_verified: false,
+          whatsapp_otp: otpCode,
+          whatsapp_otp_expires: otpExpires,
+        });
+      } else {
+        user.phone_number = formattedPhone;
+        if (birth_date) user.birth_date = new Date(birth_date);
+        if (gender) user.gender = gender;
+        if (full_name) user.full_name = full_name;
+        user.is_whatsapp_verified = false;
+        user.whatsapp_otp = otpCode;
+        user.whatsapp_otp_expires = otpExpires;
+      }
+
+      await this.userRepo.save(user);
+
+      // Kirim OTP via WhatsApp (non-blocking)
+      this.whatsappService.sendOtp(formattedPhone, otpCode)
+        .catch((err) => this.whatsappService['logger'].error('Gagal kirim google register OTP', err));
+
+      return {
+        status: 'NEED_VERIFICATION',
+        phone_number: user.phone_number,
+        message: 'OTP berhasil dikirim ke WhatsApp Anda.',
+      };
+    } catch (error) {
+      if (
+        error instanceof ConflictException || 
+        error instanceof UnauthorizedException || 
+        error instanceof BadRequestException
+      ) {
+        throw error;
+      }
+      throw new UnauthorizedException('Gagal memproses data Google & Nomor WhatsApp');
     }
   }
 
