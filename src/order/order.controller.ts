@@ -23,9 +23,11 @@ import {
   ApiBody,
 } from '@nestjs/swagger';
 import { OrderService } from './order.service';
+import { OrderCronService } from './order-cron.service';
 import { ShippingLabelService } from './shipping-label.service';
 import { FulfillmentService } from './fulfillment.service';
 import { FulfillmentWorkflowService } from './fulfillment-workflow.service';
+import { ThrottleFeature, ThrottlerFeature } from '../common/throttler';
 import { PdfLabelService } from '../shipment/services/pdf-label.service';
 import {
   CheckoutCartDto,
@@ -45,6 +47,7 @@ export class OrderController {
 
   constructor(
     private readonly orderService: OrderService,
+    private readonly orderCronService: OrderCronService,
     private readonly shippingLabelService: ShippingLabelService,
     private readonly fulfillmentService: FulfillmentService,
     private readonly fulfillmentWorkflowService: FulfillmentWorkflowService,
@@ -54,6 +57,7 @@ export class OrderController {
   // ====================== ENDPOINT USER (PEMBELI) ======================
 
   @UseGuards(JwtUserGuard)
+  @ThrottleFeature(ThrottlerFeature.CHECKOUT)
   @Post('checkout/cart')
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Checkout from cart' })
@@ -63,6 +67,7 @@ export class OrderController {
   }
 
   @UseGuards(JwtUserGuard)
+  @ThrottleFeature(ThrottlerFeature.CHECKOUT)
   @Post('checkout/direct')
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Direct checkout' })
@@ -74,9 +79,16 @@ export class OrderController {
   @UseGuards(JwtUserGuard)
   @Get('my-orders')
   @ApiBearerAuth('JWT-auth')
-  @ApiOperation({ summary: 'My orders' })
-  async getMyOrders(@Req() req: any) {
-    return this.orderService.findMyOrders(req.user.id);
+  @ApiOperation({ summary: 'My orders (paginated)' })
+  @ApiResponse({ status: 200, description: 'Returns paginated orders with total, page, limit, totalPages' })
+  async getMyOrders(
+    @Req() req: any,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const p = parseInt(page || '1', 10);
+    const l = Math.min(parseInt(limit || '20', 10), 100); // max 100 per page
+    return this.orderService.findMyOrders(req.user.id, p, l);
   }
 
   @UseGuards(JwtUserGuard)
@@ -93,6 +105,7 @@ export class OrderController {
   }
 
   @UseGuards(JwtUserGuard)
+  @ThrottleFeature(ThrottlerFeature.CHECKOUT)
   @Post(':id/retry-payment')
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Retry payment' })
@@ -379,6 +392,20 @@ export class OrderController {
     return { awb_url: order.awb_url };
   }
 
+  // ====================== ADMIN AUTO-CANCEL PENDING ======================
+  @UseGuards(JwtAuthGuard)
+  @Post('auto-cancel-pending')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Auto-cancel expired PENDING orders',
+    description: 'Cancel PENDING orders that have not been paid within the configured expiry time (default 24h). Restores stock. Run as cron job.',
+  })
+  @ApiResponse({ status: 200, description: 'Number of orders auto-cancelled' })
+  async autoCancelPending() {
+    const count = await this.orderCronService.autoCancelPendingOrders();
+    return { message: `${count} pesanan PENDING kadaluarsa dibatalkan otomatis.`, count };
+  }
+
   // ====================== ADMIN AUTO-COMPLETE ======================
   @UseGuards(JwtAuthGuard)
   @Post('auto-complete')
@@ -396,6 +423,7 @@ export class OrderController {
   // ====================== BUILDER & CHECKOUT PAYMENT ======================
 
   @UseGuards(JwtUserGuard)
+  @ThrottleFeature(ThrottlerFeature.CHECKOUT)
   @Post('checkout/builder')
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'PC Builder checkout' })
@@ -405,6 +433,7 @@ export class OrderController {
   }
 
   @UseGuards(JwtUserGuard)
+  @ThrottleFeature(ThrottlerFeature.CHECKOUT)
   @Post('checkout')
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({

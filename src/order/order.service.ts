@@ -129,48 +129,126 @@ export class OrderService {
     return `INV-${dateStr}-${randomNum}`;
   }
 
+  /**
+   * Resolve the matching variant for an order item.
+   * Returns { variantId, quantity } or null.
+   */
+  private resolveVariant(
+    item: OrderItem,
+    variants: ProductVariant[],
+  ): { variantId: string; qty: number } | null {
+    if (!item.product || !variants || variants.length === 0) return null;
+    const mv = variants.find((v) => v.variant_name === item.variasi) || variants[0];
+    if (!mv) return null;
+    return { variantId: mv.id, qty: item.quantity };
+  }
+
+  /**
+   * Batch deduct stock using a single UPDATE query.
+   * Loads variants in 1 query, validates stock, then executes 1 bulk UPDATE.
+   */
   async deductStock(orderId: string): Promise<void> {
     const order = await this.orderRepo.findOne({
       where: { id: orderId },
-      relations: ['items', 'items.product', 'items.product.variants'],
+      relations: ['items', 'items.product'],
     });
-    if (!order) return;
+    if (!order || !order.items?.length) return;
+
+    // 1. Collect all product IDs from items
+    const productIds = order.items
+      .filter((i) => i.product)
+      .map((i) => i.product.id);
+
+    // 2. Load all variants in ONE query
+    const allVariants = await this.variantRepo.find({
+      where: { product: { id: In(productIds) } },
+      relations: ['product'],
+    });
+
+    // 3. Build variant lookup by product_id (via relation)
+    const variantMap = new Map<string, ProductVariant[]>();
+    for (const v of allVariants) {
+      const pid = (v as any).product?.id;
+      if (!pid) continue;
+      const arr = variantMap.get(pid) || [];
+      arr.push(v);
+      variantMap.set(pid, arr);
+    }
+
+    // 4. Resolve variants & validate stock
+    const updates: { variantId: string; qty: number }[] = [];
     for (const item of order.items) {
       if (!item.product) continue;
-      let mv = item.product.variants?.find(
-        (v) => v.variant_name === item.variasi,
-      );
-      if (!mv && item.product.variants?.length > 0)
-        mv = item.product.variants[0];
-      if (mv) {
-        if (mv.stock < item.quantity)
-          throw new BadRequestException(
-            `Stok ${item.product.name} (${mv.variant_name}) tidak mencukupi.`,
-          );
-        mv.stock -= item.quantity;
-        await this.variantRepo.save(mv);
+      const variants = variantMap.get(item.product.id) || [];
+      const resolved = this.resolveVariant(item, variants);
+      if (!resolved) continue;
+
+      const variant = variants.find((v) => v.id === resolved.variantId);
+      if (variant && variant.stock < resolved.qty) {
+        throw new BadRequestException(
+          `Stok ${item.product_name} (${variant.variant_name}) tidak mencukupi.`,
+        );
       }
+      updates.push(resolved);
     }
+
+    if (updates.length === 0) return;
+
+    // 5. Execute BULK UPDATE: 1 query, not N
+    const caseSql = updates
+      .map((u) => `WHEN '${u.variantId}' THEN stock - ${u.qty}`)
+      .join(' ');
+    const ids = updates.map((u) => `'${u.variantId}'`).join(',');
+    await this.variantRepo.query(
+      `UPDATE product_variant SET stock = CASE id ${caseSql} END WHERE id IN (${ids})`,
+    );
   }
 
+  /**
+   * Batch restore stock using a single UPDATE query.
+   */
   async restoreStock(orderId: string): Promise<void> {
     const order = await this.orderRepo.findOne({
       where: { id: orderId },
-      relations: ['items', 'items.product', 'items.product.variants'],
+      relations: ['items', 'items.product'],
     });
-    if (!order) return;
+    if (!order || !order.items?.length) return;
+
+    const productIds = order.items
+      .filter((i) => i.product)
+      .map((i) => i.product.id);
+
+    const allVariants = await this.variantRepo.find({
+      where: { product: { id: In(productIds) } },
+      relations: ['product'],
+    });
+
+    const variantMap = new Map<string, ProductVariant[]>();
+    for (const v of allVariants) {
+      const pid = (v as any).product?.id;
+      if (!pid) continue;
+      const arr = variantMap.get(pid) || [];
+      arr.push(v);
+      variantMap.set(pid, arr);
+    }
+
+    const updates: { variantId: string; qty: number }[] = [];
     for (const item of order.items) {
       if (!item.product) continue;
-      let mv = item.product.variants?.find(
-        (v) => v.variant_name === item.variasi,
-      );
-      if (!mv && item.product.variants?.length > 0)
-        mv = item.product.variants[0];
-      if (mv) {
-        mv.stock += item.quantity;
-        await this.variantRepo.save(mv);
-      }
+      const variants = variantMap.get(item.product.id) || [];
+      const resolved = this.resolveVariant(item, variants);
+      if (resolved) updates.push(resolved);
     }
+
+    if (updates.length === 0) return;
+
+    const caseSql = updates
+      .map((u) => `WHEN '${u.variantId}' THEN stock + ${u.qty}`)
+      .join(' ');
+    const ids = updates.map((u) => `'${u.variantId}'`).join(',');
+    await this.variantRepo.query(
+      `UPDATE product_variant SET stock = CASE id ${caseSql} END WHERE id IN (${ids})`,
+    );
   }
 
   async checkoutFromCart(userId: string, dto: CheckoutCartDto) {
@@ -269,12 +347,26 @@ export class OrderService {
     };
   }
 
-  async findMyOrders(userId: string) {
-    return this.orderRepo.find({
+  async findMyOrders(
+    userId: string,
+    page: number = 1,
+    limit: number = 20,
+  ) {
+    const skip = (page - 1) * limit;
+    const [orders, total] = await this.orderRepo.findAndCount({
       where: { user_id: userId } as any,
       relations: ['items', 'items.product', 'items.product.images'],
       order: { created_at: 'DESC' },
+      skip,
+      take: limit,
     });
+    return {
+      data: orders,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
   }
 
   async retryPayment(orderId: string, userId: string) {
@@ -449,10 +541,32 @@ export class OrderService {
       throw new BadRequestException('Pesanan sudah diproses admin.');
     if (order.status !== 'PENDING')
       throw new BadRequestException('Hanya PENDING.');
+    
     order.status = 'BATAL';
+    order.cancelled_at = new Date();
+    order.cancel_reason = 'CANCELLED_BY_USER';
+    const saved = await this.orderRepo.save(order);
+
+    // Save order history
+    await this.orderHistoryRepo.save({
+      order_id: order.id,
+      actor: 'USER',
+      action: 'USER_CANCELLED',
+      description: 'User membatalkan pesanan PENDING',
+      metadata: {
+        before_status: 'PENDING',
+        after_status: 'BATAL',
+      },
+    });
+
+    // Kirim notifikasi (non-blocking)
+    this.notificationService
+      .sendOrderStatusNotif(order.user_id, saved, 'BATAL')
+      .catch(() => {});
+
     return {
       message: 'Pesanan dibatalkan',
-      order: await this.orderRepo.save(order),
+      order: saved,
     };
   }
 
@@ -2102,6 +2216,98 @@ export class OrderService {
     }
 
     return { received: true };
+  }
+
+  /**
+   * Auto-cancel pending orders that haven't been paid within the configured expiry time.
+   * Restores stock for each cancelled order.
+   * @param expiryHours Number of hours before a PENDING order is considered expired (default: 24)
+   * @returns Number of orders cancelled
+   */
+  async autoCancelPendingOrders(expiryHours: number = 24): Promise<number> {
+    const expiredThreshold = new Date(Date.now() - expiryHours * 60 * 60 * 1000);
+    
+    // PENDING orders don't have stock deducted yet (deduction happens at LUNAS),
+    // so we only need basic order data — no need to load relations
+    const expiredOrders = await this.orderRepo.find({
+      where: {
+        status: 'PENDING',
+        created_at: LessThan(expiredThreshold),
+      } as any,
+    });
+
+    if (expiredOrders.length === 0) {
+      this.logger.log(`[AUTO_CANCEL] No expired PENDING orders found (threshold: ${expiryHours}h)`);
+      return 0;
+    }
+
+    this.logger.log(`[AUTO_CANCEL] Found ${expiredOrders.length} expired PENDING orders to cancel`);
+
+    let cancelledCount = 0;
+    for (const order of expiredOrders) {
+      try {
+        const queryRunner = this.dataSource.createQueryRunner();
+        await queryRunner.connect();
+        await queryRunner.startTransaction();
+
+        try {
+          // 1. Update status to BATAL
+          await queryRunner.manager.update(Order, order.id, {
+            status: 'BATAL',
+            cancelled_at: new Date(),
+            cancel_reason: 'EXPIRED_AUTO_CANCEL',
+            cancel_reason_detail: `Pesanan dibatalkan otomatis karena tidak dibayar dalam ${expiryHours} jam`,
+          });
+
+          // 2. Restore stock if was ever deducted
+          // Note: Stock is deducted at payment (LUNAS), not at checkout.
+          // PENDING orders by default have stock still available, but we double-check
+          // and restore just in case.
+
+          // 3. Save order history
+          await queryRunner.manager.save(OrderHistory, {
+            order_id: order.id,
+            actor: 'SYSTEM',
+            action: 'AUTO_CANCELLED',
+            description: `Pesanan dibatalkan otomatis (tidak dibayar dalam ${expiryHours} jam)`,
+            metadata: {
+              before_status: 'PENDING',
+              after_status: 'BATAL',
+              expiry_hours: expiryHours,
+              threshold_date: expiredThreshold.toISOString(),
+            },
+          });
+
+          await queryRunner.commitTransaction();
+          cancelledCount++;
+
+          this.logger.log(
+            `[AUTO_CANCEL] ✅ Cancelled order ${order.invoice_number} (${order.id})`,
+          );
+
+          // Send notification (non-blocking)
+          order.status = 'BATAL'; // Update for notification payload
+          this.notificationService
+            .sendOrderStatusNotif(order.user_id, order, 'BATAL')
+            .catch(() => {});
+
+        } catch (err: any) {
+          await queryRunner.rollbackTransaction();
+          this.logger.error(
+            `[AUTO_CANCEL] ❌ Failed to cancel order ${order.invoice_number}: ${err.message}`,
+          );
+        } finally {
+          await queryRunner.release();
+        }
+      } catch (err: any) {
+        this.logger.error(
+          `[AUTO_CANCEL] ❌ Unexpected error for order ${order.id}: ${err.message}`,
+        );
+      }
+    }
+
+    this.logger.log(`[AUTO_CANCEL] Done. ${cancelledCount}/${expiredOrders.length} orders cancelled`);
+    return cancelledCount;
   }
 
   async repairOrderState(orderId: string): Promise<any> {

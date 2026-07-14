@@ -902,8 +902,10 @@ export class ProductService {
   }
 
   async findActiveProducts(query: any) {
+    // Security: block no_limit on public endpoint to prevent catalog dumping
+    const { no_limit, ...safeQuery } = query;
     return this.findAllProduct({
-      ...query,
+      ...safeQuery,
       is_active: 'true',
     });
   }

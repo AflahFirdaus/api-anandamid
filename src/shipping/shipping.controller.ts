@@ -2,6 +2,7 @@ import { Controller, Post, Body } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
 import { ShippingService } from './shipping.service';
 import { CheckRatesRefactoredDto } from './dto/check-rates-refactored.dto';
+import { ThrottleFeature, ThrottlerFeature } from '../common/throttler';
 
 @ApiTags('Shipping')
 @Controller('shipping')
@@ -12,6 +13,7 @@ export class ShippingController {
    * Auto-detect endpoint: jika body mengandung originAddressId atau destinationAddressId,
    * gunakan checkRates (strategy pattern). Jika tidak, fallback ke checkRatesLegacy (postal code).
    */
+  @ThrottleFeature(ThrottlerFeature.SHIPPING)
   @Post('rates')
   @ApiOperation({
     summary: 'Check courier rates',

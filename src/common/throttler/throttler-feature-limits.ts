@@ -27,7 +27,7 @@ export const DEFAULT_FEATURE_LIMITS: FeatureLimitsMap = {
   },
   [ThrottlerFeature.CHECKOUT]: {
     ttl: 60_000, // 1 menit
-    limit: 10,
+    limit: 15,
     errorMessage: 'Terlalu banyak percobaan checkout. Silakan coba lagi nanti.',
   },
   [ThrottlerFeature.SHIPPING]: {
@@ -38,7 +38,7 @@ export const DEFAULT_FEATURE_LIMITS: FeatureLimitsMap = {
   },
   [ThrottlerFeature.AUTH]: {
     ttl: 60_000, // 1 menit
-    limit: 5,
+    limit: 10,
     errorMessage:
       'Terlalu banyak percobaan login. Silakan coba lagi dalam 1 menit.',
   },

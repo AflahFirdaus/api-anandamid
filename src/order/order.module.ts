@@ -2,6 +2,7 @@ import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { OrderService } from './order.service';
 import { OrderController } from './order.controller';
+import { OrderCronService } from './order-cron.service';
 import { ShippingLabelService } from './shipping-label.service';
 import { FulfillmentService } from './fulfillment.service';
 import { FulfillmentWorkflowService } from './fulfillment-workflow.service';
@@ -38,7 +39,7 @@ import { NotificationModule } from '../notification/notification.module';
     NotificationModule,
   ],
   controllers: [OrderController],
-  providers: [OrderService, ShippingLabelService, FulfillmentService, FulfillmentWorkflowService],
-  exports: [OrderService, ShippingLabelService, FulfillmentService, FulfillmentWorkflowService],
+  providers: [OrderService, OrderCronService, ShippingLabelService, FulfillmentService, FulfillmentWorkflowService],
+  exports: [OrderService, OrderCronService, ShippingLabelService, FulfillmentService, FulfillmentWorkflowService],
 })
 export class OrderModule {}
