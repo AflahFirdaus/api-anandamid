@@ -1,29 +1,10 @@
-const { Client } = require('pg');
-require('dotenv').config();
+const https = require('https');
 
-async function run() {
-  const client = new Client({
-    host: process.env.DB_HOST,
-    port: parseInt(process.env.DB_PORT || '5432', 10),
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    database: process.env.DB_NAME,
-  });
+const url = 'https://api-marketplace.anandamcomputer.com/uploads/products/thumbnails/533cca368864bd36bcb750cf4422c710.jpg';
 
-  try {
-    await client.connect();
-    const res = await client.query(
-      "SELECT id, invoice_number, awb_number, courier_name, courier_service, shipping_address_snapshot FROM orders WHERE id = '76a3231e-d980-44a4-aa6d-4c529c948675'"
-    );
-    console.log(JSON.stringify(res.rows, null, 2));
-  } catch (err) {
-    console.error(err);
-  } finally {
-    await client.end();
-  }
-}
-
-run();
-
-
-
+https.get(url, (res) => {
+  console.log('Status Code:', res.statusCode);
+  console.log('Headers:', res.headers);
+}).on('error', (e) => {
+  console.error(e);
+});

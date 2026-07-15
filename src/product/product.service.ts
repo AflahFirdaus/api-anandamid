@@ -137,9 +137,9 @@ export class ProductService {
           console.log("Thumbnail regenerated:", fileName);
         }
         image.thumbnail_url = `/uploads/products/thumbnails/${fileName}`;
-      } else {
-        image.thumbnail_url = null; 
       }
+      // 🔥 FIX: Jangan null-kan thumbnail_url yang sudah ada untuk gambar non-utama
+      // Biarkan nilai existing thumbnail_url tidak berubah
       return;
     }
 

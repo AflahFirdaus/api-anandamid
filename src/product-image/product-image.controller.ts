@@ -17,8 +17,10 @@ export class ProductImageController {
     @UploadedFile() file: Express.Multer.File,
     @Body('product_id') productId: string,
     @Body('variant_id') variantId?: string, 
+    @Body('sort_order') sortOrder?: string,
   ) {
-    return this.productImageService.create(productId, file, variantId);
+    const parsedSortOrder = sortOrder !== undefined ? parseInt(sortOrder, 10) : undefined;
+    return this.productImageService.create(productId, file, variantId, parsedSortOrder);
   }
 
   @Get()

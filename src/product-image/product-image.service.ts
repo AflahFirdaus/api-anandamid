@@ -63,7 +63,7 @@ export class ProductImageService {
     };
   }
 
-  async create(productId: string, file: Express.Multer.File, variantId?: string) {
+  async create(productId: string, file: Express.Multer.File, variantId?: string, sortOrder?: number) {
     const product = await this.productRepo.findOne({
       where: { id: productId },
       relations: ['images'],
@@ -92,7 +92,9 @@ export class ProductImageService {
 
     let thumbnailUrl: string | null = null;
 
-    if (isFirstForContext) {
+    const isMainImage = sortOrder !== undefined ? sortOrder === 0 : isFirstForContext;
+
+    if (isMainImage) {
       await sharp(file.buffer)
         .resize(300, 300, { fit: 'inside' })
         .jpeg({ quality: 75 })
@@ -103,10 +105,14 @@ export class ProductImageService {
     const image = this.repo.create();
     image.image_url = saved.original;
     image.thumbnail_url = thumbnailUrl;
-    // 🔥 sort_order dihitung dari konteks yang benar
-    image.sort_order = contextImages.length > 0
-      ? Math.max(...contextImages.map(i => i.sort_order)) + 1
-      : 0;
+    
+    if (sortOrder !== undefined) {
+      image.sort_order = sortOrder;
+    } else {
+      image.sort_order = contextImages.length > 0
+        ? Math.max(...contextImages.map(i => i.sort_order)) + 1
+        : 0;
+    }
     image.product = product;
     image.variant_id = variantId || null;
 
