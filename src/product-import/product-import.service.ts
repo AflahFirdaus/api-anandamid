@@ -369,7 +369,10 @@ export class ProductImportService {
           clean(variant.sku_seller),
           isFirst ? product.warranty : '', isFirst ? (product.brand?.name || '') : '',
           isFirst ? product.category?.name : '', isFirst ? product.category?.code : '',
-          variant.weight || 0, variant.length || 0, variant.width || 0, variant.height || 0
+          (variant.weight || 0) > 0 ? (variant.weight || 0) : '', 
+          (variant.length || 0) > 0 ? (variant.length || 0) : '', 
+          (variant.width || 0) > 0 ? (variant.width || 0) : '', 
+          (variant.height || 0) > 0 ? (variant.height || 0) : ''
         ];
 
         if (includeHardwareCols) rowData.push(isFirst ? (product.socket_type || '') : '', isFirst ? (product.ram_type || '') : '');
