@@ -1,8 +1,13 @@
-import { Injectable, ConflictException, UnauthorizedException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  ConflictException,
+  UnauthorizedException,
+  BadRequestException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from './entities/user.entity';
-import { UserAddress } from './entities/user-address.entity'; 
+import { UserAddress } from './entities/user-address.entity';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { OAuth2Client } from 'google-auth-library';
@@ -16,14 +21,14 @@ import { GoogleRegisterPhoneDto } from './dto/google-register-phone.dto';
 
 @Injectable()
 export class UserService {
-  private googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID); 
+  private googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
   private resend = new Resend(process.env.RESEND_API_KEY);
 
   constructor(
     @InjectRepository(User)
     private userRepo: Repository<User>,
-    @InjectRepository(UserAddress) 
-    private addressRepo: Repository<UserAddress>, 
+    @InjectRepository(UserAddress)
+    private addressRepo: Repository<UserAddress>,
     @InjectRepository(Voucher)
     private voucherRepo: Repository<Voucher>,
     private jwtService: JwtService,
@@ -33,14 +38,21 @@ export class UserService {
 
   // ================= REGISTER =================
   async register(dto: RegisterDto) {
-    const formattedPhone = this.whatsappService.formatPhoneNumber(dto.phone_number);
+    const formattedPhone = this.whatsappService.formatPhoneNumber(
+      dto.phone_number,
+    );
     const normalizedEmail = dto.email.toLowerCase().trim();
 
-    const existingUser = await this.userRepo.findOne({ where: { email: normalizedEmail } });
+    const existingUser = await this.userRepo.findOne({
+      where: { email: normalizedEmail },
+    });
     if (existingUser) throw new ConflictException('Email sudah terdaftar!');
 
-    const existingPhone = await this.userRepo.findOne({ where: { phone_number: formattedPhone } });
-    if (existingPhone) throw new ConflictException('Nomor WhatsApp sudah terdaftar!');
+    const existingPhone = await this.userRepo.findOne({
+      where: { phone_number: formattedPhone },
+    });
+    if (existingPhone)
+      throw new ConflictException('Nomor WhatsApp sudah terdaftar!');
 
     const hashedPassword = await bcrypt.hash(dto.password, 10);
     const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
@@ -61,8 +73,11 @@ export class UserService {
     const savedUser = await this.userRepo.save(newUser);
 
     // Kirim OTP via WhatsApp (non-blocking agar registrasi tetap cepat)
-    this.whatsappService.sendOtp(savedUser.phone_number, otpCode)
-      .catch((err) => this.whatsappService['logger'].error('Gagal kirim register OTP', err));
+    this.whatsappService
+      .sendOtp(savedUser.phone_number, otpCode)
+      .catch((err) =>
+        this.whatsappService['logger'].error('Gagal kirim register OTP', err),
+      );
 
     return {
       status: 'NEED_VERIFICATION',
@@ -91,15 +106,16 @@ export class UserService {
 
   // ================= LOGIN =================
   async login(email: string, pass: string) {
-    const user = await this.userRepo.findOne({ 
+    const user = await this.userRepo.findOne({
       where: { email },
-      relations: ['addresses'] 
+      relations: ['addresses'],
     });
 
     if (!user || !(await bcrypt.compare(pass, user.password))) {
       throw new UnauthorizedException('Email atau password salah');
     }
-    if (!user.is_active) throw new UnauthorizedException('Akun Anda dinonaktifkan');
+    if (!user.is_active)
+      throw new UnauthorizedException('Akun Anda dinonaktifkan');
 
     // Cek verifikasi WhatsApp
     if (!user.is_whatsapp_verified) {
@@ -111,8 +127,11 @@ export class UserService {
       await this.userRepo.save(user);
 
       // Kirim OTP via WhatsApp (non-blocking)
-      this.whatsappService.sendOtp(user.phone_number, otpCode)
-        .catch((err) => this.whatsappService['logger'].error('Gagal kirim login OTP', err));
+      this.whatsappService
+        .sendOtp(user.phone_number, otpCode)
+        .catch((err) =>
+          this.whatsappService['logger'].error('Gagal kirim login OTP', err),
+        );
 
       return {
         status: 'NEED_VERIFICATION',
@@ -125,7 +144,7 @@ export class UserService {
     const accessToken = this.jwtService.sign(payload, { expiresIn: '1h' });
     const refreshToken = this.jwtService.sign(payload, { expiresIn: '7d' });
     const hashedRT = await bcrypt.hash(refreshToken, 10);
-    
+
     await this.userRepo.update(user.id, { hashed_refresh_token: hashedRT });
 
     return {
@@ -138,9 +157,9 @@ export class UserService {
         email: user.email,
         phone_number: user.phone_number,
         avatar_url: user.avatar_url,
-        birth_date: user.birth_date, 
+        birth_date: user.birth_date,
         gender: user.gender,
-        addresses: user.addresses, 
+        addresses: user.addresses,
       },
     };
   }
@@ -158,7 +177,9 @@ export class UserService {
     });
 
     if (!user) {
-      throw new UnauthorizedException('User dengan nomor WhatsApp tersebut tidak ditemukan!');
+      throw new UnauthorizedException(
+        'User dengan nomor WhatsApp tersebut tidak ditemukan!',
+      );
     }
 
     if (!user.whatsapp_otp || user.whatsapp_otp !== otp) {
@@ -177,9 +198,15 @@ export class UserService {
     // Kirim Welcome Voucher (fire-and-forget)
     this.findActiveNewUserVoucherCode()
       .then((voucherCode) =>
-        this.notificationService.sendWelcomeVoucherNotif(user.id, user.full_name, voucherCode),
+        this.notificationService.sendWelcomeVoucherNotif(
+          user.id,
+          user.full_name,
+          voucherCode,
+        ),
       )
-      .catch(() => {/* silent */});
+      .catch(() => {
+        /* silent */
+      });
 
     const payload = { sub: user.id, email: user.email, role: 'USER' };
     const accessToken = this.jwtService.sign(payload, { expiresIn: '1h' });
@@ -212,9 +239,13 @@ export class UserService {
     }
 
     const formattedPhone = this.whatsappService.formatPhoneNumber(phone_number);
-    const user = await this.userRepo.findOne({ where: { phone_number: formattedPhone } });
+    const user = await this.userRepo.findOne({
+      where: { phone_number: formattedPhone },
+    });
     if (!user) {
-      throw new UnauthorizedException('User dengan nomor WhatsApp tersebut tidak ditemukan!');
+      throw new UnauthorizedException(
+        'User dengan nomor WhatsApp tersebut tidak ditemukan!',
+      );
     }
 
     const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
@@ -226,7 +257,9 @@ export class UserService {
 
     const sent = await this.whatsappService.sendOtp(user.phone_number, otpCode);
     if (!sent) {
-      throw new BadRequestException('Gagal mengirim WhatsApp OTP. Silakan coba lagi.');
+      throw new BadRequestException(
+        'Gagal mengirim WhatsApp OTP. Silakan coba lagi.',
+      );
     }
 
     return {
@@ -237,17 +270,21 @@ export class UserService {
   // ================= GOOGLE LOGIN =================
   async googleLogin(token: string) {
     try {
-      const response = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const response = await fetch(
+        'https://www.googleapis.com/oauth2/v3/userinfo',
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
 
-      if (!response.ok) throw new UnauthorizedException('Token Google tidak valid');
+      if (!response.ok)
+        throw new UnauthorizedException('Token Google tidak valid');
       const payload = await response.json();
       const { email, name, picture } = payload;
 
-      let user = await this.userRepo.findOne({ 
+      let user = await this.userRepo.findOne({
         where: { email },
-        relations: ['addresses'] 
+        relations: ['addresses'],
       });
 
       if (!user) {
@@ -278,8 +315,11 @@ export class UserService {
         user.whatsapp_otp = otpCode;
         user.whatsapp_otp_expires = otpExpires;
         await this.userRepo.save(user);
-        this.whatsappService.sendOtp(user.phone_number, otpCode)
-          .catch((err) => this.whatsappService['logger'].error('Gagal kirim Google OTP', err));
+        this.whatsappService
+          .sendOtp(user.phone_number, otpCode)
+          .catch((err) =>
+            this.whatsappService['logger'].error('Gagal kirim Google OTP', err),
+          );
         return {
           status: 'NEED_VERIFICATION',
           phone_number: user.phone_number,
@@ -291,13 +331,16 @@ export class UserService {
       // due to is_whatsapp_verified being false in db. If so, send OTP for verification.
       // This is handled by the !user.is_whatsapp_verified check above.
 
-      if (!user.is_active) throw new UnauthorizedException('Akun Anda dinonaktifkan');
+      if (!user.is_active)
+        throw new UnauthorizedException('Akun Anda dinonaktifkan');
 
       const jwtPayload = { sub: user.id, email: user.email, role: 'USER' };
       const accessToken = this.jwtService.sign(jwtPayload, { expiresIn: '1h' });
-      const refreshToken = this.jwtService.sign(jwtPayload, { expiresIn: '7d' });
+      const refreshToken = this.jwtService.sign(jwtPayload, {
+        expiresIn: '7d',
+      });
       const hashedRT = await bcrypt.hash(refreshToken, 10);
-      
+
       await this.userRepo.update(user.id, { hashed_refresh_token: hashedRT });
 
       return {
@@ -327,20 +370,30 @@ export class UserService {
     const formattedPhone = this.whatsappService.formatPhoneNumber(phone_number);
 
     try {
-      const response = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const response = await fetch(
+        'https://www.googleapis.com/oauth2/v3/userinfo',
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
 
-      if (!response.ok) throw new UnauthorizedException('Token Google tidak valid');
+      if (!response.ok)
+        throw new UnauthorizedException('Token Google tidak valid');
       const payload = await response.json();
       const { email, name, picture } = payload;
       const normalizedEmail = email.toLowerCase().trim();
 
-      let user = await this.userRepo.findOne({ where: { email: normalizedEmail } });
+      let user = await this.userRepo.findOne({
+        where: { email: normalizedEmail },
+      });
 
-      const existingPhone = await this.userRepo.findOne({ where: { phone_number: formattedPhone } });
+      const existingPhone = await this.userRepo.findOne({
+        where: { phone_number: formattedPhone },
+      });
       if (existingPhone && (!user || existingPhone.id !== user.id)) {
-        throw new ConflictException('Nomor WhatsApp sudah digunakan oleh akun lain!');
+        throw new ConflictException(
+          'Nomor WhatsApp sudah digunakan oleh akun lain!',
+        );
       }
 
       const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
@@ -367,8 +420,14 @@ export class UserService {
         await this.userRepo.save(user);
 
         // Kirim OTP via WhatsApp (non-blocking)
-        this.whatsappService.sendOtp(formattedPhone, otpCode)
-          .catch((err) => this.whatsappService['logger'].error('Gagal kirim google register OTP', err));
+        this.whatsappService
+          .sendOtp(formattedPhone, otpCode)
+          .catch((err) =>
+            this.whatsappService['logger'].error(
+              'Gagal kirim google register OTP',
+              err,
+            ),
+          );
 
         return {
           status: 'NEED_VERIFICATION',
@@ -389,8 +448,12 @@ export class UserService {
         await this.userRepo.save(user);
 
         const jwtPayload = { sub: user.id, email: user.email, role: 'USER' };
-        const accessToken = this.jwtService.sign(jwtPayload, { expiresIn: '1h' });
-        const refreshToken = this.jwtService.sign(jwtPayload, { expiresIn: '7d' });
+        const accessToken = this.jwtService.sign(jwtPayload, {
+          expiresIn: '1h',
+        });
+        const refreshToken = this.jwtService.sign(jwtPayload, {
+          expiresIn: '7d',
+        });
         const hashedRT = await bcrypt.hash(refreshToken, 10);
         await this.userRepo.update(user.id, { hashed_refresh_token: hashedRT });
 
@@ -418,8 +481,14 @@ export class UserService {
       await this.userRepo.save(user);
 
       // Kirim OTP via WhatsApp (non-blocking)
-      this.whatsappService.sendOtp(formattedPhone, otpCode)
-        .catch((err) => this.whatsappService['logger'].error('Gagal kirim google register OTP', err));
+      this.whatsappService
+        .sendOtp(formattedPhone, otpCode)
+        .catch((err) =>
+          this.whatsappService['logger'].error(
+            'Gagal kirim google register OTP',
+            err,
+          ),
+        );
 
       return {
         status: 'NEED_VERIFICATION',
@@ -428,22 +497,24 @@ export class UserService {
       };
     } catch (error) {
       if (
-        error instanceof ConflictException || 
-        error instanceof UnauthorizedException || 
+        error instanceof ConflictException ||
+        error instanceof UnauthorizedException ||
         error instanceof BadRequestException
       ) {
         throw error;
       }
-      throw new UnauthorizedException('Gagal memproses data Google & Nomor WhatsApp');
+      throw new UnauthorizedException(
+        'Gagal memproses data Google & Nomor WhatsApp',
+      );
     }
   }
 
   // ================= GET PROFILE =================
   async getProfile(userId: string) {
     try {
-      const user = await this.userRepo.findOne({ 
+      const user = await this.userRepo.findOne({
         where: { id: userId },
-        relations: ['addresses'], 
+        relations: ['addresses'],
       });
 
       if (!user) throw new UnauthorizedException('User tidak ditemukan');
@@ -456,10 +527,10 @@ export class UserService {
         avatar_url: user.avatar_url,
         birth_date: user.birth_date,
         gender: user.gender,
-        addresses: user.addresses || [], 
+        addresses: user.addresses || [],
       };
     } catch (error) {
-      console.error("Error Detail di Profile:", error);
+      console.error('Error Detail di Profile:', error);
       throw error;
     }
   }
@@ -475,7 +546,7 @@ export class UserService {
       if (dto.avatar_url !== undefined) user.avatar_url = dto.avatar_url;
       if (dto.gender !== undefined) user.gender = dto.gender;
       if (dto.birth_date !== undefined) {
-        user.birth_date = dto.birth_date === "" ? null : dto.birth_date;
+        user.birth_date = dto.birth_date === '' ? null : dto.birth_date;
       }
 
       await this.userRepo.save(user);
@@ -490,20 +561,23 @@ export class UserService {
         gender: user.gender,
       };
     } catch (error) {
-      console.error("Gagal Update Profile:", error);
+      console.error('Gagal Update Profile:', error);
       throw error;
     }
   }
 
   // ================= ADDRESS MANAGEMENT =================
-  
+
   async addAddress(userId: string, dto: any) {
     if (dto.is_default) {
-      await this.addressRepo.update({ user: { id: userId } }, { is_default: false });
+      await this.addressRepo.update(
+        { user: { id: userId } },
+        { is_default: false },
+      );
     }
     const newAddress = this.addressRepo.create({
       ...dto,
-      user: { id: userId }
+      user: { id: userId },
     });
     return await this.addressRepo.save(newAddress);
   }
@@ -511,13 +585,19 @@ export class UserService {
   async getMyAddresses(userId: string) {
     return await this.addressRepo.find({
       where: { user: { id: userId } },
-      order: { is_default: 'DESC', created_at: 'DESC' }
+      order: { is_default: 'DESC', created_at: 'DESC' },
     });
   }
 
   async setDefaultAddress(userId: string, addressId: string) {
-    await this.addressRepo.update({ user: { id: userId } }, { is_default: false });
-    await this.addressRepo.update({ id: addressId, user: { id: userId } }, { is_default: true });
+    await this.addressRepo.update(
+      { user: { id: userId } },
+      { is_default: false },
+    );
+    await this.addressRepo.update(
+      { id: addressId, user: { id: userId } },
+      { is_default: true },
+    );
     return { message: 'Alamat utama berhasil diubah' };
   }
 
@@ -537,13 +617,21 @@ export class UserService {
     try {
       const payload = this.jwtService.verify(refreshToken);
       const user = await this.userRepo.findOne({ where: { id: payload.sub } });
-      if (!user || !user.hashed_refresh_token) throw new UnauthorizedException();
-      
-      const isMatch = await bcrypt.compare(refreshToken, user.hashed_refresh_token);
-      if (!isMatch) throw new UnauthorizedException('Refresh token tidak valid');
+      if (!user || !user.hashed_refresh_token)
+        throw new UnauthorizedException();
+
+      const isMatch = await bcrypt.compare(
+        refreshToken,
+        user.hashed_refresh_token,
+      );
+      if (!isMatch)
+        throw new UnauthorizedException('Refresh token tidak valid');
 
       const newPayload = { sub: user.id, email: user.email, role: 'USER' };
-      return { access_token: this.jwtService.sign(newPayload, { expiresIn: '1h' }), expires_in: 3600 };
+      return {
+        access_token: this.jwtService.sign(newPayload, { expiresIn: '1h' }),
+        expires_in: 3600,
+      };
     } catch (err) {
       throw new UnauthorizedException('Token tidak valid atau expired');
     }
@@ -578,12 +666,12 @@ export class UserService {
 
     await this.userRepo.update(user.id, {
       reset_token: token,
-      reset_token_expires: expires
+      reset_token_expires: expires,
     });
 
     const frontendUrl = process.env.FRONTEND_URL;
     const resetLink = `${frontendUrl}/reset-password?token=${token}`;
-    
+
     await this.resend.emails.send({
       from: 'Anandam Computer <no-reply@anandam.id>',
       to: email,
@@ -600,7 +688,7 @@ export class UserService {
           <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
           <p style="color: #999; font-size: 12px;">Jika Anda tidak merasa melakukan permintaan ini, silakan abaikan email ini.</p>
         </div>
-      `
+      `,
     });
 
     return { message: 'Link reset password sudah dikirim ke email.' };
@@ -608,18 +696,24 @@ export class UserService {
 
   async resetPassword(token: string, newPass: string) {
     // 1. Cari user berdasarkan token
-    const user = await this.userRepo.findOne({ 
-      where: { reset_token: token } 
+    const user = await this.userRepo.findOne({
+      where: { reset_token: token },
     });
 
     // 2. Validasi
-    if (!user || !user.reset_token_expires || user.reset_token_expires < new Date()) {
-      throw new UnauthorizedException('Token tidak valid atau sudah kadaluarsa');
+    if (
+      !user ||
+      !user.reset_token_expires ||
+      user.reset_token_expires < new Date()
+    ) {
+      throw new UnauthorizedException(
+        'Token tidak valid atau sudah kadaluarsa',
+      );
     }
 
     // 3. Hash password baru
     const hashedPassword = await bcrypt.hash(newPass, 10);
-    
+
     // 🔥 4. PERBAIKAN: Gunakan .save() agar datanya pasti tersimpan ke database
     user.password = hashedPassword;
     user.reset_token = null;
@@ -631,60 +725,72 @@ export class UserService {
   }
 
   async getAllUsers(query: any) {
-      const page = parseInt(query.page) || 1;
-      const limit = parseInt(query.limit) || 20;
-      const search = query.search || '';
-      const skip = (page - 1) * limit;
+    const page = parseInt(query.page) || 1;
+    const limit = parseInt(query.limit) || 20;
+    const search = query.search || '';
+    const skip = (page - 1) * limit;
 
-      const qb = this.userRepo.createQueryBuilder('user')
-          .leftJoinAndSelect('user.addresses', 'addresses')
-          .orderBy('user.created_at', 'DESC')
-          .skip(skip)
-          .take(limit);
+    const qb = this.userRepo
+      .createQueryBuilder('user')
+      .leftJoinAndSelect('user.addresses', 'addresses')
+      .orderBy('user.created_at', 'DESC')
+      .skip(skip)
+      .take(limit);
 
-      if (search) {
-          qb.where(
-              'user.full_name ILIKE :search OR user.email ILIKE :search OR user.phone_number ILIKE :search',
-              { search: `%${search}%` }
-          );
-      }
+    if (search) {
+      qb.where(
+        'user.full_name ILIKE :search OR user.email ILIKE :search OR user.phone_number ILIKE :search',
+        { search: `%${search}%` },
+      );
+    }
 
-      const [data, total] = await qb.getManyAndCount();
+    const [data, total] = await qb.getManyAndCount();
 
-      const sanitized = data.map(({ 
-          password, hashed_refresh_token, reset_token, reset_token_expires, ...u 
-      }) => u);
+    const sanitized = data.map(
+      ({
+        password,
+        hashed_refresh_token,
+        reset_token,
+        reset_token_expires,
+        ...u
+      }) => u,
+    );
 
-      return {
-          data: sanitized,
-          total,
-          page,
-          last_page: Math.ceil(total / limit),
-      };
+    return {
+      data: sanitized,
+      total,
+      page,
+      last_page: Math.ceil(total / limit),
+    };
   }
 
   async getUserById(id: string) {
-      const user = await this.userRepo.findOne({ 
-          where: { id }, 
-          relations: ['addresses'],
-      });
-      if (!user) throw new UnauthorizedException('User tidak ditemukan');
+    const user = await this.userRepo.findOne({
+      where: { id },
+      relations: ['addresses'],
+    });
+    if (!user) throw new UnauthorizedException('User tidak ditemukan');
 
-      const { password, hashed_refresh_token, reset_token, reset_token_expires, ...result } = user;
-      return result;
+    const {
+      password,
+      hashed_refresh_token,
+      reset_token,
+      reset_token_expires,
+      ...result
+    } = user;
+    return result;
   }
 
   async toggleUserActive(id: string) {
-      const user = await this.userRepo.findOne({ where: { id } });
-      if (!user) throw new UnauthorizedException('User tidak ditemukan');
+    const user = await this.userRepo.findOne({ where: { id } });
+    if (!user) throw new UnauthorizedException('User tidak ditemukan');
 
-      user.is_active = !user.is_active;
-      await this.userRepo.save(user);
+    user.is_active = !user.is_active;
+    await this.userRepo.save(user);
 
-      return { 
-          message: `User berhasil di${user.is_active ? 'aktifkan' : 'nonaktifkan'}`,
-          is_active: user.is_active 
-      };
+    return {
+      message: `User berhasil di${user.is_active ? 'aktifkan' : 'nonaktifkan'}`,
+      is_active: user.is_active,
+    };
   }
 }
-
