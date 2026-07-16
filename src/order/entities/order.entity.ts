@@ -164,6 +164,20 @@ export class Order {
   @Column({ type: 'varchar', length: 20, nullable: true })
   shipping_method: string; // INSTANT | SAME_DAY | REGULAR
 
+  // ── Store Pickup ──
+  @Column({ type: 'int', nullable: true })
+  pickup_estimate_minutes: number; // Estimated preparation time for store_pickup
+
+  @Column({ type: 'boolean', default: false })
+  is_store_pickup: boolean;
+
+  // ── Store Delivery (toko antar) ──
+  @Column({ type: 'int', nullable: true })
+  delivery_distance_km: number; // Distance in KM from store to customer
+
+  @Column({ type: 'boolean', default: false })
+  is_store_delivery: boolean;
+
   // ── Handover Method (internal, for regular shipping) ──
   @Column({ type: 'varchar', length: 20, nullable: true })
   handover_method: string; // PICKUP | DROP_OFF

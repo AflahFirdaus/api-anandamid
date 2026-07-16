@@ -2008,9 +2008,18 @@ export class OrderService {
     const courier_service = dto.courier_service;
     const payment_method = dto.payment_method;
     const voucher_code = dto.voucher_code;
+    const pickup_estimate_minutes = dto.pickup_estimate_minutes;
+    const delivery_distance_km = dto.delivery_distance_km;
 
-    if (!dto.address_id)
+    // For store_pickup: no address needed
+    // For store_delivery: address needed for delivery but shipping_cost = 0
+    if (shipping_type === 'store_delivery' && !dto.address_id)
+      throw new BadRequestException('Alamat pengiriman wajib diisi untuk delivery toko.');
+    if (shipping_type === 'store_pickup') {
+      // No address needed for store pickup - skip address validation
+    } else if (!dto.address_id) {
       throw new BadRequestException('Alamat pengiriman wajib diisi.');
+    }
 
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user) throw new NotFoundException('User tidak ditemukan');
@@ -2056,6 +2065,10 @@ export class OrderService {
     const shippingCost = shipping_cost || 0;
     const totalPrice = subtotal + Number(shippingCost) - discount;
 
+    // Set store-specific flags based on shipping type
+    const isStorePickup = shipping_type === 'store_pickup';
+    const isStoreDelivery = shipping_type === 'store_delivery';
+
     const order = this.orderRepo.create({
       user_id: userId,
       invoice_number: this.generateInvoiceNumber(),
@@ -2067,11 +2080,15 @@ export class OrderService {
       courier_name: courier_name || null,
       courier_service: courier_service || null,
       payment_method: payment_method || null,
-      address_id: address_id,
+      address_id: isStorePickup ? null : address_id,
       items: items as any,
       voucher_code: voucher_code || null,
       discount_amount: discount || 0,
-      shipping_address_snapshot: {
+      is_store_pickup: isStorePickup,
+      is_store_delivery: isStoreDelivery,
+      pickup_estimate_minutes: isStorePickup ? (pickup_estimate_minutes || 30) : null,
+      delivery_distance_km: isStoreDelivery ? (delivery_distance_km || null) : null,
+      shipping_address_snapshot: isStorePickup ? null : {
         recipient_name: address.recipient_name || user.full_name,
         phone_number: address.phone_number || user.phone_number,
         full_address: address.full_address,

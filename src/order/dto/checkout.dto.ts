@@ -143,13 +143,33 @@ export class CreateCheckoutDto {
   address_id?: string;
 
   @ApiPropertyOptional({
-    description: 'Shipping type: "regular" or "instant"',
+    description: 'Shipping type: "regular", "instant", "store_pickup", or "store_delivery"',
     example: 'regular',
     default: 'regular',
   })
   @IsOptional()
   @IsString()
   shipping_type?: string;
+
+  @ApiPropertyOptional({
+    description: 'For store_pickup: estimated preparation time in minutes',
+    example: 30,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  pickup_estimate_minutes?: number;
+
+  @ApiPropertyOptional({
+    description: 'For store_delivery: distance in KM from store to customer (max 25)',
+    example: 10,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  delivery_distance_km?: number;
 
   @ApiPropertyOptional({
     description: 'Selected courier name (e.g., JNE, GoSend)',
