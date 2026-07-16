@@ -13,8 +13,8 @@ async function bootstrap() {
   app.use(
     helmet({
       contentSecurityPolicy: false,
-      crossOriginResourcePolicy: { policy: 'cross-origin' },
-      crossOriginOpenerPolicy: { policy: 'unsafe-none' },
+      crossOriginResourcePolicy: false,
+      crossOriginOpenerPolicy: false,
     }),
   );
 
@@ -43,13 +43,20 @@ async function bootstrap() {
 
   app.useGlobalInterceptors(new ClassSerializerInterceptor(app.get(Reflector)));
 
-  // Global exception filter untuk menangani 429 Too Many Requests
   app.useGlobalFilters(new ThrottlerExceptionFilter());
 
+  // ─── FIX CROSS-ORIGIN UNTUK STATIC FILES ───────────────
+  // Gunakan setHeaders langsung di useStaticAssets untuk memastikan header
+  // tidak di-override oleh Express static file handler
   app.useStaticAssets(join(process.cwd(), 'uploads'), {
     prefix: '/uploads/',
     setHeaders: (res) => {
       res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      res.setHeader('Cross-Origin-Opener-Policy', 'unsafe-none');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', '*');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
     },
   });
 
