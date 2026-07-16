@@ -259,15 +259,37 @@ export class UserService {
         };
       }
 
-      if (!user.phone_number || !user.is_whatsapp_verified) {
+      // If user exists but doesn't have a phone_number, ask them to provide one
+      if (!user.phone_number) {
         return {
           status: 'NEED_PHONE_NUMBER',
           email: user.email,
           name: user.full_name,
           picture: user.avatar_url,
-          phone_number: user.phone_number || null,
+          phone_number: null,
         };
       }
+
+      // If user has a phone_number but hasn't verified via OTP yet, ask them to verify
+      if (!user.is_whatsapp_verified) {
+        // Generate & send OTP
+        const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+        const otpExpires = new Date(Date.now() + 5 * 60 * 1000);
+        user.whatsapp_otp = otpCode;
+        user.whatsapp_otp_expires = otpExpires;
+        await this.userRepo.save(user);
+        this.whatsappService.sendOtp(user.phone_number, otpCode)
+          .catch((err) => this.whatsappService['logger'].error('Gagal kirim Google OTP', err));
+        return {
+          status: 'NEED_VERIFICATION',
+          phone_number: user.phone_number,
+          message: 'WhatsApp Anda sudah terdaftar. Silakan verifikasi OTP.',
+        };
+      }
+      // NEW: For users who registered via Email/Google and already verified WA,
+      // we also check if phone_number exists but user might have been flagged as unverified
+      // due to is_whatsapp_verified being false in db. If so, send OTP for verification.
+      // This is handled by the !user.is_whatsapp_verified check above.
 
       if (!user.is_active) throw new UnauthorizedException('Akun Anda dinonaktifkan');
 
@@ -325,6 +347,7 @@ export class UserService {
       const otpExpires = new Date(Date.now() + 5 * 60 * 1000); // 5 menit
 
       if (!user) {
+        // NEW USER: create account + send OTP
         const randomPassword = Math.random().toString(36).slice(-10);
         const hashedPassword = await bcrypt.hash(randomPassword, 10);
 
@@ -340,16 +363,58 @@ export class UserService {
           whatsapp_otp: otpCode,
           whatsapp_otp_expires: otpExpires,
         });
-      } else {
-        user.phone_number = formattedPhone;
-        if (birth_date) user.birth_date = new Date(birth_date);
-        if (gender) user.gender = gender;
-        if (full_name) user.full_name = full_name;
-        user.is_whatsapp_verified = false;
-        user.whatsapp_otp = otpCode;
-        user.whatsapp_otp_expires = otpExpires;
+
+        await this.userRepo.save(user);
+
+        // Kirim OTP via WhatsApp (non-blocking)
+        this.whatsappService.sendOtp(formattedPhone, otpCode)
+          .catch((err) => this.whatsappService['logger'].error('Gagal kirim google register OTP', err));
+
+        return {
+          status: 'NEED_VERIFICATION',
+          phone_number: user.phone_number,
+          message: 'OTP berhasil dikirim ke WhatsApp Anda.',
+        };
       }
 
+      // EXISTING USER: update profile data only
+      user.phone_number = formattedPhone;
+      if (birth_date) user.birth_date = new Date(birth_date);
+      if (gender) user.gender = gender;
+      if (full_name) user.full_name = full_name;
+
+      // CRITICAL FIX: If user has already verified WA, jangan reset is_whatsapp_verified
+      // dan jangan kirim OTP ulang. Langsung buat token dan login user.
+      if (user.is_whatsapp_verified) {
+        await this.userRepo.save(user);
+
+        const jwtPayload = { sub: user.id, email: user.email, role: 'USER' };
+        const accessToken = this.jwtService.sign(jwtPayload, { expiresIn: '1h' });
+        const refreshToken = this.jwtService.sign(jwtPayload, { expiresIn: '7d' });
+        const hashedRT = await bcrypt.hash(refreshToken, 10);
+        await this.userRepo.update(user.id, { hashed_refresh_token: hashedRT });
+
+        return {
+          access_token: accessToken,
+          refresh_token: refreshToken,
+          expires_in: 3600,
+          user: {
+            id: user.id,
+            full_name: user.full_name,
+            email: normalizedEmail,
+            phone_number: user.phone_number,
+            avatar_url: user.avatar_url || picture,
+            birth_date: user.birth_date,
+            gender: user.gender,
+            addresses: user.addresses || [],
+          },
+        };
+      }
+
+      // Existing user but NOT yet verified: send OTP for verification
+      user.is_whatsapp_verified = false;
+      user.whatsapp_otp = otpCode;
+      user.whatsapp_otp_expires = otpExpires;
       await this.userRepo.save(user);
 
       // Kirim OTP via WhatsApp (non-blocking)
