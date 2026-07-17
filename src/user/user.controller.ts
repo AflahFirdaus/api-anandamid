@@ -149,6 +149,16 @@ export class UserController {
         return this.userService.forgotPassword(email);
     }
 
+    @Post('forgot-password-otp')
+    async forgotPasswordOtp(@Body('phone_number') phone_number: string) {
+        return this.userService.forgotPasswordOtp(phone_number);
+    }
+
+    @Post('verify-forgot-password-otp')
+    async verifyForgotPasswordOtp(@Body() body: any) {
+        return this.userService.verifyForgotPasswordOtp(body.phone_number, body.otp, body.new_password);
+    }
+
     @Post('reset-password')
     async resetPassword(@Body() body: any) {
         return this.userService.resetPassword(body.token, body.password);

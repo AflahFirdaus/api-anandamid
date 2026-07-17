@@ -12,7 +12,6 @@ export class WhatsappService {
     this.apiKey = this.configService.get<string>('FONTE_API_KEY') ?? '';
     this.senderName = this.configService.get<string>('FONTE_SENDER_NAME') ?? 'Anandam Computer';
     this.apiUrl = this.configService.get<string>('FONTE_API_URL') ?? 'https://api.fonnte.com/send';
-
     if (!this.apiKey) {
       this.logger.warn('FONTE API Key is missing! Please check FONTE_API_KEY in .env');
     }
@@ -33,68 +32,37 @@ export class WhatsappService {
       this.logger.error('Format nomor WhatsApp tidak valid!');
       return false;
     }
-
     if (!this.apiKey) {
       this.logger.error('Gagal mengirim WhatsApp OTP: API Key FONTE belum dikonfigurasi.');
       return false;
     }
-
-    const message = `*ANANDAM COMPUTER*
-
-Halo 👋,
-
-Kode verifikasi (OTP) Anda adalah:
-
-*${otpCode}*
-
-Kode ini berlaku selama *5 menit*.
-Jangan bagikan kode ini kepada siapa pun, termasuk pihak yang mengaku dari Anandam.
-
-Jika Anda tidak merasa melakukan permintaan ini, abaikan pesan ini.
-
-Terima kasih telah mempercayai Anandam Computer! 🚀
-
-══════════════════
-*Anandam Computer*
-Toko Komputer & Laptop Terpercaya`;
-
+    const otpMsg = '*ANANDAM COMPUTER*\n\nHalo,\n\nKode verifikasi (OTP) Anda adalah:\n\n*' + otpCode + '*\n\nKode ini berlaku selama 5 menit.\nJangan bagikan kode ini kepada siapa pun.\n\nTerima kasih telah mempercayai Anandam Computer!\n\n*Anandam Computer*';
     const payload = {
       target: formattedPhone,
-      message: message,
+      message: otpMsg,
       countryCode: '62',
       name: this.senderName,
     };
-
     try {
       const response = await fetch(this.apiUrl, {
         method: 'POST',
-        headers: {
-          'Authorization': this.apiKey,
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Authorization': this.apiKey, 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-
       const data = await response.json();
-
       if (!response.ok) {
-        this.logger.error(
-          `Gagal mengirim WhatsApp OTP ke ${formattedPhone} via FONTE. HTTP Status: ${response.status}. Response: ${JSON.stringify(data)}`,
-        );
+        this.logger.error('Gagal kirim WA OTP ' + formattedPhone + ' via FONTE. HTTP ' + response.status + '. ' + JSON.stringify(data));
         return false;
       }
-
       if (data.status === true) {
-        this.logger.log(`WhatsApp OTP berhasil dikirim ke ${formattedPhone} via FONTE. ID: ${data.id}`);
+        this.logger.log('WA OTP berhasil ke ' + formattedPhone + ' via FONTE. ID: ' + data.id);
         return true;
       } else {
-        this.logger.error(
-          `Gagal mengirim WhatsApp OTP ke ${formattedPhone} via FONTE. Response: ${JSON.stringify(data)}`,
-        );
+        this.logger.error('Gagal kirim WA OTP ' + formattedPhone + ' via FONTE. ' + JSON.stringify(data));
         return false;
       }
     } catch (error) {
-      this.logger.error(`Error saat mengirim WhatsApp OTP via FONTE ke ${formattedPhone}:`, error);
+      this.logger.error('Error kirim WA OTP via FONTE ke ' + formattedPhone, error);
       return false;
     }
   }

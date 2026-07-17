@@ -43,16 +43,26 @@ export class UserService {
     );
     const normalizedEmail = dto.email.toLowerCase().trim();
 
+    // Cek duplikasi email (case-insensitive)
     const existingUser = await this.userRepo.findOne({
       where: { email: normalizedEmail },
     });
     if (existingUser) throw new ConflictException('Email sudah terdaftar!');
 
-    const existingPhone = await this.userRepo.findOne({
-      where: { phone_number: formattedPhone },
-    });
-    if (existingPhone)
-      throw new ConflictException('Nomor WhatsApp sudah terdaftar!');
+    // Cek duplikasi nomor WA (semua format: 08xxx, 628xxx, +628xxx)
+    const phoneVariants = [
+      formattedPhone,
+      '0' + formattedPhone.replace(/^62/, ''),
+      '+' + formattedPhone,
+    ];
+    for (const variant of phoneVariants) {
+      const existingPhone = await this.userRepo.findOne({
+        where: { phone_number: variant },
+      });
+      if (existingPhone) {
+        throw new ConflictException('Nomor WhatsApp sudah terdaftar!');
+      }
+    }
 
     const hashedPassword = await bcrypt.hash(dto.password, 10);
     const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
@@ -102,6 +112,63 @@ export class UserService {
       .orderBy('v.created_at', 'DESC')
       .getOne();
     return voucher?.code ?? null;
+  }
+
+  /**
+   * Cari user berdasarkan nomor telepon dengan berbagai format.
+   * Support: 08xxx, 628xxx, +628xxx, atau hanya digits.
+   * Auto-fix nomor user lama ke format 628xxx.
+   */
+  private async findUserByPhone(phone: string): Promise<User | null> {
+    let variants: string[] = [];
+
+    // Bersihkan nomor dari karakter non-digit
+    const digits = phone.replace(/\D/g, '');
+
+    // Generate semua kemungkinan format
+    if (digits.startsWith('62')) {
+      variants.push(digits);                       // 62812...
+      variants.push('0' + digits.substring(2));     // 0812...
+      variants.push('+' + digits);                  // +62812...
+    } else if (digits.startsWith('0')) {
+      variants.push(digits);                       // 0812...
+      variants.push('62' + digits.substring(1));    // 62812...
+      variants.push('+62' + digits.substring(1));   // +62812...
+    } else {
+      variants.push(digits);                       // 812...
+      variants.push('0' + digits);                  // 0812...
+      variants.push('62' + digits);                 // 62812...
+      variants.push('+62' + digits);                // +62812...
+    }
+
+    // Cari dengan LIKE untuk mencocokkan digits terakhir (jika exact match gagal)
+    for (const v of variants) {
+      let user = await this.userRepo.findOne({ where: { phone_number: v }, relations: ['addresses'] });
+      if (user) {
+        // Auto-fix ke format 628xxx
+        const standardFormat = this.whatsappService.formatPhoneNumber(phone);
+        if (user.phone_number !== standardFormat) {
+          user.phone_number = standardFormat;
+          await this.userRepo.save(user);
+        }
+        return user;
+      }
+    }
+
+    // Fallback: LIKE search dengan 7 digit terakhir (untuk nomor yang sangat tidak konsisten)
+    const last7 = digits.slice(-7);
+    if (last7.length >= 7) {
+      const users = await this.userRepo.find({ relations: ['addresses'] });
+      const match = users.find(u => u.phone_number && u.phone_number.replace(/\D/g, '').endsWith(last7));
+      if (match) {
+        const standardFormat = this.whatsappService.formatPhoneNumber(phone);
+        match.phone_number = standardFormat;
+        await this.userRepo.save(match);
+        return match;
+      }
+    }
+
+    return null;
   }
 
   // ================= LOGIN =================
@@ -170,11 +237,7 @@ export class UserService {
       throw new BadRequestException('Nomor WhatsApp dan OTP wajib diisi!');
     }
 
-    const formattedPhone = this.whatsappService.formatPhoneNumber(phone_number);
-    const user = await this.userRepo.findOne({
-      where: { phone_number: formattedPhone },
-      relations: ['addresses'],
-    });
+    const user = await this.findUserByPhone(phone_number);
 
     if (!user) {
       throw new UnauthorizedException(
@@ -238,10 +301,7 @@ export class UserService {
       throw new BadRequestException('Nomor WhatsApp wajib diisi!');
     }
 
-    const formattedPhone = this.whatsappService.formatPhoneNumber(phone_number);
-    const user = await this.userRepo.findOne({
-      where: { phone_number: formattedPhone },
-    });
+    const user = await this.findUserByPhone(phone_number);
     if (!user) {
       throw new UnauthorizedException(
         'User dengan nomor WhatsApp tersebut tidak ditemukan!',
@@ -640,6 +700,79 @@ export class UserService {
   async updateAvatar(userId: string, avatarUrl: string) {
     await this.userRepo.update(userId, { avatar_url: avatarUrl });
     return { message: 'Avatar berhasil diupdate', avatar_url: avatarUrl };
+  }
+
+  // ================= FORGOT PASSWORD VIA OTP WHATSAPP =================
+  async forgotPasswordOtp(phone_number: string) {
+    if (!phone_number) {
+      throw new BadRequestException('Nomor WhatsApp wajib diisi!');
+    }
+
+    const user = await this.findUserByPhone(phone_number);
+    if (!user) {
+      throw new UnauthorizedException(
+        'Nomor WhatsApp tidak terdaftar!',
+      );
+    }
+
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpExpires = new Date(Date.now() + 5 * 60 * 1000); // 5 menit
+
+    user.whatsapp_otp = otpCode;
+    user.whatsapp_otp_expires = otpExpires;
+    await this.userRepo.save(user);
+
+    const sent = await this.whatsappService.sendOtp(user.phone_number, otpCode);
+    if (!sent) {
+      throw new BadRequestException(
+        'Gagal mengirim OTP. Silakan coba lagi.',
+      );
+    }
+
+    return {
+      message: 'Kode OTP reset password berhasil dikirim ke WhatsApp Anda.',
+      phone_number: user.phone_number,
+    };
+  }
+
+  async verifyForgotPasswordOtp(phone_number: string, otp: string, new_password: string) {
+    if (!phone_number || !otp || !new_password) {
+      throw new BadRequestException('Nomor, OTP, dan password baru wajib diisi!');
+    }
+
+    if (new_password.length < 8) {
+      throw new BadRequestException('Password minimal 8 karakter!');
+    }
+
+    const user = await this.findUserByPhone(phone_number);
+    if (!user) {
+      throw new UnauthorizedException('User tidak ditemukan!');
+    }
+
+    if (!user.whatsapp_otp || user.whatsapp_otp !== otp) {
+      throw new UnauthorizedException('Kode OTP salah!');
+    }
+
+    if (!user.whatsapp_otp_expires || user.whatsapp_otp_expires < new Date()) {
+      throw new UnauthorizedException('Kode OTP sudah kadaluarsa!');
+    }
+
+    // Reset OTP fields
+    user.whatsapp_otp = null;
+    user.whatsapp_otp_expires = null;
+
+    // Hash & update password baru
+    const hashedPassword = await bcrypt.hash(new_password, 10);
+    user.password = hashedPassword;
+
+    // Hapus refresh token (force logout dari semua perangkat)
+    user.hashed_refresh_token = null;
+
+    await this.userRepo.save(user);
+
+    return {
+      message: 'Password berhasil direset. Silakan login dengan password baru.',
+    };
   }
 
   // ================= PASSWORD MANAGEMENT =================
