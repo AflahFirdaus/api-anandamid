@@ -2002,7 +2002,10 @@ export class OrderService {
     const notes = dto.notes;
     const address_id = dto.address_id;
     const shipping_type = dto.shipping_type || (dto.shipping_method === 'instant' ? 'instant' : 'regular');
-    const shipping_method = dto.shipping_method || (shipping_type === 'instant' ? 'INSTANT' : 'REGULAR');
+    const shipping_method = dto.shipping_method || 
+      (shipping_type === 'store_pickup' ? 'STORE_PICKUP' :
+       shipping_type === 'store_delivery' ? 'STORE_DELIVERY' :
+       shipping_type === 'instant' ? 'INSTANT' : 'REGULAR');
     const shipping_cost = dto.shipping_cost;
     const courier_name = dto.courier_name;
     const courier_service = dto.courier_service;
