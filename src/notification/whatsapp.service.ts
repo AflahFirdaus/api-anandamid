@@ -10,7 +10,7 @@ export class WhatsappService {
 
   constructor(private readonly configService: ConfigService) {
     this.apiKey = this.configService.get<string>('FONTE_API_KEY') ?? '';
-    this.senderName = this.configService.get<string>('FONTE_SENDER_NAME') ?? 'TESTING OTP';
+    this.senderName = this.configService.get<string>('FONTE_SENDER_NAME') ?? 'Anandam Computer';
     this.apiUrl = this.configService.get<string>('FONTE_API_URL') ?? 'https://api.fonnte.com/send';
 
     if (!this.apiKey) {
@@ -48,13 +48,32 @@ export class WhatsappService {
       return false;
     }
 
-    // Message template untuk OTP
-    const message = `Kode OTP Anda: *${otpCode}*\n\nJangan bagikan kode ini kepada siapa pun.\nKode berlaku selama 5 menit.`;
+    // Pesan OTP profesional dengan branding Anandam Computer
+    const message = `*ANANDAM COMPUTER*
+══════════════════
+
+Halo 👋,
+
+Kode verifikasi (OTP) Anda adalah:
+
+*${otpCode}*
+
+Kode ini berlaku selama *5 menit*.
+Jangan bagikan kode ini kepada siapa pun, termasuk pihak yang mengaku dari Anandam.
+
+Jika Anda tidak merasa melakukan permintaan ini, abaikan pesan ini.
+
+Terima kasih telah mempercayai Anandam Computer! 🚀
+
+══════════════════
+*Anandam Computer*
+Toko Komputer & Laptop Terpercaya`;
 
     const payload = {
       target: formattedPhone,
       message: message,
-      countryCode: '62', // Kode negara Indonesia
+      countryCode: '62',
+      name: this.senderName, // Nama kontak yang muncul di WhatsApp
     };
 
     try {
