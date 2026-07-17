@@ -70,10 +70,6 @@ export class GroupingController {
       child_ids: this.parseChildIds(body) || [],
     };
 
-    // 🔥 DEBUG
-    console.log('CREATE FILE:', file);
-    console.log('CREATE DTO:', dto);
-
     return this.service.create(dto);
   }
 
@@ -90,10 +86,6 @@ export class GroupingController {
       image_url: file ? `/uploads/${file.filename}` : undefined,
       child_ids: this.parseChildIds(body), 
     };
-
-    // 🔥 DEBUG
-    console.log('UPDATE FILE:', file);
-    console.log('UPDATE DTO:', dto);
 
     return this.service.update(id, dto);
   }

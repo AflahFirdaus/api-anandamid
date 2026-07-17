@@ -43,12 +43,6 @@ export class AdminService implements OnModuleInit {
         username,
         password: hash,
       });
-
-      console.log('Default admin created');
-      console.log('username:', username);
-      console.log('password:', password);
-    } else {
-      console.log('Admin already exists!');
     }
   }
 }

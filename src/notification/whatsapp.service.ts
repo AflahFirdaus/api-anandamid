@@ -4,28 +4,24 @@ import { ConfigService } from '@nestjs/config';
 @Injectable()
 export class WhatsappService {
   private readonly logger = new Logger(WhatsappService.name);
-  private readonly accessToken: string;
-  private readonly phoneNumberId: string;
-  private readonly templateName: string;
-  private readonly languageCode: string;
-  private readonly apiVersion: string;
+  private readonly apiKey: string;
+  private readonly senderName: string;
+  private readonly apiUrl: string;
 
   constructor(private readonly configService: ConfigService) {
-    this.accessToken = this.configService.get<string>('WHATSAPP_ACCESS_TOKEN') ?? '';
-    this.phoneNumberId = this.configService.get<string>('WHATSAPP_PHONE_NUMBER_ID') ?? '';
-    this.templateName = this.configService.get<string>('WHATSAPP_TEMPLATE_NAME') ?? 'otp_verification';
-    this.languageCode = this.configService.get<string>('WHATSAPP_LANGUAGE_CODE') ?? 'id';
-    this.apiVersion = this.configService.get<string>('WHATSAPP_API_VERSION') ?? 'v20.0';
+    this.apiKey = this.configService.get<string>('FONTE_API_KEY') ?? '';
+    this.senderName = this.configService.get<string>('FONTE_SENDER_NAME') ?? 'TESTING OTP';
+    this.apiUrl = this.configService.get<string>('FONTE_API_URL') ?? 'https://api.fonnte.com/send';
 
-    if (!this.accessToken || !this.phoneNumberId) {
+    if (!this.apiKey) {
       this.logger.warn(
-        'WhatsApp Credentials are missing! Please check WHATSAPP_ACCESS_TOKEN and WHATSAPP_PHONE_NUMBER_ID in .env',
+        'FONTE API Key is missing! Please check FONTE_API_KEY in .env',
       );
     }
   }
 
   /**
-   * Format nomor HP agar sesuai standar internasional Meta (e.g. 628xxx)
+   * Format nomor HP agar sesuai standar internasional (e.g. 628xxx)
    * Tanpa +, tanpa spasi, tanpa strip.
    */
   formatPhoneNumber(phone: string): string {
@@ -38,7 +34,7 @@ export class WhatsappService {
   }
 
   /**
-   * Mengirim kode OTP via WhatsApp menggunakan Meta Cloud API
+   * Mengirim kode OTP via WhatsApp menggunakan FONTE API
    */
   async sendOtp(phone: string, otpCode: string): Promise<boolean> {
     const formattedPhone = this.formatPhoneNumber(phone);
@@ -47,43 +43,25 @@ export class WhatsappService {
       return false;
     }
 
-    if (!this.accessToken || !this.phoneNumberId) {
-      this.logger.error('Gagal mengirim WhatsApp OTP: Kredensial Meta Developer belum dikonfigurasi.');
+    if (!this.apiKey) {
+      this.logger.error('Gagal mengirim WhatsApp OTP: API Key FONTE belum dikonfigurasi.');
       return false;
     }
 
-    const url = `https://graph.facebook.com/${this.apiVersion}/${this.phoneNumberId}/messages`;
-    
-    // Payload Meta Cloud API untuk template message OTP
+    // Message template untuk OTP
+    const message = `Kode OTP Anda: *${otpCode}*\n\nJangan bagikan kode ini kepada siapa pun.\nKode berlaku selama 5 menit.`;
+
     const payload = {
-      messaging_product: 'whatsapp',
-      recipient_type: 'individual',
-      to: formattedPhone,
-      type: 'template',
-      template: {
-        name: this.templateName,
-        language: {
-          code: this.languageCode,
-        },
-        components: [
-          {
-            type: 'body',
-            parameters: [
-              {
-                type: 'text',
-                text: otpCode,
-              },
-            ],
-          },
-        ],
-      },
+      target: formattedPhone,
+      message: message,
+      countryCode: '62', // Kode negara Indonesia
     };
 
     try {
-      const response = await fetch(url, {
+      const response = await fetch(this.apiUrl, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${this.accessToken}`,
+          'Authorization': this.apiKey,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(payload),
@@ -93,15 +71,23 @@ export class WhatsappService {
 
       if (!response.ok) {
         this.logger.error(
-          `Gagal mengirim WhatsApp OTP ke ${formattedPhone}. HTTP Status: ${response.status}. Error: ${JSON.stringify(data)}`,
+          `Gagal mengirim WhatsApp OTP ke ${formattedPhone} via FONTE. HTTP Status: ${response.status}. Response: ${JSON.stringify(data)}`,
         );
         return false;
       }
 
-      this.logger.log(`WhatsApp OTP berhasil dikirim ke ${formattedPhone}. Message ID: ${data.messages?.[0]?.id}`);
-      return true;
+      // FONTE sukses mengembalikan status: true
+      if (data.status === true) {
+        this.logger.log(`WhatsApp OTP berhasil dikirim ke ${formattedPhone} via FONTE. ID: ${data.id}`);
+        return true;
+      } else {
+        this.logger.error(
+          `Gagal mengirim WhatsApp OTP ke ${formattedPhone} via FONTE. Response: ${JSON.stringify(data)}`,
+        );
+        return false;
+      }
     } catch (error) {
-      this.logger.error(`Error saat mengirim WhatsApp OTP ke ${formattedPhone}:`, error);
+      this.logger.error(`Error saat mengirim WhatsApp OTP via FONTE ke ${formattedPhone}:`, error);
       return false;
     }
   }

@@ -37,7 +37,6 @@ export class GoogleMerchantService implements OnModuleInit {
 
       this.shoppingContent = google.content({ version: 'v2.1', auth });
       this.isEnabled = true;
-      console.log('[GoogleMerchant] Service aktif — Merchant ID:', this.merchantId);
     } catch (err) {
       console.error('[GoogleMerchant] Gagal parse credentials JSON:', err.message);
     }
@@ -112,7 +111,6 @@ export class GoogleMerchantService implements OnModuleInit {
         requestBody: googleProduct,
       });
 
-      console.log(`[GoogleMerchant] Synced: ${product.name}`);
       return response.data;
     } catch (error) {
       console.error('[GoogleMerchant] Sync error:', error.response?.data?.error?.message || error.message);
@@ -131,7 +129,6 @@ export class GoogleMerchantService implements OnModuleInit {
         merchantId: this.merchantId,
         productId: `online:id:ID:${productId}`,
       });
-      console.log(`[GoogleMerchant] Deleted product: ${productId}`);
     } catch (error) {
       // Tidak lempar error agar proses delete DB tetap jalan
       console.error('[GoogleMerchant] Delete error:', error.response?.data?.error?.message || error.message);
@@ -178,7 +175,6 @@ export class GoogleMerchantService implements OnModuleInit {
       }
     }
 
-    console.log(`[GoogleMerchant] Bulk sync selesai: ${success} berhasil, ${failed} gagal dari ${products.length} produk`);
     return { success, failed, total: products.length };
   }
 }

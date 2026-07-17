@@ -46,8 +46,6 @@ async function bootstrap() {
   app.useGlobalFilters(new ThrottlerExceptionFilter());
 
   // ─── FIX CROSS-ORIGIN UNTUK STATIC FILES ───────────────
-  // Gunakan setHeaders langsung di useStaticAssets untuk memastikan header
-  // tidak di-override oleh Express static file handler
   app.useStaticAssets(join(process.cwd(), 'uploads'), {
     prefix: '/uploads/',
     setHeaders: (res) => {

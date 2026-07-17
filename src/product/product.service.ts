@@ -1,7 +1,4 @@
-import {
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 
 import { CreateProductDto } from './dto/create.product.dto';
 import { UpdateProductDto } from './dto/update.product.dto';
@@ -37,19 +34,18 @@ export class ProductService {
   private deleteFileIfExists(filePath?: string | null) {
     if (!filePath) return;
 
-    const cleanPath = filePath.replace(/^\/+/, "");
+    const cleanPath = filePath.replace(/^\/+/, '');
 
     const fullPath = path.join(process.cwd(), cleanPath);
 
     if (fs.existsSync(fullPath)) {
       try {
         fs.unlinkSync(fullPath);
-        console.log("Deleted:", fullPath);
       } catch (err) {
-        console.error("Failed delete:", fullPath);
+        console.error('Failed delete:', fullPath);
       }
     } else {
-      console.warn("File not found:", fullPath);
+      console.warn('File not found:', fullPath);
     }
   }
 
@@ -90,11 +86,10 @@ export class ProductService {
       exists = await this.productRepository.findOne({
         where: { product_id: productId },
       });
-
     } while (exists);
 
     return productId;
-  }   
+  }
 
   private parseDescription(text: string | null) {
     if (!text) {
@@ -108,8 +103,8 @@ export class ProductService {
 
     const lines = normalized
       .split('\n')
-      .map(line => line.trim())
-      .filter(line => line !== '');
+      .map((line) => line.trim())
+      .filter((line) => line !== '');
 
     return {
       description_raw: text,
@@ -118,23 +113,21 @@ export class ProductService {
   }
 
   private async downloadAndReplace(image: any, createThumb = false) {
-
-    const fileName = path.basename(image.image_url || "");
+    const fileName = path.basename(image.image_url || '');
     const originalFile = path.join(this.originalPath, fileName);
     const thumbFile = path.join(this.thumbPath, fileName);
 
     // CASE 1: Local File
     if (
-      image.image_url?.startsWith("/uploads") &&
+      image.image_url?.startsWith('/uploads') &&
       fs.existsSync(originalFile)
     ) {
       if (createThumb) {
         if (!fs.existsSync(thumbFile)) {
           await sharp(originalFile)
-            .resize(300, 300, { fit: "inside" })
+            .resize(300, 300, { fit: 'inside' })
             .jpeg({ quality: 75 })
             .toFile(thumbFile);
-          console.log("Thumbnail regenerated:", fileName);
         }
         image.thumbnail_url = `/uploads/products/thumbnails/${fileName}`;
       }
@@ -144,7 +137,7 @@ export class ProductService {
     }
 
     // CASE 2: external image
-    if (!image.image_url?.startsWith("http")) {
+    if (!image.image_url?.startsWith('http')) {
       return;
     }
 
@@ -157,22 +150,21 @@ export class ProductService {
         headers: {
           'User-Agent':
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
-          'Referer': 'https://www.tiktok.com/',
-          'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+          Referer: 'https://www.tiktok.com/',
+          Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
         },
       });
 
       if (!response.data || response.data.length < 100) {
-        console.log("Invalid image:", image.image_url);
         return;
       }
 
-      const ext = ".jpg";
+      const ext = '.jpg';
 
       const hash = crypto
-        .createHash("md5")
+        .createHash('md5')
         .update(image.image_url)
-        .digest("hex");
+        .digest('hex');
 
       const fileName = `${hash}${ext}`;
 
@@ -185,9 +177,7 @@ export class ProductService {
         return;
       }
 
-      await sharp(response.data)
-        .jpeg({ quality: 90 })
-        .toFile(originalFile);
+      await sharp(response.data).jpeg({ quality: 90 }).toFile(originalFile);
 
       if (createThumb) {
         await sharp(response.data)
@@ -203,11 +193,7 @@ export class ProductService {
       } else {
         image.thumbnail_url = null;
       }
-
-      console.log('Download sukses:', fileName);
-
     } catch (err: any) {
-      console.log('Status:', err.response?.status);
       console.error('Download gagal:', image.image_url);
     }
   }
@@ -270,7 +256,7 @@ export class ProductService {
     } else {
       finalVariants = [
         {
-          variant_name: "Default",
+          variant_name: 'Default',
           sku_seller: dto.sku_seller || null,
           price_normal: dto.price_normal || 0,
           price_discount: dto.price_discount || 0,
@@ -279,7 +265,7 @@ export class ProductService {
           length: dto.length || 0,
           width: dto.width || 0,
           height: dto.height || 0,
-        }
+        },
       ];
     }
 
@@ -288,19 +274,26 @@ export class ProductService {
       product_id: productId,
       category,
       brand,
-      variants: finalVariants // 🔥 Simpan semua variasi
+      variants: finalVariants,
     });
 
     const savedProduct = await this.productRepository.save(product);
 
     // Fire-and-forget: sync ke Google Merchant Center tanpa memblokir response
-    this.googleMerchantService.syncProduct(savedProduct).catch((err) =>
-      console.error('[GoogleMerchant] Gagal sync produk baru:', err.message)
-    );
+    this.googleMerchantService
+      .syncProduct(savedProduct)
+      .catch((err) =>
+        console.error('[GoogleMerchant] Gagal sync produk baru:', err.message),
+      );
 
     return {
       product: savedProduct,
-      duplicate_warning: duplicateName.length > 0 ? { /* ... metadata duplicate ... */ } : null,
+      duplicate_warning:
+        duplicateName.length > 0
+          ? {
+              /* ... metadata duplicate ... */
+            }
+          : null,
     };
   }
 
@@ -322,7 +315,7 @@ export class ProductService {
       no_category,
       category_ids,
       grouping,
-      socket_type, 
+      socket_type,
       ram_type,
     } = query;
 
@@ -353,18 +346,11 @@ export class ProductService {
       .leftJoinAndSelect('product.category', 'category')
       .leftJoinAndSelect('category.grouping', 'grouping')
       .leftJoinAndSelect('product.brand', 'brand')
-      .leftJoinAndSelect('product.variants', 'variant') // 🔥 JOIN KE VARIANT
+      .leftJoinAndSelect('product.variants', 'variant'); // 🔥 JOIN KE VARIANT
 
-    qb.leftJoin(
-      'product.images',
-      'thumbnail',
-      'thumbnail.sort_order = 0'
-    );
+    qb.leftJoin('product.images', 'thumbnail', 'thumbnail.sort_order = 0');
 
-    qb.addSelect([
-      'thumbnail.image_url',
-      'thumbnail.thumbnail_url'
-    ]);
+    qb.addSelect(['thumbnail.image_url', 'thumbnail.thumbnail_url']);
 
     qb.addOrderBy('thumbnail.sort_order', 'ASC');
 
@@ -391,9 +377,9 @@ export class ProductService {
         .createQueryBuilder()
         .update(Product)
         .set({
-          search_count: () => "search_count + 1",
+          search_count: () => 'search_count + 1',
         })
-        .where("LOWER(name) LIKE LOWER(:search)", {
+        .where('LOWER(name) LIKE LOWER(:search)', {
           search: `%${search}%`,
         })
         .execute();
@@ -403,9 +389,9 @@ export class ProductService {
     // BRAND FILTER
     // ======================
     if (brand) {
-      const brandIds = brand.split(",");
+      const brandIds = brand.split(',');
 
-      qb.andWhere("brand.id IN (:...brandIds)", {
+      qb.andWhere('brand.id IN (:...brandIds)', {
         brandIds,
       });
     }
@@ -414,13 +400,13 @@ export class ProductService {
     // HARDWARE FILTER
     // =================
     if (socket_type) {
-      const sockets = socket_type.split(",");
-      qb.andWhere("product.socket_type IN (:...sockets)", { sockets });
+      const sockets = socket_type.split(',');
+      qb.andWhere('product.socket_type IN (:...sockets)', { sockets });
     }
 
     if (ram_type) {
-      const ramTypes = ram_type.split(",");
-      qb.andWhere("product.ram_type IN (:...ramTypes)", { ramTypes });
+      const ramTypes = ram_type.split(',');
+      qb.andWhere('product.ram_type IN (:...ramTypes)', { ramTypes });
     }
 
     // ======================
@@ -430,13 +416,15 @@ export class ProductService {
       qb.andWhere('product.category_id IS NULL');
     } else if (category) {
       qb.andWhere(
-        new Brackets(qb2 => {
-          qb2.where('LOWER(category.name) LIKE LOWER(:category)', {
-            category: `%${category}%`,
-          }).orWhere('category.code = :categoryExact', {
-            categoryExact: category,
-          });
-        })
+        new Brackets((qb2) => {
+          qb2
+            .where('LOWER(category.name) LIKE LOWER(:category)', {
+              category: `%${category}%`,
+            })
+            .orWhere('category.code = :categoryExact', {
+              categoryExact: category,
+            });
+        }),
       );
     }
 
@@ -450,25 +438,25 @@ export class ProductService {
             name: grouping,
           },
         },
-        select: ["id"],
+        select: ['id'],
       });
 
-      const ids = categories.map(c => c.id);
+      const ids = categories.map((c) => c.id);
 
       if (!ids.length) {
-        qb.andWhere("1=0");
+        qb.andWhere('1=0');
       } else {
-        qb.andWhere("category.id IN (:...ids)", { ids });
+        qb.andWhere('category.id IN (:...ids)', { ids });
       }
     }
 
     // ======================
-    // CATEGORY IDS FILTER 
+    // CATEGORY IDS FILTER
     // ======================
     if (category_ids) {
-      const ids = category_ids.split(",");
+      const ids = category_ids.split(',');
 
-      qb.andWhere("category.id IN (:...ids)", {
+      qb.andWhere('category.id IN (:...ids)', {
         ids,
       });
     }
@@ -485,7 +473,7 @@ export class ProductService {
     }
 
     // ======================
-    // PROMO / DISCOUNT FILTER 
+    // PROMO / DISCOUNT FILTER
     // ======================
     if (is_promo === 'true') {
       // 🔥 Filter by variant
@@ -522,7 +510,8 @@ export class ProductService {
     );
 
     // 🔥 Cek duplicate dari tabel product_variants
-    qb.addSelect(`
+    qb.addSelect(
+      `
       CASE 
         WHEN variant.sku_seller IS NOT NULL
         AND variant.sku_seller <> ''
@@ -539,25 +528,27 @@ export class ProductService {
         THEN true
         ELSE false
       END
-    `, 'is_duplicate_flag');
+    `,
+      'is_duplicate_flag',
+    );
 
     // 🔥 Sortir stock pindah ke variant
     qb.addSelect(
       `CASE WHEN variant.stock IS NULL OR variant.stock <= 0 THEN 1 ELSE 0 END`,
-      'stock_order'
+      'stock_order',
     );
+
+    qb.addSelect(`MOD(abs(hashtext(product.id::text)), :seed)`, 'random_order');
 
     qb.addSelect(
-      `MOD(abs(hashtext(product.id::text)), :seed)`,
-      'random_order'
-    );
-
-    qb.addSelect(`
+      `
       (
         COALESCE(product.view_count, 0) * 0.7 +
         COALESCE(product.search_count, 0) * 0.3
       )
-    `, "recommend_score");
+    `,
+      'recommend_score',
+    );
 
     qb.setParameter('seed', seed);
 
@@ -582,36 +573,31 @@ export class ProductService {
         .addOrderBy('variant.sku_seller', 'ASC')
         .addOrderBy('product.created_at', 'DESC');
     } else {
-
       qb.orderBy('stock_order', 'ASC');
 
       if (sort === 'popular') {
         qb.addOrderBy('product.is_popular', 'DESC')
           .addOrderBy('variant.stock', 'DESC')
           .addOrderBy('product.created_at', 'DESC');
-      } 
-      else if (sort === 'price_asc') {
+      } else if (sort === 'price_asc') {
         qb.addOrderBy('final_price_sort', 'ASC')
           .addOrderBy('variant.stock', 'DESC')
           .addOrderBy('product.created_at', 'DESC');
-      }
-      else if (sort === 'price_desc') {
+      } else if (sort === 'price_desc') {
         qb.addOrderBy('final_price_sort', 'DESC')
           .addOrderBy('variant.stock', 'DESC')
           .addOrderBy('product.created_at', 'DESC');
-      }
-      else if (sort === 'newest') {
-        qb.addOrderBy('product.updated_at', 'DESC')
-          .addOrderBy('product.created_at', 'DESC');
-      }
-      else if (sort === 'recommend') {
+      } else if (sort === 'newest') {
+        qb.addOrderBy('product.updated_at', 'DESC').addOrderBy(
+          'product.created_at',
+          'DESC',
+        );
+      } else if (sort === 'recommend') {
         qb.orderBy('stock_order', 'ASC')
-          .addOrderBy('random_order', 'ASC') 
+          .addOrderBy('random_order', 'ASC')
           .addOrderBy('recommend_score', 'DESC');
-      }
-      else {
-        qb.orderBy('stock_order', 'ASC')
-          .addOrderBy('random_order', 'ASC'); 
+      } else {
+        qb.orderBy('stock_order', 'ASC').addOrderBy('random_order', 'ASC');
       }
     }
 
@@ -626,12 +612,13 @@ export class ProductService {
 
     const data = entities.map((product) => {
       const parsed = this.parseDescription(product.description);
-      const rawRow = raw.find(r => r.product_id === product.id);
+      const rawRow = raw.find((r) => r.product_id === product.id);
 
       // 🔥 Ambil dari variant default
-      const defaultVariant = product.variants && product.variants.length > 0 
-        ? product.variants[0] 
-        : null;
+      const defaultVariant =
+        product.variants && product.variants.length > 0
+          ? product.variants[0]
+          : null;
 
       const finalPrice =
         Number(defaultVariant?.price_normal || 0) -
@@ -642,7 +629,7 @@ export class ProductService {
       return {
         ...product,
 
-        final_price: finalPrice, 
+        final_price: finalPrice,
         is_promo: isPromo,
 
         description_raw: parsed.description_raw,
@@ -661,9 +648,7 @@ export class ProductService {
       total,
       duplicateTotal,
       page: safePage,
-      last_page: no_limit === 'true'
-        ? 1
-        : Math.ceil(total / safeLimit),
+      last_page: no_limit === 'true' ? 1 : Math.ceil(total / safeLimit),
     };
   }
 
@@ -672,12 +657,15 @@ export class ProductService {
 
     const today = new Date().toISOString().split('T')[0];
     try {
-      await this.productViewRepository.query(`
+      await this.productViewRepository.query(
+        `
         INSERT INTO product_views (product_id, view_date, count)
         VALUES ($1, $2, 1)
         ON CONFLICT (product_id, view_date) 
         DO UPDATE SET count = product_views.count + 1
-      `, [id, today]);
+      `,
+        [id, today],
+      );
     } catch (err) {
       console.error('Gagal update statistik harian:', err);
     }
@@ -705,18 +693,27 @@ export class ProductService {
 
   async getProductViewStats(productId: string) {
     const now = new Date();
-    const weekAgo = new Date(now); weekAgo.setDate(weekAgo.getDate() - 7);
-    
+    const weekAgo = new Date(now);
+    weekAgo.setDate(weekAgo.getDate() - 7);
+
     const stats = await this.productViewRepository
       .createQueryBuilder('pv')
       .where('pv.product_id = :id', { id: productId })
-      .andWhere('pv.view_date >= :from', { from: weekAgo.toISOString().split('T')[0] })
+      .andWhere('pv.view_date >= :from', {
+        from: weekAgo.toISOString().split('T')[0],
+      })
       .orderBy('pv.view_date', 'ASC')
       .getMany();
 
     return {
-      total_lifetime: (await this.productRepository.findOne({ where: { id: productId }, select: ['view_count'] }))?.view_count || 0,
-      weekly_chart: stats.map(s => ({ date: s.view_date, count: s.count }))
+      total_lifetime:
+        (
+          await this.productRepository.findOne({
+            where: { id: productId },
+            select: ['view_count'],
+          })
+        )?.view_count || 0,
+      weekly_chart: stats.map((s) => ({ date: s.view_date, count: s.count })),
     };
   }
 
@@ -762,20 +759,16 @@ export class ProductService {
 
     const results = await qb.getRawMany();
 
-    return results.map(r => ({
+    return results.map((r) => ({
       ...r,
       total_views: Number(r.total_views),
     }));
   }
 
   async updateProductByParams(id: string, dto: any): Promise<any> {
-    console.log('=== UPDATE PRODUCT ===');
-    console.log('has_variants:', dto.has_variants);
-    console.log('variants dari dto:', JSON.stringify(dto.variants, null, 2));
-    console.log('dto keys:', Object.keys(dto));
     const product = await this.productRepository.findOne({
       where: { id },
-      relations: ['category', 'brand', 'images', 'variants', 'variants.images'], 
+      relations: ['category', 'brand', 'images', 'variants', 'variants.images'],
       order: { images: { sort_order: 'ASC' } },
     });
 
@@ -800,7 +793,9 @@ export class ProductService {
         : null;
     }
     if (dto.category_id) {
-      product.category = await this.categoryRepository.findOneBy({ id: dto.category_id });
+      product.category = await this.categoryRepository.findOneBy({
+        id: dto.category_id,
+      });
     }
 
     // ============================================================
@@ -812,23 +807,25 @@ export class ProductService {
       const incomingIds = variants.filter((v) => v.id).map((v) => v.id);
 
       // Hapus variasi lama yang tidak ada di payload baru
-      const toDelete = existingVariantIds.filter((eid) => !incomingIds.includes(eid));
+      const toDelete = existingVariantIds.filter(
+        (eid) => !incomingIds.includes(eid),
+      );
       if (toDelete.length > 0) {
         await this.productVariantRepository.delete(toDelete); // ← tambah inject repo ini
       }
 
-    product.variants = variants.map((v: any) => ({
-      id: v.id || undefined,
-      variant_name: v.variant_name,
-      price_normal: v.price_normal,
-      price_discount: v.price_discount,
-      stock: v.stock,
-      sku_seller: v.sku_seller || null,
-      weight: v.weight || 0,
-      length: v.length || 0,
-      width: v.width || 0,
-      height: v.height || 0,
-    })) as any[];
+      product.variants = variants.map((v: any) => ({
+        id: v.id || undefined,
+        variant_name: v.variant_name,
+        price_normal: v.price_normal,
+        price_discount: v.price_discount,
+        stock: v.stock,
+        sku_seller: v.sku_seller || null,
+        weight: v.weight || 0,
+        length: v.length || 0,
+        width: v.width || 0,
+        height: v.height || 0,
+      })) as any[];
     } else {
       // Mode simple product — pastikan hanya ada 1 variant Default
       const toDelete = existingVariantIds.slice(1);
@@ -836,7 +833,9 @@ export class ProductService {
         await this.productVariantRepository.delete(toDelete);
       }
 
-      let defVariant = product.variants.find((v) => v.variant_name === 'Default') || product.variants[0];
+      let defVariant =
+        product.variants.find((v) => v.variant_name === 'Default') ||
+        product.variants[0];
       if (!defVariant) defVariant = { variant_name: 'Default' } as any;
 
       defVariant.variant_name = 'Default';
@@ -853,8 +852,6 @@ export class ProductService {
     }
 
     await this.productRepository.save(product);
-      console.log('=== AFTER SAVE ===');
-      console.log('product.variants tersimpan:', JSON.stringify(product.variants, null, 2));
 
     // Update sort_order gambar
     if (images && Array.isArray(images)) {
@@ -871,9 +868,14 @@ export class ProductService {
     const updatedProduct = await this.findOneByParams(id, false);
 
     // Fire-and-forget: sync ke Google Merchant Center
-    this.googleMerchantService.syncProduct(updatedProduct).catch((err) =>
-      console.error('[GoogleMerchant] Gagal sync produk update:', err.message)
-    );
+    this.googleMerchantService
+      .syncProduct(updatedProduct)
+      .catch((err) =>
+        console.error(
+          '[GoogleMerchant] Gagal sync produk update:',
+          err.message,
+        ),
+      );
 
     return updatedProduct;
   }
@@ -894,9 +896,11 @@ export class ProductService {
     }
 
     // Hapus dari Google Merchant Center sebelum delete dari DB
-    this.googleMerchantService.deleteProduct(id).catch((err) =>
-      console.error('[GoogleMerchant] Gagal hapus produk:', err.message)
-    );
+    this.googleMerchantService
+      .deleteProduct(id)
+      .catch((err) =>
+        console.error('[GoogleMerchant] Gagal hapus produk:', err.message),
+      );
 
     await this.productRepository.remove(product);
   }
@@ -914,7 +918,7 @@ export class ProductService {
     if (!ids.length) return;
 
     const products = await this.productRepository.find({
-      where: { id: In(ids) }, 
+      where: { id: In(ids) },
       relations: ['images'],
     });
 
@@ -959,42 +963,49 @@ export class ProductService {
     const qb = this.productRepository
       .createQueryBuilder('product')
       .leftJoinAndSelect('product.category', 'category')
-      .leftJoinAndSelect('product.brand', 'brand') 
-      .leftJoinAndSelect('product.variants', 'variant') // 🔥 Supaya harganya tetap terbaca
-      
+      .leftJoinAndSelect('product.brand', 'brand')
+      .leftJoinAndSelect('product.variants', 'variant'); // 🔥 Supaya harganya tetap terbaca
+
     qb.where('product.id != :id', { id: productId });
 
-    qb.addSelect(`
+    qb.addSelect(
+      `
       CASE 
         WHEN product.category_id = :catId THEN 1
         ELSE 0
       END
-    `, 'same_category');
+    `,
+      'same_category',
+    );
 
     qb.setParameter('catId', currentProduct.category?.id || null);
 
-    qb.addSelect(`
+    qb.addSelect(
+      `
       CASE 
         WHEN product.brand_id = :brandId THEN 1
         ELSE 0
       END
-    `, 'same_brand');
+    `,
+      'same_brand',
+    );
 
     qb.setParameter('brandId', currentProduct.brand?.id || null);
 
-    qb.addSelect(`
+    qb.addSelect(
+      `
       (
         COALESCE(product.view_count, 0) * 0.7 +
         COALESCE(product.search_count, 0) * 0.3
       )
-    `, 'recommend_score');
-
-    qb.addSelect(
-      `MOD(abs(hashtext(product.id::text)), :seed)`,
-      'random_order'
+    `,
+      'recommend_score',
     );
 
-    qb.addSelect(`
+    qb.addSelect(`MOD(abs(hashtext(product.id::text)), :seed)`, 'random_order');
+
+    qb.addSelect(
+      `
       (
         (CASE WHEN product.brand_id = :brandId THEN 1 ELSE 0 END) * 0.5 +
         (CASE WHEN product.category_id = :catId THEN 1 ELSE 0 END) * 0.3 +
@@ -1005,7 +1016,9 @@ export class ProductService {
         ) * 0.2 +
         (RANDOM() * 0.1)
       )
-    `, 'final_score');
+    `,
+      'final_score',
+    );
 
     qb.orderBy('final_score', 'DESC');
     qb.setParameter('seed', seed);
@@ -1022,14 +1035,14 @@ export class ProductService {
     });
 
     if (!product) {
-      throw new NotFoundException("Product not found");
+      throw new NotFoundException('Product not found');
     }
 
     product.brand = null;
 
     await this.productRepository.save(product);
 
-    return { message: "Brand removed from product" };
+    return { message: 'Brand removed from product' };
   }
 
   async getCompatibilityBuilder(query: {
@@ -1045,7 +1058,9 @@ export class ProductService {
         ? this.productRepository.findOne({ where: { id: query.processor_id } })
         : null,
       query.motherboard_id
-        ? this.productRepository.findOne({ where: { id: query.motherboard_id } })
+        ? this.productRepository.findOne({
+            where: { id: query.motherboard_id },
+          })
         : null,
       query.ram_id
         ? this.productRepository.findOne({ where: { id: query.ram_id } })
@@ -1069,8 +1084,8 @@ export class ProductService {
     if (cpuSocket && moboSocket && cpuSocket !== moboSocket) {
       return {
         active_constraints: {
-          socket: "Tidak kompatibel",
-          ram_type: requiredRamType || "Belum ditentukan",
+          socket: 'Tidak kompatibel',
+          ram_type: requiredRamType || 'Belum ditentukan',
         },
         available_processors: [],
         available_motherboards: [],
@@ -1079,14 +1094,14 @@ export class ProductService {
     }
 
     const cpuQuery = this.productRepository
-      .createQueryBuilder("product")
-      .leftJoinAndSelect("product.category", "category")
-      .leftJoinAndSelect("product.variants", "variant")
-      .leftJoinAndSelect("product.images", "images")
-      .where("LOWER(category.name) LIKE :cat", { cat: "%processor%" });
+      .createQueryBuilder('product')
+      .leftJoinAndSelect('product.category', 'category')
+      .leftJoinAndSelect('product.variants', 'variant')
+      .leftJoinAndSelect('product.images', 'images')
+      .where('LOWER(category.name) LIKE :cat', { cat: '%processor%' });
 
     if (requiredSocket) {
-      cpuQuery.andWhere("LOWER(product.socket_type) = :socket", {
+      cpuQuery.andWhere('LOWER(product.socket_type) = :socket', {
         socket: requiredSocket,
       });
     }
@@ -1094,20 +1109,20 @@ export class ProductService {
     const processors = await cpuQuery.getMany();
 
     const moboQuery = this.productRepository
-      .createQueryBuilder("product")
-      .leftJoinAndSelect("product.category", "category")
-      .leftJoinAndSelect("product.variants", "variant")
-      .leftJoinAndSelect("product.images", "images")
-      .where("LOWER(category.name) LIKE :cat", { cat: "%motherboard%" });
+      .createQueryBuilder('product')
+      .leftJoinAndSelect('product.category', 'category')
+      .leftJoinAndSelect('product.variants', 'variant')
+      .leftJoinAndSelect('product.images', 'images')
+      .where('LOWER(category.name) LIKE :cat', { cat: '%motherboard%' });
 
     if (requiredSocket) {
-      moboQuery.andWhere("LOWER(product.socket_type) = :socket", {
+      moboQuery.andWhere('LOWER(product.socket_type) = :socket', {
         socket: requiredSocket,
       });
     }
 
     if (requiredRamType) {
-      moboQuery.andWhere("LOWER(product.ram_type) = :ram", {
+      moboQuery.andWhere('LOWER(product.ram_type) = :ram', {
         ram: requiredRamType,
       });
     }
@@ -1115,14 +1130,14 @@ export class ProductService {
     const motherboards = await moboQuery.getMany();
 
     const ramQuery = this.productRepository
-      .createQueryBuilder("product")
-      .leftJoinAndSelect("product.category", "category")
-      .leftJoinAndSelect("product.variants", "variant")
-      .leftJoinAndSelect("product.images", "images")
-      .where("LOWER(category.name) LIKE :cat", { cat: "%ram%" });
+      .createQueryBuilder('product')
+      .leftJoinAndSelect('product.category', 'category')
+      .leftJoinAndSelect('product.variants', 'variant')
+      .leftJoinAndSelect('product.images', 'images')
+      .where('LOWER(category.name) LIKE :cat', { cat: '%ram%' });
 
     if (requiredRamType) {
-      ramQuery.andWhere("LOWER(product.ram_type) = :ram", {
+      ramQuery.andWhere('LOWER(product.ram_type) = :ram', {
         ram: requiredRamType,
       });
     }
@@ -1130,24 +1145,24 @@ export class ProductService {
     const rams = await ramQuery.getMany();
 
     const mapWithPrice = (products: Product[]) =>
-    products.map(p => {
-      const variant = p.variants?.[0];
-      return {
-        ...p,
-        final_price:
-          Number(variant?.price_normal || 0) -
-          Number(variant?.price_discount || 0),
-      };
-    });
+      products.map((p) => {
+        const variant = p.variants?.[0];
+        return {
+          ...p,
+          final_price:
+            Number(variant?.price_normal || 0) -
+            Number(variant?.price_discount || 0),
+        };
+      });
 
     return {
       active_constraints: {
-        socket: requiredSocket || "-",
-        ram_type: requiredRamType || "-",
+        socket: requiredSocket || '-',
+        ram_type: requiredRamType || '-',
       },
-      available_processors: mapWithPrice(processors), 
-      available_motherboards: mapWithPrice(motherboards), 
-      available_rams: mapWithPrice(rams),             
+      available_processors: mapWithPrice(processors),
+      available_motherboards: mapWithPrice(motherboards),
+      available_rams: mapWithPrice(rams),
     };
   }
 
@@ -1159,9 +1174,8 @@ export class ProductService {
     if (fs.existsSync(fullPath)) {
       try {
         await fs.promises.unlink(fullPath);
-        console.log("Deleted file:", fullPath);
       } catch (err) {
-        console.error("Failed delete file:", fullPath);
+        console.error('Failed delete file:', fullPath);
       }
     }
   }
@@ -1169,23 +1183,23 @@ export class ProductService {
   async getHardwareTypes() {
     // Ambil socket unik
     const socketsRaw = await this.productRepository
-      .createQueryBuilder("product")
-      .select("DISTINCT product.socket_type", "socket_type")
-      .where("product.socket_type IS NOT NULL")
+      .createQueryBuilder('product')
+      .select('DISTINCT product.socket_type', 'socket_type')
+      .where('product.socket_type IS NOT NULL')
       .andWhere("product.socket_type != ''")
       .getRawMany();
 
     // Ambil ram unik
     const ramsRaw = await this.productRepository
-      .createQueryBuilder("product")
-      .select("DISTINCT product.ram_type", "ram_type")
-      .where("product.ram_type IS NOT NULL")
+      .createQueryBuilder('product')
+      .select('DISTINCT product.ram_type', 'ram_type')
+      .where('product.ram_type IS NOT NULL')
       .andWhere("product.ram_type != ''")
       .getRawMany();
 
     return {
-      sockets: socketsRaw.map(s => s.socket_type),
-      rams: ramsRaw.map(r => r.ram_type),
+      sockets: socketsRaw.map((s) => s.socket_type),
+      rams: ramsRaw.map((r) => r.ram_type),
     };
   }
 
