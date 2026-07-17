@@ -14,9 +14,7 @@ export class WhatsappService {
     this.apiUrl = this.configService.get<string>('FONTE_API_URL') ?? 'https://api.fonnte.com/send';
 
     if (!this.apiKey) {
-      this.logger.warn(
-        'FONTE API Key is missing! Please check FONTE_API_KEY in .env',
-      );
+      this.logger.warn('FONTE API Key is missing! Please check FONTE_API_KEY in .env');
     }
   }
 
@@ -42,7 +40,6 @@ export class WhatsappService {
     }
 
     const message = `*ANANDAM COMPUTER*
-══════════════════
 
 Halo 👋,
 
