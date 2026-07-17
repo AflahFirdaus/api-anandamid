@@ -5,19 +5,11 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { join } from 'path';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { ThrottlerExceptionFilter } from './common/filters/throttler-exception.filter';
-import helmet from 'helmet';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
-  app.use(
-    helmet({
-      contentSecurityPolicy: false,
-      crossOriginResourcePolicy: false,
-      crossOriginOpenerPolicy: false,
-    }),
-  );
-
+  // CORS
   app.enableCors({
     origin: [
       'http://localhost:5173',
@@ -35,31 +27,20 @@ async function bootstrap() {
     new ValidationPipe({
       transform: true,
       whitelist: true,
-      transformOptions: {
-        enableImplicitConversion: true,
-      },
+      transformOptions: { enableImplicitConversion: true },
     }),
   );
 
   app.useGlobalInterceptors(new ClassSerializerInterceptor(app.get(Reflector)));
-
   app.useGlobalFilters(new ThrottlerExceptionFilter());
 
-  // Serve static files (uploads) with proper CORS headers
+  // Static files (uploads)
   app.useStaticAssets(join(process.cwd(), 'uploads'), {
     prefix: '/uploads/',
-    setHeaders: (res) => {
-      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-      res.setHeader('Cross-Origin-Opener-Policy', 'unsafe-none');
-      res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', '*');
-      res.setHeader('X-Content-Type-Options', 'nosniff');
-    },
   });
 
-  // Swagger / OpenAPI Setup
-  const swaggerConfig = new DocumentBuilder()
+  // Swagger
+  const config = new DocumentBuilder()
     .setTitle('AnandamID API')
     .setDescription('API documentation for AnandamID e-commerce backend')
     .setVersion('1.0')
@@ -74,14 +55,14 @@ async function bootstrap() {
       },
       'JWT-auth',
     )
-    .addServer('http://localhost:3030/api/v1', 'Local Development')
+    .addServer('http://localhost:3030/api/v1', 'Local')
     .addServer('https://staging.anandam.id/api/v1', 'Staging')
     .addServer('https://anandam.id/api/v1', 'Production')
     .build();
 
-  const document = SwaggerModule.createDocument(app, swaggerConfig);
-  SwaggerModule.setup('api/docs', app, document);
+  const doc = SwaggerModule.createDocument(app, config);
+  SwaggerModule.setup('api/docs', app, doc);
 
-  await app.listen(3030, '0.0.0.0');
+  await app.listen(3030);
 }
 bootstrap();
