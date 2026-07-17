@@ -20,10 +20,6 @@ export class WhatsappService {
     }
   }
 
-  /**
-   * Format nomor HP agar sesuai standar internasional (e.g. 628xxx)
-   * Tanpa +, tanpa spasi, tanpa strip.
-   */
   formatPhoneNumber(phone: string): string {
     if (!phone) return '';
     let cleaned = phone.replace(/\D/g, '');
@@ -33,9 +29,6 @@ export class WhatsappService {
     return cleaned;
   }
 
-  /**
-   * Mengirim kode OTP via WhatsApp menggunakan FONTE API
-   */
   async sendOtp(phone: string, otpCode: string): Promise<boolean> {
     const formattedPhone = this.formatPhoneNumber(phone);
     if (!formattedPhone) {
@@ -48,7 +41,6 @@ export class WhatsappService {
       return false;
     }
 
-    // Pesan OTP profesional dengan branding Anandam Computer
     const message = `*ANANDAM COMPUTER*
 ══════════════════
 
@@ -73,7 +65,7 @@ Toko Komputer & Laptop Terpercaya`;
       target: formattedPhone,
       message: message,
       countryCode: '62',
-      name: this.senderName, // Nama kontak yang muncul di WhatsApp
+      name: this.senderName,
     };
 
     try {
@@ -95,7 +87,6 @@ Toko Komputer & Laptop Terpercaya`;
         return false;
       }
 
-      // FONTE sukses mengembalikan status: true
       if (data.status === true) {
         this.logger.log(`WhatsApp OTP berhasil dikirim ke ${formattedPhone} via FONTE. ID: ${data.id}`);
         return true;
