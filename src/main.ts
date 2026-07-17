@@ -45,7 +45,7 @@ async function bootstrap() {
 
   app.useGlobalFilters(new ThrottlerExceptionFilter());
 
-  // ─── FIX CROSS-ORIGIN UNTUK STATIC FILES ───────────────
+  // Serve static files (uploads) with proper CORS headers
   app.useStaticAssets(join(process.cwd(), 'uploads'), {
     prefix: '/uploads/',
     setHeaders: (res) => {
@@ -59,7 +59,7 @@ async function bootstrap() {
   });
 
   // Swagger / OpenAPI Setup
-  const config = new DocumentBuilder()
+  const swaggerConfig = new DocumentBuilder()
     .setTitle('AnandamID API')
     .setDescription('API documentation for AnandamID e-commerce backend')
     .setVersion('1.0')
@@ -79,7 +79,7 @@ async function bootstrap() {
     .addServer('https://anandam.id/api/v1', 'Production')
     .build();
 
-  const document = SwaggerModule.createDocument(app, config);
+  const document = SwaggerModule.createDocument(app, swaggerConfig);
   SwaggerModule.setup('api/docs', app, document);
 
   await app.listen(3030, '0.0.0.0');
