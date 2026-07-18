@@ -19,6 +19,7 @@ import { PaymentModule } from '../payment/payment.module';
 import { VoucherModule } from '../voucher/voucher.module';
 import { ShipmentModule } from '../shipment/shipment.module';
 import { NotificationModule } from '../notification/notification.module';
+import { InvoiceModule } from '../invoice/invoice.module';
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { NotificationModule } from '../notification/notification.module';
     VoucherModule,
     forwardRef(() => ShipmentModule),
     NotificationModule,
+    forwardRef(() => InvoiceModule),
   ],
   controllers: [OrderController],
   providers: [OrderService, OrderCronService, ShippingLabelService, FulfillmentService, FulfillmentWorkflowService],
