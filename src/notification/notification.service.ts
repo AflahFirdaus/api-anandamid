@@ -35,6 +35,10 @@ function getOrderNotifTemplate(
       title: '📦 Pesananmu Lagi Dikemas!',
       body: `Pesanan ${inv} sedang kami kemas dengan rapi. Mohon tunggu sebentar ya, pesananmu akan segera dikirim!`,
     },
+    SIAP: {
+      title: '📬 Pesanan Siap!',
+      body: `Halo! Pesanan ${inv} sudah siap nih! Yuk segera ambil ke toko kami ya 🏪 Jangan lupa bawa nomor pesanan saat ambil~`,
+    },
     DIKIRIM: {
       title: '🚀 Pesananmu Udah Jalan!',
       body: `Yeyyy! Pesanan ${inv} lagi ngebut menuju alamatmu${courier}. Siap-siap di rumah ya~ 🏠`,

@@ -8,6 +8,7 @@ export const ORDER_STATUSES = [
   'PENDING',
   'LUNAS',
   'DIKEMAS',
+  'SIAP',
   'DIKIRIM',
   'SELESAI',
   'BATAL',
@@ -17,13 +18,14 @@ export const ORDER_STATUSES = [
   'CANCELLED',
 ] as const;
 
-export type OrderStatus = typeof ORDER_STATUSES[number];
+export type OrderStatus = (typeof ORDER_STATUSES)[number];
 
 // Allowed transitions map
 const ALLOWED_TRANSITIONS: Record<string, string[]> = {
   PENDING: ['LUNAS', 'BATAL'],
   LUNAS: ['DIKEMAS', 'BATAL', 'CANCEL_REQUESTED'],
-  DIKEMAS: ['DIKIRIM', 'BATAL'],
+  DIKEMAS: ['SIAP', 'DIKIRIM', 'BATAL'],
+  SIAP: ['DIKIRIM', 'SELESAI', 'BATAL'],
   DIKIRIM: ['SELESAI'],
   SELESAI: [],
   BATAL: [],
@@ -53,7 +55,7 @@ export function validateStatusTransition(
   if (!allowed.includes(newStatus)) {
     throw new Error(
       `Transisi status tidak valid: ${currentStatus} → ${newStatus}. ` +
-      `Hanya dapat diubah ke: ${allowed.join(', ') || 'tidak ada'}.`
+        `Hanya dapat diubah ke: ${allowed.join(', ') || 'tidak ada'}.`,
     );
   }
 }
@@ -66,6 +68,7 @@ export function getStatusLabel(status: string): string {
     PENDING: 'Belum Bayar',
     LUNAS: 'Dibayar',
     DIKEMAS: 'Dikemas',
+    SIAP: 'Siap',
     DIKIRIM: 'Dikirim',
     SELESAI: 'Selesai',
     BATAL: 'Dibatalkan',
@@ -79,14 +82,19 @@ export function getStatusLabel(status: string): string {
 
 // ── Booking Status Machine ──
 
-export const BOOKING_STATUSES = ['NOT_BOOKED', 'BOOKING', 'BOOKED', 'FAILED'] as const;
-export type BookingStatus = typeof BOOKING_STATUSES[number];
+export const BOOKING_STATUSES = [
+  'NOT_BOOKED',
+  'BOOKING',
+  'BOOKED',
+  'FAILED',
+] as const;
+export type BookingStatus = (typeof BOOKING_STATUSES)[number];
 
 const ALLOWED_BOOKING_TRANSITIONS: Record<string, string[]> = {
   NOT_BOOKED: ['BOOKING', 'FAILED'],
   BOOKING: ['BOOKED', 'FAILED'],
   BOOKED: ['BOOKING', 'FAILED'], // allow retry if needed
-  FAILED: ['BOOKING'],            // allow retry from failure
+  FAILED: ['BOOKING'], // allow retry from failure
 };
 
 /**
@@ -100,13 +108,15 @@ export function validateBookingTransition(
     throw new Error('Booking sedang diproses. Mohon tunggu.');
   }
   if (currentStatus === 'BOOKED' && targetStatus === 'BOOKING') {
-    throw new Error('Booking sudah berhasil sebelumnya. Tidak dapat booking ulang.');
+    throw new Error(
+      'Booking sudah berhasil sebelumnya. Tidak dapat booking ulang.',
+    );
   }
 
   const allowed = ALLOWED_BOOKING_TRANSITIONS[currentStatus];
   if (!allowed || !allowed.includes(targetStatus)) {
     throw new Error(
-      `Transisi booking tidak valid: ${currentStatus} → ${targetStatus}.`
+      `Transisi booking tidak valid: ${currentStatus} → ${targetStatus}.`,
     );
   }
 }

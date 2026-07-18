@@ -1942,11 +1942,51 @@ export class OrderService {
     }
   }
 
-  async markDelivered(orderId: string) {
+  async markReadyForPickup(orderId: string) {
     const order = await this.orderRepo.findOne({ where: { id: orderId } });
     if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
     if (order.status !== 'DIKEMAS')
-      throw new BadRequestException('Hanya pesanan DIKEMAS.');
+      throw new BadRequestException('Hanya pesanan DIKEMAS yang bisa ditandai siap ambil.');
+    if (order.shipping_type !== 'store_pickup')
+      throw new BadRequestException('Hanya pesanan ambil di toko.');
+
+    order.status = 'SIAP';
+    await this.orderRepo.save(order);
+    await this.orderHistoryRepo.save({
+      order_id: order.id,
+      actor: 'SYSTEM',
+      action: 'READY_FOR_PICKUP',
+      description: 'Pesanan siap diambil di toko',
+    });
+    this.notificationService.sendOrderStatusNotif(order.user_id, order, 'SIAP').catch(() => {});
+    return { message: 'Pesanan siap diambil di toko.', order };
+  }
+
+  async markReadyForDelivery(orderId: string) {
+    const order = await this.orderRepo.findOne({ where: { id: orderId } });
+    if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
+    if (order.status !== 'DIKEMAS')
+      throw new BadRequestException('Hanya pesanan DIKEMAS yang bisa ditandai siap antar.');
+    if (order.shipping_type !== 'store_delivery')
+      throw new BadRequestException('Hanya pesanan delivery toko.');
+
+    order.status = 'SIAP';
+    await this.orderRepo.save(order);
+    await this.orderHistoryRepo.save({
+      order_id: order.id,
+      actor: 'SYSTEM',
+      action: 'READY_FOR_DELIVERY',
+      description: 'Pesanan siap diantar',
+    });
+    this.notificationService.sendOrderStatusNotif(order.user_id, order, 'SIAP').catch(() => {});
+    return { message: 'Pesanan siap diantar.', order };
+  }
+
+  async markDelivered(orderId: string) {
+    const order = await this.orderRepo.findOne({ where: { id: orderId } });
+    if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
+    if (order.status !== 'DIKEMAS' && order.status !== 'SIAP')
+      throw new BadRequestException('Hanya pesanan DIKEMAS atau SIAP.');
 
     order.status = 'DIKIRIM';
     order.delivered_at = new Date();

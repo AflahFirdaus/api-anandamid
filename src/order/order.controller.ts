@@ -288,6 +288,34 @@ export class OrderController {
     return this.orderService.requestPickup(orderId);
   }
 
+  // ====================== ADMIN MARK READY FOR PICKUP (STORE PICKUP) ======================
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/mark-ready-pickup')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Mark order ready for pickup (Admin, Store Pickup)',
+    description: 'For store_pickup orders: mark that package is ready and customer can pick up. Transitions DIKEMAS → SIAP. Sends notification to customer.',
+  })
+  @ApiResponse({ status: 200, description: 'Order marked ready for pickup' })
+  @ApiResponse({ status: 400, description: 'Not store_pickup or wrong status' })
+  async markReadyForPickup(@Param('id') orderId: string) {
+    return this.orderService.markReadyForPickup(orderId);
+  }
+
+  // ====================== ADMIN MARK READY FOR DELIVERY (STORE DELIVERY) ======================
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/mark-ready-delivery')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Mark order ready for delivery (Admin, Store Delivery)',
+    description: 'For store_delivery orders: mark that package is ready to be delivered by store. Transitions DIKEMAS → SIAP. Sends notification to customer.',
+  })
+  @ApiResponse({ status: 200, description: 'Order marked ready for delivery' })
+  @ApiResponse({ status: 400, description: 'Not store_delivery or wrong status' })
+  async markReadyForDelivery(@Param('id') orderId: string) {
+    return this.orderService.markReadyForDelivery(orderId);
+  }
+
   // ====================== ADMIN MARK DELIVERED ======================
   @UseGuards(JwtAuthGuard)
   @Post(':id/mark-delivered')
