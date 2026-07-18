@@ -1151,8 +1151,8 @@ export class OrderService {
     // Notif: update status oleh admin
     this.notificationService.sendOrderStatusNotif(savedOrder.user_id, savedOrder, dto.status as string).catch(() => {});
 
-    // Generate invoice when status changes to DIKIRIM
-    if (dto.status === 'DIKIRIM') {
+    // Generate invoice when status changes to DIKIRIM or SELESAI
+    if (dto.status === 'DIKIRIM' || dto.status === 'SELESAI') {
       this.generateInvoiceForOrder(savedOrder.id).catch((err) => {
         this.logger.error(`[INVOICE] Failed to generate invoice for order ${savedOrder.id}: ${err.message}`);
       });
@@ -2009,6 +2009,12 @@ export class OrderService {
       description: 'Pesanan ditandai terkirim',
     });
     this.notificationService.sendOrderStatusNotif(order.user_id, order, 'DIKIRIM').catch(() => {});
+
+    // Generate invoice when marked as delivered
+    this.generateInvoiceForOrder(order.id).catch((err) => {
+      this.logger.error(`[INVOICE] Failed to generate invoice for order ${order.id}: ${err.message}`);
+    });
+
     return { message: 'Pesanan ditandai terkirim.', order };
   }
 
@@ -2028,6 +2034,12 @@ export class OrderService {
     order.status = 'SELESAI';
     order.completed_at = new Date();
     await this.orderRepo.save(order);
+
+    // Generate invoice when order is completed
+    this.generateInvoiceForOrder(order.id).catch((err) => {
+      this.logger.error(`[INVOICE] Failed to generate invoice for order ${order.id}: ${err.message}`);
+    });
+
     return { message: 'Pesanan selesai.', order };
   }
 

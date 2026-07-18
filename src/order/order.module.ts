@@ -38,7 +38,7 @@ import { InvoiceModule } from '../invoice/invoice.module';
     VoucherModule,
     forwardRef(() => ShipmentModule),
     NotificationModule,
-    forwardRef(() => InvoiceModule),
+    InvoiceModule,
   ],
   controllers: [OrderController],
   providers: [OrderService, OrderCronService, ShippingLabelService, FulfillmentService, FulfillmentWorkflowService],
