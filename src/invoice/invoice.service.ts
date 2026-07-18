@@ -11,8 +11,13 @@ import { Order } from '../order/entities/order.entity';
 import * as path from 'path';
 import * as fs from 'fs';
 
-// pdfmake - use require for type compatibility
-const PdfPrinter = require('pdfmake');
+// pdfmake - dynamic import with fallback
+let PdfPrinter: any = null;
+try {
+  PdfPrinter = require('pdfmake');
+} catch {
+  // pdfmake not available, PDF generation will be skipped
+}
 
 @Injectable()
 export class InvoiceService {
@@ -146,6 +151,10 @@ export class InvoiceService {
    * Generate PDF file for invoice
    */
   private async generatePdf(invoice: Invoice, order: Order): Promise<string> {
+    if (!PdfPrinter) {
+      throw new Error('pdfmake library tidak tersedia di server');
+    }
+
     const fonts = {
       Roboto: {
         normal: path.join(process.cwd(), 'node_modules', 'pdfmake', 'build', 'fonts', 'Roboto-Regular.ttf'),
