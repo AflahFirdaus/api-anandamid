@@ -83,7 +83,7 @@ function getOrderNotifTemplate(
  * Status order yang memicu pengiriman email notifikasi.
  * Hanya 4 event penting, sisanya hanya push WebSocket.
  */
-const EMAIL_TRIGGER_STATUSES = new Set(['PENDING', 'CANCELLED', 'REFUNDING', 'SELESAI']);
+const EMAIL_TRIGGER_STATUSES = new Set(['PENDING', 'SIAP', 'CANCELLED', 'REFUNDING', 'SELESAI']);
 
 interface EmailTemplateData {
   userName: string;
