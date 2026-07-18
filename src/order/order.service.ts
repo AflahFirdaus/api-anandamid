@@ -2134,7 +2134,7 @@ export class OrderService {
       is_store_pickup: isStorePickup,
       is_store_delivery: isStoreDelivery,
       pickup_estimate_minutes: isStorePickup ? (pickup_estimate_minutes || 30) : null,
-      delivery_distance_km: isStoreDelivery ? (delivery_distance_km || null) : null,
+      delivery_distance_km: isStoreDelivery ? Math.round(delivery_distance_km || 0) || null : null,
       shipping_address_snapshot: isStorePickup ? null : {
         recipient_name: address.recipient_name || user.full_name,
         phone_number: address.phone_number || user.phone_number,
