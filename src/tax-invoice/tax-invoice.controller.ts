@@ -12,7 +12,7 @@ import { diskStorage } from 'multer';
 import { extname, join } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 
-@Controller('api/tax-invoice')
+@Controller('tax-invoice')
 export class TaxInvoiceController {
   /**
    * Upload NPWP document

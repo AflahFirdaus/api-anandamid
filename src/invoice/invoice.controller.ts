@@ -15,7 +15,7 @@ import { JwtAdminGuard } from '../user/guards/jwt-admin.guard';
 import type { Response } from 'express';
 import * as fs from 'fs';
 
-@Controller('api')
+@Controller()
 export class InvoiceController {
   constructor(private readonly invoiceService: InvoiceService) {}
 
