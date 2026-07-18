@@ -1,6 +1,6 @@
 import { 
   IsArray, IsNotEmpty, IsString, IsOptional, 
-  IsNumber, Min, ValidateNested 
+  IsNumber, Min, ValidateNested, IsBoolean, Matches, IsEmail 
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
@@ -102,6 +102,35 @@ export class CheckoutBuilderDto {
   notes?: string;
 }
 
+// ================= TAX INVOICE REQUEST DTO (declare before CreateCheckoutDto) =================
+export class TaxInvoiceRequestDto {
+  @ApiProperty({ description: 'Nama Perusahaan', example: 'PT. Contoh Makmur' })
+  @IsNotEmpty()
+  @IsString()
+  company_name: string;
+
+  @ApiProperty({ description: 'Nomor NPWP (16 digit)', example: '0123456789123456' })
+  @IsNotEmpty()
+  @IsString()
+  @Matches(/^\d{16}$/, { message: 'Format NPWP tidak valid. Harus 16 digit angka.' })
+  npwp_number: string;
+
+  @ApiProperty({ description: 'Email Perusahaan', example: 'perusahaan@email.com' })
+  @IsNotEmpty()
+  @IsEmail()
+  company_email: string;
+
+  @ApiProperty({ description: 'Alamat Perusahaan', example: 'Jl. Bisnis No.456' })
+  @IsNotEmpty()
+  @IsString()
+  company_address: string;
+
+  @ApiProperty({ description: 'URL foto/dokumen NPWP', example: '/uploads/tax-invoices/npwp/npwp-xxx.jpg' })
+  @IsNotEmpty()
+  @IsString()
+  npwp_document_url: string;
+}
+
 // ================= CHECKOUT WITH PAYMENT =================
 export class CreateCheckoutDto {
   @ApiPropertyOptional({
@@ -201,6 +230,23 @@ export class CreateCheckoutDto {
   @IsOptional()
   @IsString()
   voucher_usage_id?: string;
+
+  @ApiPropertyOptional({
+    description: 'Request faktur pajak?',
+    example: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  is_tax_invoice_requested?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Data faktur pajak (wajib jika is_tax_invoice_requested = true)',
+    type: TaxInvoiceRequestDto,
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => TaxInvoiceRequestDto)
+  tax_invoice_request?: TaxInvoiceRequestDto;
 
   @ApiPropertyOptional({
     description: 'Optional notes',

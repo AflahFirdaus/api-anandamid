@@ -36,6 +36,8 @@ import { ReviewModule } from './review/review.module';
 import { VoucherModule } from './voucher/voucher.module';
 import { ShipmentModule } from './shipment/shipment.module';
 import { NotificationModule } from './notification/notification.module';
+import { InvoiceModule } from './invoice/invoice.module';
+import { TaxInvoiceModule } from './tax-invoice/tax-invoice.module';
 
 @Module({
   imports: [
@@ -74,6 +76,8 @@ import { NotificationModule } from './notification/notification.module';
     VoucherModule,
     ShipmentModule,
     NotificationModule,
+    InvoiceModule,
+    TaxInvoiceModule,
   ],
   controllers: [AppController],
   providers: [AppService],

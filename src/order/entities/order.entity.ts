@@ -182,6 +182,13 @@ export class Order {
   @Column({ type: 'varchar', length: 20, nullable: true })
   handover_method: string; // PICKUP | DROP_OFF
 
+  // ── Tax Invoice Request ──
+  @Column({ default: false })
+  is_tax_invoice_requested: boolean;
+
+  @Column({ type: 'jsonb', nullable: true })
+  tax_invoice_request: Record<string, any>;
+
   @OneToMany(() => OrderItem, (item) => item.order, { cascade: true })
   items: OrderItem[];
 

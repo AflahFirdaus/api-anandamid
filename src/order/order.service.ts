@@ -33,6 +33,7 @@ import {
 } from './order-state-machine';
 import { FulfillmentStatus } from './enums/fulfillment-status.enum';
 import { NotificationService } from '../notification/notification.service';
+import { InvoiceService } from '../invoice/invoice.service';
 
 function normalizeCourierCode(courier: string): string {
   const c = courier.toLowerCase().trim();
@@ -121,6 +122,7 @@ export class OrderService {
     private readonly voucherService: VoucherService,
     private readonly dataSource: DataSource,
     private readonly notificationService: NotificationService,
+    private readonly invoiceService: InvoiceService,
   ) {}
 
   private generateInvoiceNumber(): string {
@@ -1132,7 +1134,9 @@ export class OrderService {
     ) {
       await this.restoreStock(orderId);
     }
-    if (dto.status === 'DIKIRIM') order.delivered_at = new Date();
+    if (dto.status === 'DIKIRIM') {
+      order.delivered_at = new Date();
+    }
     if (dto.status === 'SELESAI') order.completed_at = new Date();
     order.status = dto.status as string;
     if (dto.tracking_number !== undefined)
@@ -1146,6 +1150,13 @@ export class OrderService {
 
     // Notif: update status oleh admin
     this.notificationService.sendOrderStatusNotif(savedOrder.user_id, savedOrder, dto.status as string).catch(() => {});
+
+    // Generate invoice when status changes to DIKIRIM
+    if (dto.status === 'DIKIRIM') {
+      this.generateInvoiceForOrder(savedOrder.id).catch((err) => {
+        this.logger.error(`[INVOICE] Failed to generate invoice for order ${savedOrder.id}: ${err.message}`);
+      });
+    }
 
     return {
       message: `Status diubah: ${dto.status}`,
@@ -2053,6 +2064,8 @@ export class OrderService {
     const voucher_code = dto.voucher_code;
     const pickup_estimate_minutes = dto.pickup_estimate_minutes;
     const delivery_distance_km = dto.delivery_distance_km;
+    const is_tax_invoice_requested = dto.is_tax_invoice_requested || false;
+    const tax_invoice_request = dto.tax_invoice_request || null;
 
     // For store_pickup: no address needed
     // For store_delivery: address needed for delivery but shipping_cost = 0
@@ -2149,6 +2162,19 @@ export class OrderService {
         label: address.label,
       },
     } as any);
+
+    // Add tax invoice request data if applicable
+    if (is_tax_invoice_requested && tax_invoice_request) {
+      (order as any).is_tax_invoice_requested = true;
+      (order as any).tax_invoice_request = {
+        company_name: tax_invoice_request.company_name,
+        npwp_number: tax_invoice_request.npwp_number,
+        company_email: tax_invoice_request.company_email,
+        company_address: tax_invoice_request.company_address,
+        npwp_document_url: tax_invoice_request.npwp_document_url,
+        requested_at: new Date(),
+      };
+    }
 
     const savedOrder = await this.orderRepo.save(order) as any;
 
@@ -2372,6 +2398,18 @@ export class OrderService {
 
     this.logger.log(`[AUTO_CANCEL] Done. ${cancelledCount}/${expiredOrders.length} orders cancelled`);
     return cancelledCount;
+  }
+
+  /**
+   * Generate invoice for order (called when status changes to DIKIRIM)
+   */
+  private async generateInvoiceForOrder(orderId: string): Promise<void> {
+    try {
+      await this.invoiceService.generateInvoice(orderId);
+      this.logger.log(`[INVOICE] Invoice generated for order ${orderId}`);
+    } catch (err: any) {
+      this.logger.error(`[INVOICE] Failed to generate invoice for order ${orderId}: ${err.message}`);
+    }
   }
 
   async repairOrderState(orderId: string): Promise<any> {
