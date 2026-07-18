@@ -11,10 +11,10 @@ import { Order } from '../order/entities/order.entity';
 import * as path from 'path';
 import * as fs from 'fs';
 
-// pdfmake - dynamic import with fallback
-let PdfPrinter: any = null;
+// pdfmake v0.3.x - use createPdf API
+let pdfmake: any = null;
 try {
-  PdfPrinter = require('pdfmake');
+  pdfmake = require('pdfmake');
 } catch {
   // pdfmake not available, PDF generation will be skipped
 }
@@ -37,79 +37,68 @@ export class InvoiceService {
     }
   }
 
-  /**
-   * Generate invoice number: INV/YYYYMM/XXXXX
-   */
   private async generateInvoiceNumber(): Promise<string> {
     const now = new Date();
     const yearMonth = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
     const prefix = `INV/${yearMonth}/`;
-
-    // Find the last invoice number for this month
     const lastInvoice = await this.invoiceRepo
       .createQueryBuilder('invoice')
       .where('invoice.invoice_number LIKE :prefix', { prefix: `${prefix}%` })
       .orderBy('invoice.invoice_number', 'DESC')
       .getOne();
-
     let nextSeq = 1;
     if (lastInvoice) {
-      const lastNum = parseInt(lastInvoice.invoice_number.split('/').pop() || '0', 10);
+      const lastNum = parseInt(
+        lastInvoice.invoice_number.split('/').pop() || '0',
+        10,
+      );
       nextSeq = lastNum + 1;
     }
-
     return `${prefix}${String(nextSeq).padStart(5, '0')}`;
   }
 
-  /**
-   * Generate PDF invoice for a given order.
-   * Called when order status changes to DIKIRIM.
-   */
   async generateInvoice(orderId: string): Promise<Invoice> {
     const order = await this.orderRepo.findOne({
       where: { id: orderId },
       relations: ['items', 'items.product'],
     });
+    if (!order) throw new NotFoundException(`Order ${orderId} tidak ditemukan`);
 
-    if (!order) {
-      throw new NotFoundException(`Order ${orderId} tidak ditemukan`);
-    }
-
-    // Check if invoice already exists
-    const existing = await this.invoiceRepo.findOne({ where: { order_id: orderId } });
+    const existing = await this.invoiceRepo.findOne({
+      where: { order_id: orderId },
+    });
     if (existing) {
       this.logger.warn(`Invoice already exists for order ${orderId}, skipping`);
       return existing;
     }
 
     const invoiceNumber = await this.generateInvoiceNumber();
-
-    // Calculate values
-    const subtotalItems = order.items?.reduce(
-      (sum, item) => sum + Number(item.price) * item.quantity,
-      0,
-    ) || 0;
+    const subtotalItems =
+      order.items?.reduce(
+        (sum, item) => sum + Number(item.price) * item.quantity,
+        0,
+      ) || 0;
     const shippingCost = Number(order.shipping_cost) || 0;
-    const discount = Math.max(0, subtotalItems + shippingCost - Number(order.total_price));
+    const discount = Math.max(
+      0,
+      subtotalItems + shippingCost - Number(order.total_price),
+    );
     const total = Number(order.total_price) || 0;
 
-    // Tax invoice data
     const taxRequest = (order as any).tax_invoice_request || null;
     const isTaxInvoice = (order as any).is_tax_invoice_requested || false;
 
-    // Build items snapshot
-    const itemsSnapshot = order.items?.map((item) => ({
-      product_name: item.product_name,
-      variasi: item.variasi || null,
-      quantity: item.quantity,
-      price: Number(item.price),
-      subtotal: Number(item.price) * item.quantity,
-    })) || [];
+    const itemsSnapshot =
+      order.items?.map((item) => ({
+        product_name: item.product_name,
+        variasi: item.variasi || null,
+        quantity: item.quantity,
+        price: Number(item.price),
+        subtotal: Number(item.price) * item.quantity,
+      })) || [];
 
-    // Customer data from shipping_address_snapshot
     const addr = order.shipping_address_snapshot || {};
 
-    // Create invoice record
     const invoice = this.invoiceRepo.create({
       order_id: orderId,
       invoice_number: invoiceNumber,
@@ -118,7 +107,9 @@ export class InvoiceService {
       customer_address: addr.full_address || '',
       customer_npwp: isTaxInvoice ? taxRequest?.npwp_number || null : null,
       company_name: isTaxInvoice ? taxRequest?.company_name || null : null,
-      company_address: isTaxInvoice ? taxRequest?.company_address || null : null,
+      company_address: isTaxInvoice
+        ? taxRequest?.company_address || null
+        : null,
       company_email: isTaxInvoice ? taxRequest?.company_email || null : null,
       items: itemsSnapshot,
       subtotal: subtotalItems,
@@ -134,37 +125,23 @@ export class InvoiceService {
 
     const savedInvoice = await this.invoiceRepo.save(invoice);
 
-    // Generate PDF
     try {
       const pdfUrl = await this.generatePdf(savedInvoice, order);
       savedInvoice.pdf_url = pdfUrl;
       await this.invoiceRepo.save(savedInvoice);
-    } catch (err) {
-      this.logger.error(`Failed to generate PDF for invoice ${invoiceNumber}: ${err.message}`);
-      // Invoice record still created, just without PDF
+    } catch (err: any) {
+      this.logger.error(
+        `Failed to generate PDF for invoice ${invoiceNumber}: ${err.message}`,
+      );
     }
 
     return savedInvoice;
   }
 
-  /**
-   * Generate PDF file for invoice
-   */
   private async generatePdf(invoice: Invoice, order: Order): Promise<string> {
-    if (!PdfPrinter) {
+    if (!pdfmake) {
       throw new Error('pdfmake library tidak tersedia di server');
     }
-
-    const fonts = {
-      Roboto: {
-        normal: path.join(process.cwd(), 'node_modules', 'pdfmake', 'build', 'fonts', 'Roboto-Regular.ttf'),
-        bold: path.join(process.cwd(), 'node_modules', 'pdfmake', 'build', 'fonts', 'Roboto-Medium.ttf'),
-        italics: path.join(process.cwd(), 'node_modules', 'pdfmake', 'build', 'fonts', 'Roboto-Italic.ttf'),
-        bolditalics: path.join(process.cwd(), 'node_modules', 'pdfmake', 'build', 'fonts', 'Roboto-MediumItalic.ttf'),
-      },
-    };
-
-    const printer = new PdfPrinter(fonts);
 
     const now = new Date();
     const dateStr = now.toLocaleDateString('id-ID', {
@@ -173,7 +150,6 @@ export class InvoiceService {
       year: 'numeric',
     });
 
-    // Build table body for items
     const tableBody: any[][] = [
       [
         { text: 'No', style: 'tableHeader', alignment: 'center' },
@@ -191,29 +167,27 @@ export class InvoiceService {
         { text: item.product_name || '-', fontSize: 9 },
         { text: item.variasi || '-', alignment: 'center', fontSize: 9 },
         { text: String(item.quantity), alignment: 'center', fontSize: 9 },
-        { text: `Rp ${Number(item.price).toLocaleString('id-ID')}`, alignment: 'right', fontSize: 9 },
-        { text: `Rp ${Number(item.subtotal).toLocaleString('id-ID')}`, alignment: 'right', fontSize: 9 },
+        {
+          text: `Rp ${Number(item.price).toLocaleString('id-ID')}`,
+          alignment: 'right',
+          fontSize: 9,
+        },
+        {
+          text: `Rp ${Number(item.subtotal).toLocaleString('id-ID')}`,
+          alignment: 'right',
+          fontSize: 9,
+        },
       ]);
     });
 
-    // Build document definition
     const docDefinition: any = {
       pageSize: 'A4',
       pageMargins: [40, 40, 40, 40],
       content: [
-        // ── HEADER ──
         {
           columns: [
-            {
-              text: 'ANANDAM COMPUTER',
-              style: 'companyName',
-              width: '*',
-            },
-            {
-              text: 'INVOICE',
-              style: 'invoiceTitle',
-              alignment: 'right',
-            },
+            { text: 'ANANDAM COMPUTER', style: 'companyName', width: '*' },
+            { text: 'INVOICE', style: 'invoiceTitle', alignment: 'right' },
           ],
         },
         {
@@ -222,61 +196,73 @@ export class InvoiceService {
           margin: [0, 2, 0, 0],
         },
         {
-          text: `Telp: 081228134747 | Email: anandam.computer@gmail.com`,
+          text: 'Telp: 081228134747 | Email: anandam.computer@gmail.com',
           style: 'companyContact',
           margin: [0, 0, 0, 10],
         },
         {
           canvas: [
-            { type: 'line', x1: 0, y1: 0, x2: 515, y2: 0, lineWidth: 1, lineColor: '#1a73e8' },
+            {
+              type: 'line',
+              x1: 0,
+              y1: 0,
+              x2: 515,
+              y2: 0,
+              lineWidth: 1,
+              lineColor: '#1a73e8',
+            },
           ],
           margin: [0, 0, 0, 10],
         },
-
-        // ── INVOICE INFO ──
         {
           columns: [
             {
               width: '50%',
               stack: [
-                { text: `No. Invoice: ${invoice.invoice_number}`, style: 'infoText' },
+                {
+                  text: `No. Invoice: ${invoice.invoice_number}`,
+                  style: 'infoText',
+                },
                 { text: `Tanggal: ${dateStr}`, style: 'infoText' },
-                { text: `Status: ${invoice.status === 'ISSUED' ? 'Telah Terbit' : invoice.status}`, style: 'infoText' },
+                {
+                  text: `Status: ${invoice.status === 'ISSUED' ? 'Telah Terbit' : invoice.status}`,
+                  style: 'infoText',
+                },
               ],
             },
             {
               width: '50%',
               stack: [
-                { text: `Pembayaran: ${invoice.payment_method || '-'}`, style: 'infoText', alignment: 'right' },
+                {
+                  text: `Pembayaran: ${invoice.payment_method || '-'}`,
+                  style: 'infoText',
+                  alignment: 'right',
+                },
               ],
             },
           ],
           margin: [0, 0, 0, 15],
         },
-
-        // ── CUSTOMER INFO ──
-        {
-          text: 'DATA PEMBELI',
-          style: 'sectionTitle',
-        },
+        { text: 'DATA PEMBELI', style: 'sectionTitle' },
         {
           columns: [
             {
               width: '50%',
               stack: [
-                { text: `Nama: ${invoice.customer_name || '-'}`, style: 'dataText' },
-                { text: `Alamat: ${invoice.customer_address || '-'}`, style: 'dataText' },
+                {
+                  text: `Nama: ${invoice.customer_name || '-'}`,
+                  style: 'dataText',
+                },
+                {
+                  text: `Alamat: ${invoice.customer_address || '-'}`,
+                  style: 'dataText',
+                },
               ],
             },
           ],
           margin: [0, 5, 0, 15],
         },
-
-        // ── ORDER ITEMS TABLE ──
-        {
-          text: 'DETAIL PESANAN',
-          style: 'sectionTitle',
-        },
+        { text: 'DETAIL PESANAN', style: 'sectionTitle' },
         {
           table: {
             headerRows: 1,
@@ -295,12 +281,7 @@ export class InvoiceService {
           },
           margin: [0, 5, 0, 15],
         },
-
-        // ── PAYMENT SUMMARY ──
-        {
-          text: 'RINGKASAN PEMBAYARAN',
-          style: 'sectionTitle',
-        },
+        { text: 'RINGKASAN PEMBAYARAN', style: 'sectionTitle' },
         {
           layout: 'noBorders',
           table: {
@@ -308,17 +289,29 @@ export class InvoiceService {
             body: [
               [
                 { text: 'Subtotal', style: 'summaryLabel' },
-                { text: `Rp ${Number(invoice.subtotal).toLocaleString('id-ID')}`, style: 'summaryValue', alignment: 'right' },
+                {
+                  text: `Rp ${Number(invoice.subtotal).toLocaleString('id-ID')}`,
+                  style: 'summaryValue',
+                  alignment: 'right',
+                },
               ],
               [
                 { text: 'Ongkos Kirim', style: 'summaryLabel' },
-                { text: `Rp ${Number(invoice.shipping_cost).toLocaleString('id-ID')}`, style: 'summaryValue', alignment: 'right' },
+                {
+                  text: `Rp ${Number(invoice.shipping_cost).toLocaleString('id-ID')}`,
+                  style: 'summaryValue',
+                  alignment: 'right',
+                },
               ],
               ...(Number(invoice.discount) > 0
                 ? [
                     [
                       { text: 'Diskon', style: 'summaryLabel' },
-                      { text: `-Rp ${Number(invoice.discount).toLocaleString('id-ID')}`, style: 'summaryDiscount', alignment: 'right' },
+                      {
+                        text: `-Rp ${Number(invoice.discount).toLocaleString('id-ID')}`,
+                        style: 'summaryDiscount',
+                        alignment: 'right',
+                      },
                     ],
                   ]
                 : []),
@@ -328,19 +321,29 @@ export class InvoiceService {
               ],
               [
                 { text: 'TOTAL', style: 'totalLabel' },
-                { text: `Rp ${Number(invoice.total).toLocaleString('id-ID')}`, style: 'totalValue', alignment: 'right' },
+                {
+                  text: `Rp ${Number(invoice.total).toLocaleString('id-ID')}`,
+                  style: 'totalValue',
+                  alignment: 'right',
+                },
               ],
             ],
           },
           margin: [0, 5, 0, 20],
         },
-
-        // ── TAX INVOICE SECTION (if requested) ──
         ...(invoice.invoice_type === 'TAX'
           ? [
               {
                 canvas: [
-                  { type: 'line', x1: 0, y1: 0, x2: 515, y2: 0, lineWidth: 2, lineColor: '#000000' },
+                  {
+                    type: 'line',
+                    x1: 0,
+                    y1: 0,
+                    x2: 515,
+                    y2: 0,
+                    lineWidth: 2,
+                    lineColor: '#000000',
+                  },
                 ],
                 margin: [0, 0, 0, 10],
               },
@@ -369,7 +372,10 @@ export class InvoiceService {
                     ],
                     [
                       { text: 'Alamat Perusahaan', style: 'taxLabel' },
-                      { text: invoice.company_address || '-', style: 'taxValue' },
+                      {
+                        text: invoice.company_address || '-',
+                        style: 'taxValue',
+                      },
                     ],
                   ],
                 },
@@ -377,11 +383,17 @@ export class InvoiceService {
               },
             ]
           : []),
-
-        // ── FOOTER ──
         {
           canvas: [
-            { type: 'line', x1: 0, y1: 0, x2: 515, y2: 0, lineWidth: 1, lineColor: '#cccccc' },
+            {
+              type: 'line',
+              x1: 0,
+              y1: 0,
+              x2: 515,
+              y2: 0,
+              lineWidth: 1,
+              lineColor: '#cccccc',
+            },
           ],
           margin: [0, 0, 0, 10],
         },
@@ -397,97 +409,40 @@ export class InvoiceService {
           margin: [0, 3, 0, 0],
         },
       ],
-
       styles: {
-        companyName: {
-          fontSize: 18,
-          bold: true,
-          color: '#1a73e8',
-        },
-        companyAddress: {
-          fontSize: 8,
-          color: '#666666',
-        },
-        companyContact: {
-          fontSize: 8,
-          color: '#666666',
-        },
-        invoiceTitle: {
-          fontSize: 24,
-          bold: true,
-          color: '#333333',
-        },
+        companyName: { fontSize: 18, bold: true, color: '#1a73e8' },
+        companyAddress: { fontSize: 8, color: '#666666' },
+        companyContact: { fontSize: 8, color: '#666666' },
+        invoiceTitle: { fontSize: 24, bold: true, color: '#333333' },
         sectionTitle: {
           fontSize: 10,
           bold: true,
           color: '#1a73e8',
           margin: [0, 0, 0, 5],
         },
-        infoText: {
-          fontSize: 9,
-          color: '#333333',
-          margin: [0, 1, 0, 1],
-        },
-        dataText: {
-          fontSize: 9,
-          color: '#333333',
-          margin: [0, 1, 0, 1],
-        },
+        infoText: { fontSize: 9, color: '#333333', margin: [0, 1, 0, 1] },
+        dataText: { fontSize: 9, color: '#333333', margin: [0, 1, 0, 1] },
         tableHeader: {
           fontSize: 9,
           bold: true,
           color: '#ffffff',
           fillColor: '#1a73e8',
         },
-        summaryLabel: {
-          fontSize: 9,
-          color: '#666666',
-        },
-        summaryValue: {
-          fontSize: 9,
-          color: '#333333',
-          bold: true,
-        },
-        summaryDiscount: {
-          fontSize: 9,
-          color: '#e53935',
-          bold: true,
-        },
-        totalLabel: {
-          fontSize: 12,
-          bold: true,
-          color: '#333333',
-        },
-        totalValue: {
-          fontSize: 14,
-          bold: true,
-          color: '#1a73e8',
-        },
-        taxTitle: {
-          fontSize: 16,
-          bold: true,
-          color: '#333333',
-        },
+        summaryLabel: { fontSize: 9, color: '#666666' },
+        summaryValue: { fontSize: 9, color: '#333333', bold: true },
+        summaryDiscount: { fontSize: 9, color: '#e53935', bold: true },
+        totalLabel: { fontSize: 12, bold: true, color: '#333333' },
+        totalValue: { fontSize: 14, bold: true, color: '#1a73e8' },
+        taxTitle: { fontSize: 16, bold: true, color: '#333333' },
         taxLabel: {
           fontSize: 9,
           bold: true,
           color: '#333333',
           margin: [0, 2, 0, 2],
         },
-        taxValue: {
-          fontSize: 9,
-          color: '#333333',
-          margin: [0, 2, 0, 2],
-        },
-        footerText: {
-          fontSize: 9,
-          color: '#666666',
-          italics: true,
-        },
-        footerSmall: {
-          fontSize: 7,
-          color: '#999999',
-        },
+        taxValue: { fontSize: 9, color: '#333333', margin: [0, 2, 0, 2] },
+        footerText: { fontSize: 9, color: '#666666', italics: true },
+        footerSmall: { fontSize: 7, color: '#999999' },
       },
     };
 
@@ -495,47 +450,39 @@ export class InvoiceService {
     const filePath = path.join(this.invoiceDir, filename);
 
     return new Promise<string>((resolve, reject) => {
-      const pdfDoc = printer.createPdfKitDocument(docDefinition);
-      const writeStream = fs.createWriteStream(filePath);
-      pdfDoc.pipe(writeStream);
-      pdfDoc.end();
-
-      writeStream.on('finish', () => {
-        const relativePath = `/uploads/invoices/${filename}`;
-        resolve(relativePath);
-      });
-
-      writeStream.on('error', (err) => {
+      try {
+        const pdfDoc = pdfmake.createPdf(docDefinition);
+        const chunks: Buffer[] = [];
+        pdfDoc.getBuffer((buffer: Buffer) => {
+          fs.writeFile(filePath, buffer, (err) => {
+            if (err) reject(err);
+            else {
+              const relativePath = `/uploads/invoices/${filename}`;
+              resolve(relativePath);
+            }
+          });
+        });
+      } catch (err) {
         reject(err);
-      });
+      }
     });
   }
 
-  /**
-   * Get invoice by order ID
-   */
   async getInvoiceByOrderId(orderId: string): Promise<Invoice> {
-    const invoice = await this.invoiceRepo.findOne({ where: { order_id: orderId } });
-    if (!invoice) {
+    const invoice = await this.invoiceRepo.findOne({
+      where: { order_id: orderId },
+    });
+    if (!invoice)
       throw new NotFoundException('Invoice belum tersedia untuk pesanan ini');
-    }
     return invoice;
   }
 
-  /**
-   * Get invoice by ID
-   */
   async getInvoiceById(id: string): Promise<Invoice> {
     const invoice = await this.invoiceRepo.findOne({ where: { id } });
-    if (!invoice) {
-      throw new NotFoundException('Invoice tidak ditemukan');
-    }
+    if (!invoice) throw new NotFoundException('Invoice tidak ditemukan');
     return invoice;
   }
 
-  /**
-   * Get all invoices for a user (by their orders)
-   */
   async getUserInvoices(userId: string): Promise<Invoice[]> {
     return this.invoiceRepo.find({
       where: { order: { user_id: userId } as any },
@@ -544,10 +491,10 @@ export class InvoiceService {
     });
   }
 
-  /**
-   * Get all invoices (admin)
-   */
-  async getAllInvoices(page = 1, limit = 20): Promise<{ data: Invoice[]; total: number }> {
+  async getAllInvoices(
+    page = 1,
+    limit = 20,
+  ): Promise<{ data: Invoice[]; total: number }> {
     const [data, total] = await this.invoiceRepo.findAndCount({
       relations: ['order'],
       order: { created_at: 'DESC' },
@@ -557,26 +504,18 @@ export class InvoiceService {
     return { data, total };
   }
 
-  /**
-   * Cancel invoice
-   */
   async cancelInvoice(invoiceId: string): Promise<Invoice> {
     const invoice = await this.getInvoiceById(invoiceId);
-    if (invoice.status === 'CANCELLED') {
+    if (invoice.status === 'CANCELLED')
       throw new BadRequestException('Invoice sudah dibatalkan sebelumnya');
-    }
     invoice.status = 'CANCELLED';
     invoice.cancelled_at = new Date();
     return this.invoiceRepo.save(invoice);
   }
 
-  /**
-   * Get PDF file path
-   */
   getPdfPath(invoice: Invoice): string {
-    if (!invoice.pdf_url) {
+    if (!invoice.pdf_url)
       throw new NotFoundException('File PDF invoice belum tersedia');
-    }
     return path.join(process.cwd(), invoice.pdf_url);
   }
 }
