@@ -10,14 +10,7 @@ import { Invoice } from './entities/invoice.entity';
 import { Order } from '../order/entities/order.entity';
 import * as path from 'path';
 import * as fs from 'fs';
-
-// pdfmake v0.3.x - use createPdf API
-let pdfmake: any = null;
-try {
-  pdfmake = require('pdfmake');
-} catch {
-  // pdfmake not available, PDF generation will be skipped
-}
+import PDFDocument from 'pdfkit';
 
 @Injectable()
 export class InvoiceService {
@@ -138,330 +131,260 @@ export class InvoiceService {
     return savedInvoice;
   }
 
-  private async generatePdf(invoice: Invoice, order: Order): Promise<string> {
-    if (!pdfmake) {
-      throw new Error('pdfmake library tidak tersedia di server');
-    }
-
-    const now = new Date();
-    const dateStr = now.toLocaleDateString('id-ID', {
-      day: 'numeric',
-      month: 'long',
-      year: 'numeric',
-    });
-
-    const tableBody: any[][] = [
-      [
-        { text: 'No', style: 'tableHeader', alignment: 'center' },
-        { text: 'Produk', style: 'tableHeader' },
-        { text: 'Varian', style: 'tableHeader', alignment: 'center' },
-        { text: 'Qty', style: 'tableHeader', alignment: 'center' },
-        { text: 'Harga', style: 'tableHeader', alignment: 'right' },
-        { text: 'Subtotal', style: 'tableHeader', alignment: 'right' },
-      ],
-    ];
-
-    invoice.items?.forEach((item: any, idx: number) => {
-      tableBody.push([
-        { text: String(idx + 1), alignment: 'center', fontSize: 9 },
-        { text: item.product_name || '-', fontSize: 9 },
-        { text: item.variasi || '-', alignment: 'center', fontSize: 9 },
-        { text: String(item.quantity), alignment: 'center', fontSize: 9 },
-        {
-          text: `Rp ${Number(item.price).toLocaleString('id-ID')}`,
-          alignment: 'right',
-          fontSize: 9,
-        },
-        {
-          text: `Rp ${Number(item.subtotal).toLocaleString('id-ID')}`,
-          alignment: 'right',
-          fontSize: 9,
-        },
-      ]);
-    });
-
-    const docDefinition: any = {
-      pageSize: 'A4',
-      pageMargins: [40, 40, 40, 40],
-      content: [
-        {
-          columns: [
-            { text: 'ANANDAM COMPUTER', style: 'companyName', width: '*' },
-            { text: 'INVOICE', style: 'invoiceTitle', alignment: 'right' },
-          ],
-        },
-        {
-          text: 'Jl. Affandi No.17, Soropadan, Condongcatur, Kec. Depok, Kabupaten Sleman, Yogyakarta 55283',
-          style: 'companyAddress',
-          margin: [0, 2, 0, 0],
-        },
-        {
-          text: 'Telp: 081228134747 | Email: anandam.computer@gmail.com',
-          style: 'companyContact',
-          margin: [0, 0, 0, 10],
-        },
-        {
-          canvas: [
-            {
-              type: 'line',
-              x1: 0,
-              y1: 0,
-              x2: 515,
-              y2: 0,
-              lineWidth: 1,
-              lineColor: '#1a73e8',
-            },
-          ],
-          margin: [0, 0, 0, 10],
-        },
-        {
-          columns: [
-            {
-              width: '50%',
-              stack: [
-                {
-                  text: `No. Invoice: ${invoice.invoice_number}`,
-                  style: 'infoText',
-                },
-                { text: `Tanggal: ${dateStr}`, style: 'infoText' },
-                {
-                  text: `Status: ${invoice.status === 'ISSUED' ? 'Telah Terbit' : invoice.status}`,
-                  style: 'infoText',
-                },
-              ],
-            },
-            {
-              width: '50%',
-              stack: [
-                {
-                  text: `Pembayaran: ${invoice.payment_method || '-'}`,
-                  style: 'infoText',
-                  alignment: 'right',
-                },
-              ],
-            },
-          ],
-          margin: [0, 0, 0, 15],
-        },
-        { text: 'DATA PEMBELI', style: 'sectionTitle' },
-        {
-          columns: [
-            {
-              width: '50%',
-              stack: [
-                {
-                  text: `Nama: ${invoice.customer_name || '-'}`,
-                  style: 'dataText',
-                },
-                {
-                  text: `Alamat: ${invoice.customer_address || '-'}`,
-                  style: 'dataText',
-                },
-              ],
-            },
-          ],
-          margin: [0, 5, 0, 15],
-        },
-        { text: 'DETAIL PESANAN', style: 'sectionTitle' },
-        {
-          table: {
-            headerRows: 1,
-            widths: [25, '*', 60, 35, 70, 80],
-            body: tableBody,
-          },
-          layout: {
-            hLineWidth: (i: number) => (i === 0 || i === 1 ? 1 : 0.5),
-            vLineWidth: () => 0.5,
-            hLineColor: () => '#cccccc',
-            vLineColor: () => '#cccccc',
-            paddingLeft: () => 6,
-            paddingRight: () => 6,
-            paddingTop: () => 5,
-            paddingBottom: () => 5,
-          },
-          margin: [0, 5, 0, 15],
-        },
-        { text: 'RINGKASAN PEMBAYARAN', style: 'sectionTitle' },
-        {
-          layout: 'noBorders',
-          table: {
-            widths: ['*', 120],
-            body: [
-              [
-                { text: 'Subtotal', style: 'summaryLabel' },
-                {
-                  text: `Rp ${Number(invoice.subtotal).toLocaleString('id-ID')}`,
-                  style: 'summaryValue',
-                  alignment: 'right',
-                },
-              ],
-              [
-                { text: 'Ongkos Kirim', style: 'summaryLabel' },
-                {
-                  text: `Rp ${Number(invoice.shipping_cost).toLocaleString('id-ID')}`,
-                  style: 'summaryValue',
-                  alignment: 'right',
-                },
-              ],
-              ...(Number(invoice.discount) > 0
-                ? [
-                    [
-                      { text: 'Diskon', style: 'summaryLabel' },
-                      {
-                        text: `-Rp ${Number(invoice.discount).toLocaleString('id-ID')}`,
-                        style: 'summaryDiscount',
-                        alignment: 'right',
-                      },
-                    ],
-                  ]
-                : []),
-              [
-                { text: '', height: 5 },
-                { text: '', height: 5 },
-              ],
-              [
-                { text: 'TOTAL', style: 'totalLabel' },
-                {
-                  text: `Rp ${Number(invoice.total).toLocaleString('id-ID')}`,
-                  style: 'totalValue',
-                  alignment: 'right',
-                },
-              ],
-            ],
-          },
-          margin: [0, 5, 0, 20],
-        },
-        ...(invoice.invoice_type === 'TAX'
-          ? [
-              {
-                canvas: [
-                  {
-                    type: 'line',
-                    x1: 0,
-                    y1: 0,
-                    x2: 515,
-                    y2: 0,
-                    lineWidth: 2,
-                    lineColor: '#000000',
-                  },
-                ],
-                margin: [0, 0, 0, 10],
-              },
-              {
-                text: 'FAKTUR PAJAK',
-                style: 'taxTitle',
-                alignment: 'center',
-                margin: [0, 0, 0, 10],
-              },
-              {
-                layout: 'noBorders',
-                table: {
-                  widths: [150, '*'],
-                  body: [
-                    [
-                      { text: 'Nama Perusahaan', style: 'taxLabel' },
-                      { text: invoice.company_name || '-', style: 'taxValue' },
-                    ],
-                    [
-                      { text: 'NPWP', style: 'taxLabel' },
-                      { text: invoice.customer_npwp || '-', style: 'taxValue' },
-                    ],
-                    [
-                      { text: 'Email Perusahaan', style: 'taxLabel' },
-                      { text: invoice.company_email || '-', style: 'taxValue' },
-                    ],
-                    [
-                      { text: 'Alamat Perusahaan', style: 'taxLabel' },
-                      {
-                        text: invoice.company_address || '-',
-                        style: 'taxValue',
-                      },
-                    ],
-                  ],
-                },
-                margin: [0, 0, 0, 20],
-              },
-            ]
-          : []),
-        {
-          canvas: [
-            {
-              type: 'line',
-              x1: 0,
-              y1: 0,
-              x2: 515,
-              y2: 0,
-              lineWidth: 1,
-              lineColor: '#cccccc',
-            },
-          ],
-          margin: [0, 0, 0, 10],
-        },
-        {
-          text: 'Terima kasih telah berbelanja di Anandam Computer',
-          style: 'footerText',
-          alignment: 'center',
-        },
-        {
-          text: 'Barang yang sudah dibeli tidak dapat dikembalikan kecuali ada kerusakan atau kesalahan dari pihak toko.',
-          style: 'footerSmall',
-          alignment: 'center',
-          margin: [0, 3, 0, 0],
-        },
-      ],
-      styles: {
-        companyName: { fontSize: 18, bold: true, color: '#1a73e8' },
-        companyAddress: { fontSize: 8, color: '#666666' },
-        companyContact: { fontSize: 8, color: '#666666' },
-        invoiceTitle: { fontSize: 24, bold: true, color: '#333333' },
-        sectionTitle: {
-          fontSize: 10,
-          bold: true,
-          color: '#1a73e8',
-          margin: [0, 0, 0, 5],
-        },
-        infoText: { fontSize: 9, color: '#333333', margin: [0, 1, 0, 1] },
-        dataText: { fontSize: 9, color: '#333333', margin: [0, 1, 0, 1] },
-        tableHeader: {
-          fontSize: 9,
-          bold: true,
-          color: '#ffffff',
-          fillColor: '#1a73e8',
-        },
-        summaryLabel: { fontSize: 9, color: '#666666' },
-        summaryValue: { fontSize: 9, color: '#333333', bold: true },
-        summaryDiscount: { fontSize: 9, color: '#e53935', bold: true },
-        totalLabel: { fontSize: 12, bold: true, color: '#333333' },
-        totalValue: { fontSize: 14, bold: true, color: '#1a73e8' },
-        taxTitle: { fontSize: 16, bold: true, color: '#333333' },
-        taxLabel: {
-          fontSize: 9,
-          bold: true,
-          color: '#333333',
-          margin: [0, 2, 0, 2],
-        },
-        taxValue: { fontSize: 9, color: '#333333', margin: [0, 2, 0, 2] },
-        footerText: { fontSize: 9, color: '#666666', italics: true },
-        footerSmall: { fontSize: 7, color: '#999999' },
-      },
-    };
-
-    const filename = `${invoice.invoice_number.replace(/\//g, '-')}.pdf`;
-    const filePath = path.join(this.invoiceDir, filename);
-
+  private generatePdf(invoice: Invoice, _order: Order): Promise<string> {
     return new Promise<string>((resolve, reject) => {
       try {
-        const pdfDoc = pdfmake.createPdf(docDefinition);
-        const chunks: Buffer[] = [];
-        pdfDoc.getBuffer((buffer: Buffer) => {
-          fs.writeFile(filePath, buffer, (err) => {
-            if (err) reject(err);
-            else {
-              const relativePath = `/uploads/invoices/${filename}`;
-              resolve(relativePath);
-            }
-          });
+        const filename = `${invoice.invoice_number.replace(/\//g, '-')}.pdf`;
+        const filePath = path.join(this.invoiceDir, filename);
+
+        const doc = new PDFDocument({ size: 'A4', margin: 40 });
+        const stream = fs.createWriteStream(filePath);
+        doc.pipe(stream);
+
+        const W = doc.page.width - 80; // usable width (margin 40 each side)
+        const blue = '#1a73e8';
+        const darkGray = '#333333';
+        const midGray = '#666666';
+        const lightGray = '#cccccc';
+
+        const rupiah = (n: number) =>
+          'Rp ' + Number(n).toLocaleString('id-ID');
+
+        // ── HEADER BLOCK ────────────────────────────────────────────
+        doc.rect(40, 40, W, 70).fill(blue);
+
+        doc
+          .fillColor('#ffffff')
+          .font('Helvetica-Bold')
+          .fontSize(18)
+          .text('ANANDAM COMPUTER', 52, 52);
+
+        doc
+          .font('Helvetica')
+          .fontSize(8)
+          .text(
+            'Jl. Manggis No.7, Karangasem, Kec. Laweyan, Kota Surakarta',
+            52,
+            74,
+          )
+          .text('Telp: +62 851-5773-4848 | Email: anandamcomputer@gmail.com', 52, 85);
+
+        // Invoice label on the right
+        doc
+          .font('Helvetica-Bold')
+          .fontSize(22)
+          .text('E-INVOICE', 40, 50, { align: 'right', width: W });
+
+        doc
+          .font('Helvetica')
+          .fontSize(9)
+          .text(invoice.invoice_number, 40, 76, { align: 'right', width: W })
+          .text(
+            invoice.invoice_type === 'TAX' ? 'FAKTUR PAJAK' : 'PROFORMA INVOICE',
+            40,
+            88,
+            { align: 'right', width: W },
+          );
+
+        // ── INFO BOX ────────────────────────────────────────────────
+        let y = 125;
+        doc.rect(40, y, W, 70).fill('#f1f5f9');
+
+        const issuedDate = new Date(
+          invoice.issued_at || invoice.created_at,
+        ).toLocaleDateString('id-ID', {
+          day: '2-digit',
+          month: 'long',
+          year: 'numeric',
         });
+
+        const col1 = 52;
+        const col2 = 40 + W / 2 + 10;
+        const labelOpts = { width: W / 2 - 20 };
+
+        // Column 1
+        doc.font('Helvetica-Bold').fontSize(7.5).fillColor(midGray);
+        doc.text('TANGGAL TERBIT', col1, y + 8, labelOpts);
+        doc.font('Helvetica').fontSize(8.5).fillColor(darkGray);
+        doc.text(issuedDate, col1, y + 18, labelOpts);
+
+        doc.font('Helvetica-Bold').fontSize(7.5).fillColor(midGray);
+        doc.text('STATUS', col1, y + 35, labelOpts);
+        doc.font('Helvetica').fontSize(8.5).fillColor(darkGray);
+        doc.text(invoice.status || 'ISSUED', col1, y + 45, labelOpts);
+
+        // Column 2
+        doc.font('Helvetica-Bold').fontSize(7.5).fillColor(midGray);
+        doc.text('PELANGGAN', col2, y + 8, labelOpts);
+        doc.font('Helvetica').fontSize(8.5).fillColor(darkGray);
+        doc.text(invoice.customer_name || '-', col2, y + 18, labelOpts);
+
+        doc.font('Helvetica-Bold').fontSize(7.5).fillColor(midGray);
+        doc.text('METODE PEMBAYARAN', col2, y + 35, labelOpts);
+        doc.font('Helvetica').fontSize(8.5).fillColor(darkGray);
+        doc.text(invoice.payment_method || '-', col2, y + 45, labelOpts);
+
+        // Alamat below
+        doc.font('Helvetica-Bold').fontSize(7.5).fillColor(midGray);
+        doc.text('ALAMAT PENGIRIMAN', col1, y + 55, labelOpts);
+        doc.font('Helvetica').fontSize(7.5).fillColor(darkGray);
+        doc.text(invoice.customer_address || '-', col1, y + 65, {
+          width: W - 20,
+          lineBreak: true,
+          ellipsis: true,
+          height: 20,
+        });
+
+        y += 85;
+
+        // ── TABLE HEADER ─────────────────────────────────────────────
+        y += 10;
+        const cols = {
+          no: { x: 40, w: 24 },
+          product: { x: 64, w: 220 },
+          qty: { x: 284, w: 40 },
+          price: { x: 324, w: 90 },
+          subtotal: { x: 414, w: 66 },
+        };
+
+        doc.rect(40, y, W, 18).fill(blue);
+        doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(8);
+
+        doc.text('No', cols.no.x + 2, y + 4, { width: cols.no.w, align: 'center' });
+        doc.text('Produk', cols.product.x + 4, y + 4, { width: cols.product.w });
+        doc.text('Qty', cols.qty.x + 2, y + 4, { width: cols.qty.w, align: 'center' });
+        doc.text('Harga', cols.price.x + 2, y + 4, { width: cols.price.w, align: 'right' });
+        doc.text('Subtotal', cols.subtotal.x + 2, y + 4, { width: cols.subtotal.w, align: 'right' });
+
+        y += 18;
+
+        // ── TABLE ROWS ───────────────────────────────────────────────
+        (invoice.items || []).forEach((item: any, i: number) => {
+          const rowBg = i % 2 === 0 ? '#ffffff' : '#f8fafc';
+          const rowH = 22;
+
+          doc.rect(40, y, W, rowH).fill(rowBg);
+          doc
+            .strokeColor(lightGray)
+            .lineWidth(0.3)
+            .rect(40, y, W, rowH)
+            .stroke();
+
+          doc.fillColor(darkGray).font('Helvetica').fontSize(8);
+          doc.text(String(i + 1), cols.no.x + 2, y + 6, {
+            width: cols.no.w,
+            align: 'center',
+          });
+          const label = item.variasi
+            ? `${item.product_name} (${item.variasi})`
+            : item.product_name;
+          doc.text(label, cols.product.x + 4, y + 6, {
+            width: cols.product.w - 6,
+            lineBreak: false,
+            ellipsis: true,
+          });
+          doc.text(String(item.quantity), cols.qty.x + 2, y + 6, {
+            width: cols.qty.w,
+            align: 'center',
+          });
+          doc.text(rupiah(item.price), cols.price.x + 2, y + 6, {
+            width: cols.price.w,
+            align: 'right',
+          });
+          doc.text(rupiah(item.subtotal), cols.subtotal.x + 2, y + 6, {
+            width: cols.subtotal.w,
+            align: 'right',
+          });
+
+          y += rowH;
+        });
+
+        // ── SUMMARY ──────────────────────────────────────────────────
+        y += 10;
+        const sumX = 40 + W - 200;
+        const sumW = 200;
+
+        doc.rect(sumX, y, sumW, 10).fill('#f8fafc');
+
+        const drawSummaryRow = (
+          label: string,
+          value: string,
+          bold = false,
+          color = darkGray,
+        ) => {
+          doc
+            .font(bold ? 'Helvetica-Bold' : 'Helvetica')
+            .fontSize(bold ? 10 : 8.5)
+            .fillColor(color);
+          doc.text(label, sumX + 6, y + 3, { width: 100 });
+          doc.text(value, sumX + 106, y + 3, { width: 88, align: 'right' });
+          y += bold ? 16 : 13;
+        };
+
+        drawSummaryRow('Subtotal', rupiah(invoice.subtotal));
+        drawSummaryRow('Ongkos Kirim', rupiah(invoice.shipping_cost));
+        if (Number(invoice.discount) > 0) {
+          drawSummaryRow('Diskon', `- ${rupiah(invoice.discount)}`, false, '#e53935');
+        }
+        if (Number(invoice.ppn) > 0) {
+          drawSummaryRow('PPN 11%', rupiah(invoice.ppn));
+        }
+
+        // Total divider
+        doc.strokeColor(blue).lineWidth(0.8).moveTo(sumX, y).lineTo(sumX + sumW, y).stroke();
+        y += 5;
+        drawSummaryRow('TOTAL', rupiah(invoice.total), true, blue);
+
+        // ── FAKTUR PAJAK ─────────────────────────────────────────────
+        if (invoice.invoice_type === 'TAX' && invoice.company_name) {
+          y += 10;
+          doc.rect(40, y, W, 60).fill('#fffbeb').stroke('#f59e0b');
+          doc.font('Helvetica-Bold').fontSize(8).fillColor('#92400e');
+          doc.text('DATA FAKTUR PAJAK', 52, y + 8);
+          doc.font('Helvetica').fontSize(8).fillColor('#5c2808');
+          doc.text(`Perusahaan  : ${invoice.company_name}`, 52, y + 20);
+          doc.text(
+            `Alamat        : ${invoice.company_address || '-'}`,
+            52,
+            y + 32,
+          );
+          if (invoice.customer_npwp) {
+            doc.text(
+              `NPWP          : ${invoice.customer_npwp}`,
+              40 + W / 2,
+              y + 20,
+            );
+          }
+          if (invoice.company_email) {
+            doc.text(
+              `Email            : ${invoice.company_email}`,
+              40 + W / 2,
+              y + 32,
+            );
+          }
+          y += 70;
+        }
+
+        // ── FOOTER ───────────────────────────────────────────────────
+        const pageH = doc.page.height;
+        doc
+          .font('Helvetica-Oblique')
+          .fontSize(7)
+          .fillColor(lightGray)
+          .text(
+            'Dokumen ini digenerate secara otomatis dan sah tanpa tanda tangan. | anandamcomputer.com',
+            40,
+            pageH - 40,
+            { align: 'center', width: W },
+          );
+
+        doc.end();
+
+        stream.on('finish', () => {
+          const relativePath = `/uploads/invoices/${filename}`;
+          resolve(relativePath);
+        });
+        stream.on('error', reject);
       } catch (err) {
         reject(err);
       }
