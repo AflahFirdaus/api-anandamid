@@ -109,10 +109,10 @@ export class TaxInvoiceRequestDto {
   @IsString()
   company_name: string;
 
-  @ApiProperty({ description: 'Nomor NPWP (16 digit)', example: '0123456789123456' })
+  @ApiProperty({ description: 'Nomor NPWP (15 atau 16 digit)', example: '0123456789123456' })
   @IsNotEmpty()
   @IsString()
-  @Matches(/^\d{16}$/, { message: 'Format NPWP tidak valid. Harus 16 digit angka.' })
+  @Matches(/^\d{15,16}$/, { message: 'Format NPWP tidak valid. Harus 15 atau 16 digit angka.' })
   npwp_number: string;
 
   @ApiProperty({ description: 'Email Perusahaan', example: 'perusahaan@email.com' })
