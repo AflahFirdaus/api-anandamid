@@ -46,11 +46,7 @@ export class InvoiceController {
     @Res() res: Response,
   ) {
     const invoice = await this.invoiceService.getInvoiceByOrderId(orderId);
-    const filePath = this.invoiceService.getPdfPath(invoice);
-
-    if (!fs.existsSync(filePath)) {
-      throw new NotFoundException('File PDF invoice tidak ditemukan');
-    }
+    const filePath = await this.invoiceService.getPdfPath(invoice);
 
     const filename = `${invoice.invoice_number.replace(/\//g, '-')}.pdf`;
     res.setHeader('Content-Type', 'application/pdf');
@@ -115,11 +111,7 @@ export class InvoiceController {
     @Res() res: Response,
   ) {
     const invoice = await this.invoiceService.getInvoiceById(id);
-    const filePath = this.invoiceService.getPdfPath(invoice);
-
-    if (!fs.existsSync(filePath)) {
-      throw new NotFoundException('File PDF invoice tidak ditemukan');
-    }
+    const filePath = await this.invoiceService.getPdfPath(invoice);
 
     const filename = `${invoice.invoice_number.replace(/\//g, '-')}.pdf`;
     res.setHeader('Content-Type', 'application/pdf');
@@ -139,11 +131,7 @@ export class InvoiceController {
     @Res() res: Response,
   ) {
     const invoice = await this.invoiceService.getInvoiceById(id);
-    const filePath = this.invoiceService.getPdfPath(invoice);
-
-    if (!fs.existsSync(filePath)) {
-      throw new NotFoundException('File PDF invoice tidak ditemukan');
-    }
+    const filePath = await this.invoiceService.getPdfPath(invoice);
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'inline');

@@ -436,9 +436,23 @@ export class InvoiceService {
     return this.invoiceRepo.save(invoice);
   }
 
-  getPdfPath(invoice: Invoice): string {
-    if (!invoice.pdf_url)
-      throw new NotFoundException('File PDF invoice belum tersedia');
-    return path.join(process.cwd(), invoice.pdf_url);
+  async getPdfPath(invoice: Invoice): Promise<string> {
+    const filename = `${invoice.invoice_number.replace(/\//g, '-')}.pdf`;
+    const relativePath = `/uploads/invoices/${filename}`;
+    const filePath = path.join(process.cwd(), 'uploads', 'invoices', filename);
+
+    if (!fs.existsSync(filePath)) {
+      try {
+        await this.generatePdf(invoice, null as any);
+        invoice.pdf_url = relativePath;
+        await this.invoiceRepo.save(invoice);
+      } catch (err: any) {
+        throw new NotFoundException(
+          `Gagal membuat file PDF invoice: ${err.message}`,
+        );
+      }
+    }
+
+    return filePath;
   }
 }
