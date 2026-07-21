@@ -92,12 +92,18 @@ export class InvoiceService {
 
     const addr = order.shipping_address_snapshot || {};
 
+    const courierParts = (order.courier_name || '').split(' - ');
+    const courierName = courierParts[0] || order.courier_name || '';
+    const courierService = courierParts[1] || order.courier_service || '';
+
     const invoice = this.invoiceRepo.create({
       order_id: orderId,
       invoice_number: invoiceNumber,
       invoice_type: isTaxInvoice ? 'TAX' : 'PROFORMA',
       customer_name: addr.recipient_name || '',
       customer_address: addr.full_address || '',
+      customer_email: addr.email || addr.recipient_email || null,
+      customer_phone: addr.phone_number || addr.recipient_phone || null,
       customer_npwp: isTaxInvoice ? taxRequest?.npwp_number || null : null,
       company_name: isTaxInvoice ? taxRequest?.company_name || null : null,
       company_address: isTaxInvoice
@@ -111,6 +117,9 @@ export class InvoiceService {
       ppn: 0,
       total: total,
       payment_method: order.payment_method || '',
+      courier_name: courierName || null,
+      courier_service: courierService || null,
+      tracking_number: order.awb_number || order.tracking_number || null,
       status: 'ISSUED',
       generated_at: new Date(),
       issued_at: new Date(),
@@ -142,103 +151,139 @@ export class InvoiceService {
         doc.pipe(stream);
 
         const W = doc.page.width - 80; // usable width (margin 40 each side)
-        const blue = '#1a73e8';
-        const darkGray = '#333333';
-        const midGray = '#666666';
-        const lightGray = '#cccccc';
+        const blue = '#0032B2';
+        const darkGray = '#1e293b';
+        const midGray = '#64748b';
+        const lightGray = '#e2e8f0';
 
         const rupiah = (n: number) =>
           'Rp ' + Number(n).toLocaleString('id-ID');
 
-        // ── HEADER BLOCK ────────────────────────────────────────────
-        doc.rect(40, 40, W, 70).fill(blue);
+        const formatDate = (d: Date | string) =>
+          new Date(d).toLocaleDateString('id-ID', {
+            day: '2-digit',
+            month: 'long',
+            year: 'numeric',
+          });
 
-        doc
-          .fillColor('#ffffff')
-          .font('Helvetica-Bold')
-          .fontSize(18)
-          .text('ANANDAM COMPUTER', 52, 52);
+        // ── ALL WHITE BACKGROUND ────────────────────────────────────
+        doc.rect(0, 0, doc.page.width, doc.page.height).fill('#ffffff');
 
-        doc
-          .font('Helvetica')
-          .fontSize(8)
-          .text(
-            'Jl. Manggis No.7, Karangasem, Kec. Laweyan, Kota Surakarta',
-            52,
-            74,
-          )
-          .text('Telp: +62 851-5773-4848 | Email: anandamcomputer@gmail.com', 52, 85);
+        // ── HEADER: LOGO + TITLE ────────────────────────────────────
+        let y = 40;
 
-        // Invoice label on the right
-        doc
-          .font('Helvetica-Bold')
-          .fontSize(22)
-          .text('E-INVOICE', 40, 50, { align: 'right', width: W });
+        // Try to draw the logo from the SVG file (PDFKit supports SVG natively)
+        const logoPath = path.join(process.cwd(), 'public', 'anandam-logo-blue.svg');
+        if (fs.existsSync(logoPath)) {
+          try {
+            doc.image(logoPath, 40, y, { width: 55 });
+          } catch {
+            doc.font('Helvetica-Bold').fontSize(16).fillColor(blue);
+            doc.text('ANANDAM', 40, y + 4);
+          }
+        } else {
+          doc.font('Helvetica-Bold').fontSize(16).fillColor(blue);
+          doc.text('ANANDAM', 40, y + 4);
+        }
 
-        doc
-          .font('Helvetica')
-          .fontSize(9)
-          .text(invoice.invoice_number, 40, 76, { align: 'right', width: W })
-          .text(
-            invoice.invoice_type === 'TAX' ? 'FAKTUR PAJAK' : 'PROFORMA INVOICE',
-            40,
-            88,
-            { align: 'right', width: W },
-          );
+        // E-INVOICE title on the right
+        doc.font('Helvetica-Bold').fontSize(20).fillColor('#1e293b');
+        doc.text('E-INVOICE', 40, y + 4, { align: 'right', width: W });
 
-        // ── INFO BOX ────────────────────────────────────────────────
-        let y = 125;
-        doc.rect(40, y, W, 70).fill('#f1f5f9');
+        doc.font('Helvetica').fontSize(9).fillColor(midGray);
+        doc.text(invoice.invoice_number, 40, y + 16, { align: 'right', width: W });
 
-        const issuedDate = new Date(
-          invoice.issued_at || invoice.created_at,
-        ).toLocaleDateString('id-ID', {
-          day: '2-digit',
-          month: 'long',
-          year: 'numeric',
+        const typeLabel = invoice.invoice_type === 'TAX'
+          ? 'Dengan Faktur Pajak'
+          : 'Proforma Invoice';
+        doc.font('Helvetica-Bold').fontSize(8).fillColor(blue);
+        doc.text(typeLabel, 40, y + 24, { align: 'right', width: W });
+
+        y += 34;
+
+        // ── DIVIDER LINE ────────────────────────────────────────────
+        doc.strokeColor(lightGray).lineWidth(0.5).moveTo(40, y).lineTo(40 + W, y).stroke();
+        y += 8;
+
+        // ── TWO-COLUMN INFO SECTION ─────────────────────────────────
+        const colWidth = W / 2 - 6;
+        const leftX = 40;
+        const rightX = 40 + W / 2 + 6;
+
+        // --- LEFT COLUMN: PEMBELI (Buyer Info) ---
+        doc.font('Helvetica-Bold').fontSize(8).fillColor(blue);
+        doc.text('INFORMASI PEMBELI', leftX, y);
+
+        let rowY = y + 8;
+        const buyerRows = [
+          { label: 'Nama', value: invoice.customer_name || '-' },
+          { label: 'No. HP', value: invoice.customer_phone || '-' },
+          { label: 'Email', value: invoice.customer_email || '-' },
+          { label: 'Alamat', value: invoice.customer_address || '-' },
+        ];
+
+        buyerRows.forEach((row) => {
+          doc.font('Helvetica-Bold').fontSize(7.5).fillColor(midGray);
+          doc.text(row.label, leftX, rowY);
+
+          doc.font('Helvetica').fontSize(8.5).fillColor(darkGray);
+          if (row.label === 'Alamat') {
+            const lines = doc.text(row.value, leftX + 35, rowY, {
+              width: colWidth - 35,
+              lineBreak: true,
+            });
+            rowY += 14;
+          } else {
+            doc.text(row.value, leftX + 35, rowY);
+            rowY += 8;
+          }
         });
 
-        const col1 = 52;
-        const col2 = 40 + W / 2 + 10;
-        const labelOpts = { width: W / 2 - 20 };
+        const buyerEndY = rowY;
 
-        // Column 1
+        // --- RIGHT COLUMN: PENJUAL (Just "Anandam ID") ---
+        doc.font('Helvetica-Bold').fontSize(8).fillColor(blue);
+        doc.text('INFORMASI PENJUAL', rightX, y);
+
         doc.font('Helvetica-Bold').fontSize(7.5).fillColor(midGray);
-        doc.text('TANGGAL TERBIT', col1, y + 8, labelOpts);
+        doc.text('Nama', rightX, y + 8);
         doc.font('Helvetica').fontSize(8.5).fillColor(darkGray);
-        doc.text(issuedDate, col1, y + 18, labelOpts);
+        doc.text('Anandam ID', rightX + 35, y + 8);
 
-        doc.font('Helvetica-Bold').fontSize(7.5).fillColor(midGray);
-        doc.text('STATUS', col1, y + 35, labelOpts);
-        doc.font('Helvetica').fontSize(8.5).fillColor(darkGray);
-        doc.text(invoice.status || 'ISSUED', col1, y + 45, labelOpts);
+        y = Math.max(buyerEndY, y + 20) + 4;
 
-        // Column 2
-        doc.font('Helvetica-Bold').fontSize(7.5).fillColor(midGray);
-        doc.text('PELANGGAN', col2, y + 8, labelOpts);
-        doc.font('Helvetica').fontSize(8.5).fillColor(darkGray);
-        doc.text(invoice.customer_name || '-', col2, y + 18, labelOpts);
+        // ── DIVIDER LINE ────────────────────────────────────────────
+        doc.strokeColor(lightGray).lineWidth(0.5).moveTo(40, y).lineTo(40 + W, y).stroke();
+        y += 8;
 
-        doc.font('Helvetica-Bold').fontSize(7.5).fillColor(midGray);
-        doc.text('METODE PEMBAYARAN', col2, y + 35, labelOpts);
-        doc.font('Helvetica').fontSize(8.5).fillColor(darkGray);
-        doc.text(invoice.payment_method || '-', col2, y + 45, labelOpts);
+        // ── ORDER INFO ROW ──────────────────────────────────────────
+        const infoColW = W / 4 - 2;
+        const orderInfo = [
+          { label: 'NO. PESANAN', value: invoice.invoice_number },
+          {
+            label: 'TANGGAL TRANSAKSI',
+            value: formatDate(invoice.issued_at || invoice.created_at),
+          },
+          { label: 'METODE PEMBAYARAN', value: invoice.payment_method || '-' },
+          {
+            label: 'JASA KIRIM',
+            value: invoice.courier_name
+              ? `${invoice.courier_name}${invoice.courier_service ? ' - ' + invoice.courier_service : ''}`
+              : '-',
+          },
+        ];
 
-        // Alamat below
-        doc.font('Helvetica-Bold').fontSize(7.5).fillColor(midGray);
-        doc.text('ALAMAT PENGIRIMAN', col1, y + 55, labelOpts);
-        doc.font('Helvetica').fontSize(7.5).fillColor(darkGray);
-        doc.text(invoice.customer_address || '-', col1, y + 65, {
-          width: W - 20,
-          lineBreak: true,
-          ellipsis: true,
-          height: 20,
+        orderInfo.forEach((info, i) => {
+          const x = 40 + i * (infoColW + 8);
+          doc.font('Helvetica-Bold').fontSize(7).fillColor(midGray);
+          doc.text(info.label, x, y);
+          doc.font('Helvetica').fontSize(8).fillColor(darkGray);
+          doc.text(info.value, x, y + 6);
         });
 
-        y += 85;
+        y += 16;
 
         // ── TABLE HEADER ─────────────────────────────────────────────
-        y += 10;
         const cols = {
           no: { x: 40, w: 24 },
           product: { x: 64, w: 220 },
@@ -338,31 +383,43 @@ export class InvoiceService {
         // ── FAKTUR PAJAK ─────────────────────────────────────────────
         if (invoice.invoice_type === 'TAX' && invoice.company_name) {
           y += 10;
-          doc.rect(40, y, W, 60).fill('#fffbeb').stroke('#f59e0b');
-          doc.font('Helvetica-Bold').fontSize(8).fillColor('#92400e');
+
+          // White background with subtle border
+          doc.rect(40, y, W, 48).fill('#ffffff').stroke('#cbd5e1');
+          doc.font('Helvetica-Bold').fontSize(8).fillColor(darkGray);
           doc.text('DATA FAKTUR PAJAK', 52, y + 8);
-          doc.font('Helvetica').fontSize(8).fillColor('#5c2808');
-          doc.text(`Perusahaan  : ${invoice.company_name}`, 52, y + 20);
+          doc.font('Helvetica').fontSize(7.5).fillColor(midGray);
+          doc.text(`Perusahaan  : ${invoice.company_name}`, 52, y + 18);
           doc.text(
             `Alamat        : ${invoice.company_address || '-'}`,
             52,
-            y + 32,
+            y + 26,
           );
           if (invoice.customer_npwp) {
             doc.text(
               `NPWP          : ${invoice.customer_npwp}`,
               40 + W / 2,
-              y + 20,
+              y + 18,
             );
           }
           if (invoice.company_email) {
             doc.text(
               `Email            : ${invoice.company_email}`,
               40 + W / 2,
-              y + 32,
+              y + 26,
             );
           }
-          y += 70;
+
+          // Note about email delivery
+          doc.font('Helvetica-Oblique').fontSize(7).fillColor(midGray);
+          doc.text(
+            '* Faktur Pajak akan dikirim melalui email dalam 1-2 hari kerja setelah pesanan selesai.',
+            52,
+            y + 38,
+            { width: W - 24 },
+          );
+
+          y += 58;
         }
 
         // ── FOOTER ───────────────────────────────────────────────────
@@ -370,7 +427,7 @@ export class InvoiceService {
         doc
           .font('Helvetica-Oblique')
           .fontSize(7)
-          .fillColor(lightGray)
+          .fillColor('#94a3b8')
           .text(
             'Dokumen ini digenerate secara otomatis dan sah tanpa tanda tangan. | anandamcomputer.com',
             40,

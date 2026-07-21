@@ -33,6 +33,12 @@ export class Invoice {
   @Column({ type: 'text', nullable: true })
   customer_address: string;
 
+  @Column({ nullable: true })
+  customer_email: string;
+
+  @Column({ nullable: true })
+  customer_phone: string;
+
   @Column({ length: 20, nullable: true })
   customer_npwp: string;
 
@@ -65,6 +71,15 @@ export class Invoice {
 
   @Column({ nullable: true })
   payment_method: string;
+
+  @Column({ nullable: true })
+  courier_name: string;
+
+  @Column({ nullable: true })
+  courier_service: string;
+
+  @Column({ nullable: true })
+  tracking_number: string;
 
   @Column({ length: 20, default: 'ISSUED' })
   status: string; // DRAFT | ISSUED | CANCELLED
