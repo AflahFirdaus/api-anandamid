@@ -123,9 +123,9 @@ export class InvoiceService {
       status: 'ISSUED',
       generated_at: new Date(),
       issued_at: new Date(),
-    });
+    } as unknown as Invoice);
 
-    const savedInvoice = await this.invoiceRepo.save(invoice);
+    const savedInvoice = await this.invoiceRepo.save(invoice as Invoice);
 
     try {
       const pdfUrl = await this.generatePdf(savedInvoice, order);
