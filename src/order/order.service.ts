@@ -1151,8 +1151,8 @@ export class OrderService {
     // Notif: update status oleh admin
     this.notificationService.sendOrderStatusNotif(savedOrder.user_id, savedOrder, dto.status as string).catch(() => {});
 
-    // Generate invoice when status changes to DIKIRIM or SELESAI
-    if (dto.status === 'DIKIRIM' || dto.status === 'SELESAI') {
+    // Generate invoice when status changes to SIAP, DIKIRIM, or SELESAI
+    if (['SIAP', 'DIKIRIM', 'SELESAI'].includes(dto.status as string)) {
       this.generateInvoiceForOrder(savedOrder.id).catch((err) => {
         this.logger.error(`[INVOICE] Failed to generate invoice for order ${savedOrder.id}: ${err.message}`);
       });
@@ -1970,6 +1970,12 @@ export class OrderService {
       description: 'Pesanan siap diambil di toko',
     });
     this.notificationService.sendOrderStatusNotif(order.user_id, order, 'SIAP').catch(() => {});
+
+    // Generate invoice when marked as ready for pickup
+    this.generateInvoiceForOrder(order.id).catch((err) => {
+      this.logger.error(`[INVOICE] Failed to generate invoice for order ${order.id}: ${err.message}`);
+    });
+
     return { message: 'Pesanan siap diambil di toko.', order };
   }
 
@@ -1990,6 +1996,12 @@ export class OrderService {
       description: 'Pesanan siap diantar',
     });
     this.notificationService.sendOrderStatusNotif(order.user_id, order, 'SIAP').catch(() => {});
+
+    // Generate invoice when marked as ready for delivery
+    this.generateInvoiceForOrder(order.id).catch((err) => {
+      this.logger.error(`[INVOICE] Failed to generate invoice for order ${order.id}: ${err.message}`);
+    });
+
     return { message: 'Pesanan siap diantar.', order };
   }
 
