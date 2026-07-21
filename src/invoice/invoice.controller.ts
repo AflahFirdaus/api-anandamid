@@ -135,7 +135,7 @@ export class InvoiceController {
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'inline');
-    
+
     const stream = fs.createReadStream(filePath);
     stream.pipe(res);
   }
