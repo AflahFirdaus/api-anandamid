@@ -62,5 +62,19 @@ export class ChatGateway implements OnGatewayInit {
       sender_id: message.sender_id,
       buyer_id: message.room?.buyer_id || message.buyer_id,
     });
+
+    // 3. Kirim notifikasi pop-up ke admin jika pesan dari pembeli (bukan dari admin sendiri)
+    const buyerId = message.room?.buyer_id || message.buyer_id;
+    if (message.sender_id !== buyerId) {
+      return; // Skip jika pesan dikirim oleh admin itu sendiri
+    }
+    this.server.to('admin-global').emit('new_message_notification', {
+      type: 'chat',
+      roomId,
+      title: '💬 Pesan Baru dari Pelanggan',
+      body: message.content?.substring(0, 100) || 'Pesan baru masuk',
+      sender_id: message.sender_id,
+      buyer_id: buyerId,
+    });
   }
 }
