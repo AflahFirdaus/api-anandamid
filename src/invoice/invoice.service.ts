@@ -53,7 +53,7 @@ export class InvoiceService {
   async generateInvoice(orderId: string): Promise<Invoice> {
     const order = await this.orderRepo.findOne({
       where: { id: orderId },
-      relations: ['items', 'items.product'],
+      relations: ['items', 'items.product', 'user'],
     });
     if (!order) throw new NotFoundException(`Order ${orderId} tidak ditemukan`);
 
@@ -102,8 +102,8 @@ export class InvoiceService {
       invoice_type: isTaxInvoice ? 'TAX' : 'PROFORMA',
       customer_name: addr.recipient_name || '',
       customer_address: addr.full_address || '',
-      customer_email: addr.email || addr.recipient_email || null,
-      customer_phone: addr.phone_number || addr.recipient_phone || null,
+      customer_email: addr.email || addr.recipient_email || order.user?.email || null,
+      customer_phone: addr.phone_number || addr.recipient_phone || order.user?.phone_number || null,
       customer_npwp: isTaxInvoice ? taxRequest?.npwp_number || null : null,
       company_name: isTaxInvoice ? taxRequest?.company_name || null : null,
       company_address: isTaxInvoice
@@ -114,7 +114,7 @@ export class InvoiceService {
       subtotal: subtotalItems,
       shipping_cost: shippingCost,
       discount: discount,
-      ppn: 0,
+      ppn: 0, // Disesuaikan dengan entitas
       total: total,
       payment_method: order.payment_method || '',
       courier_name: courierName || null,
@@ -150,290 +150,211 @@ export class InvoiceService {
         const stream = fs.createWriteStream(filePath);
         doc.pipe(stream);
 
-        const W = doc.page.width - 80; // usable width (margin 40 each side)
-        const blue = '#0032B2';
-        const darkGray = '#1e293b';
-        const midGray = '#64748b';
-        const lightGray = '#e2e8f0';
+        const W = doc.page.width - 80;
+        const brandColor = '#0032B2'; // Warna biru anandam.id
+        const black = '#000000';
+        const darkGray = '#333333';
+        const lightGray = '#f5f5f5';
+        const borderGray = '#e0e0e0';
 
         const rupiah = (n: number) =>
-          'Rp ' + Number(n).toLocaleString('id-ID');
+          'Rp' + Number(n).toLocaleString('id-ID');
 
-        const formatDate = (d: Date | string) =>
-          new Date(d).toLocaleDateString('id-ID', {
-            day: '2-digit',
-            month: 'long',
-            year: 'numeric',
-          });
+        const formatDate = (d: Date | string) => {
+          const date = new Date(d);
+          return `${String(date.getDate()).padStart(2, '0')}/${String(
+            date.getMonth() + 1,
+          ).padStart(2, '0')}/${date.getFullYear()}`;
+        };
 
         // ── ALL WHITE BACKGROUND ────────────────────────────────────
         doc.rect(0, 0, doc.page.width, doc.page.height).fill('#ffffff');
 
-        // ── HEADER: LOGO + TITLE ────────────────────────────────────
+        // ── 1. BRAND HEADER (Center Aligned) ────────────────────────
         let y = 40;
-
-        // Try to draw the logo from the SVG file (PDFKit supports SVG natively)
         const logoPath = path.join(process.cwd(), 'public', 'anandam-logo-blue.svg');
+        const textCenterW = 200;
+        const textStartX = (doc.page.width - textCenterW) / 2;
+
         if (fs.existsSync(logoPath)) {
           try {
-            doc.image(logoPath, 40, y, { width: 55 });
+            // Asumsi logo proporsional, posisikan sejajar dengan teks
+            doc.image(logoPath, textStartX - 20, y - 5, { width: 35 });
+            doc.font('Helvetica-Bold').fontSize(26).fillColor(brandColor);
+            doc.text('anandam.id', textStartX + 20, y, { width: textCenterW, align: 'left' });
           } catch {
-            doc.font('Helvetica-Bold').fontSize(16).fillColor(blue);
-            doc.text('ANANDAM', 40, y + 4);
+            doc.font('Helvetica-Bold').fontSize(26).fillColor(brandColor);
+            doc.text('anandam.id', 40, y, { align: 'center', width: W });
           }
         } else {
-          doc.font('Helvetica-Bold').fontSize(16).fillColor(blue);
-          doc.text('ANANDAM', 40, y + 4);
+          doc.font('Helvetica-Bold').fontSize(26).fillColor(brandColor);
+          doc.text('anandam.id', 40, y, { align: 'center', width: W });
         }
 
-        // E-INVOICE title on the right
-        doc.font('Helvetica-Bold').fontSize(20).fillColor('#1e293b');
-        doc.text('E-INVOICE', 40, y + 4, { align: 'right', width: W });
+        y += 50;
 
-        doc.font('Helvetica').fontSize(9).fillColor(midGray);
-        doc.text(invoice.invoice_number, 40, y + 16, { align: 'right', width: W });
+        // ── 2. NOTA PESANAN TITLE ───────────────────────────────────
+        doc.font('Helvetica').fontSize(11).fillColor(black);
+        doc.text('Nota Pesanan', 40, y);
+        y += 20;
 
-        const typeLabel = invoice.invoice_type === 'TAX'
-          ? 'Dengan Faktur Pajak'
-          : 'Proforma Invoice';
-        doc.font('Helvetica-Bold').fontSize(8).fillColor(blue);
-        doc.text(typeLabel, 40, y + 24, { align: 'right', width: W });
+        // ── 3. BUYER & SELLER INFO (Gray Box) ───────────────────────
+        const infoBoxY = y;
+        doc.rect(40, infoBoxY, W, 85).fill(lightGray);
 
-        y += 34;
+        const leftPad = 50;
+        const rightPad = 40 + W / 2 + 20;
 
-        // ── DIVIDER LINE ────────────────────────────────────────────
-        doc.strokeColor(lightGray).lineWidth(0.5).moveTo(40, y).lineTo(40 + W, y).stroke();
-        y += 8;
+        // Kolom Kiri: Pembeli
+        doc.fillColor(black).font('Helvetica-Bold').fontSize(9);
+        doc.text('Nama Pembeli: ', leftPad, infoBoxY + 15, { continued: true })
+           .font('Helvetica').text(invoice.customer_name || '-');
 
-        // ── TWO-COLUMN INFO SECTION ─────────────────────────────────
-        const colWidth = W / 2 - 6;
-        const leftX = 40;
-        const rightX = 40 + W / 2 + 6;
-
-        // --- LEFT COLUMN: PEMBELI (Buyer Info) ---
-        doc.font('Helvetica-Bold').fontSize(8).fillColor(blue);
-        doc.text('INFORMASI PEMBELI', leftX, y);
-
-        let rowY = y + 8;
-        const buyerRows = [
-          { label: 'Nama', value: invoice.customer_name || '-' },
-          { label: 'No. HP', value: invoice.customer_phone || '-' },
-          { label: 'Email', value: invoice.customer_email || '-' },
-          { label: 'Alamat', value: invoice.customer_address || '-' },
-        ];
-
-        buyerRows.forEach((row) => {
-          doc.font('Helvetica-Bold').fontSize(7.5).fillColor(midGray);
-          doc.text(row.label, leftX, rowY);
-
-          doc.font('Helvetica').fontSize(8.5).fillColor(darkGray);
-          if (row.label === 'Alamat') {
-            const lines = doc.text(row.value, leftX + 35, rowY, {
-              width: colWidth - 35,
-              lineBreak: true,
-            });
-            rowY += 14;
-          } else {
-            doc.text(row.value, leftX + 35, rowY);
-            rowY += 8;
-          }
+        doc.font('Helvetica-Bold').text('Alamat Pembeli:', leftPad, infoBoxY + 30);
+        const addressH = doc.heightOfString(invoice.customer_address || '-', { width: W / 2 - 30 });
+        doc.font('Helvetica').text(invoice.customer_address || '-', leftPad, infoBoxY + 42, { 
+          width: W / 2 - 30, 
+          lineBreak: true 
         });
 
-        const buyerEndY = rowY;
+        // Kolom Kanan: Penjual
+        doc.font('Helvetica-Bold').text('Nama Penjual: ', rightPad, infoBoxY + 15, { continued: true })
+           .font('Helvetica').text('anandam.id Official Store');
 
-        // --- RIGHT COLUMN: PENJUAL (Just "Anandam ID") ---
-        doc.font('Helvetica-Bold').fontSize(8).fillColor(blue);
-        doc.text('INFORMASI PENJUAL', rightX, y);
+        // Nomor Handphone di bawah alamat
+        doc.font('Helvetica-Bold').text('No. Handphone Pembeli: ', leftPad, infoBoxY + 42 + Math.max(addressH, 15) + 5, { continued: true })
+           .font('Helvetica').text(invoice.customer_phone || '-');
 
-        doc.font('Helvetica-Bold').fontSize(7.5).fillColor(midGray);
-        doc.text('Nama', rightX, y + 8);
-        doc.font('Helvetica').fontSize(8.5).fillColor(darkGray);
-        doc.text('Anandam ID', rightX + 35, y + 8);
+        y = infoBoxY + 105;
 
-        y = Math.max(buyerEndY, y + 20) + 4;
+        // ── 4. ORDER INFO (4 Kolom Horizontal) ───────────────────────
+        const colW = W / 4;
+        doc.font('Helvetica-Bold').fontSize(9).fillColor(black);
+        doc.text('No. Pesanan', 40, y, { width: colW });
+        doc.text('Tanggal Transaksi', 40 + colW, y, { width: colW });
+        doc.text('Metode Pembayaran', 40 + colW * 2, y, { width: colW });
+        doc.text('Jasa Kirim', 40 + colW * 3, y, { width: colW });
 
-        // ── DIVIDER LINE ────────────────────────────────────────────
-        doc.strokeColor(lightGray).lineWidth(0.5).moveTo(40, y).lineTo(40 + W, y).stroke();
+        y += 12;
+        doc.font('Helvetica').fontSize(9);
+        doc.text(invoice.invoice_number, 40, y, { width: colW });
+        doc.text(formatDate(invoice.issued_at || invoice.generated_at), 40 + colW, y, { width: colW });
+        doc.text(invoice.payment_method || '-', 40 + colW * 2, y, { width: colW });
+        
+        const courierStr = invoice.courier_name 
+          ? `${invoice.courier_name} ${invoice.courier_service || ''}`.trim() 
+          : '-';
+        doc.text(courierStr, 40 + colW * 3, y, { width: colW });
+
+        y += 30;
+
+        // ── 5. TABEL RINCIAN PESANAN ─────────────────────────────────
+        doc.font('Helvetica-Bold').fontSize(10).fillColor(black).text('Rincian Pesanan', 40, y);
+        y += 15;
+
+        // Garis Header Tabel
+        doc.strokeColor(borderGray).lineWidth(1).moveTo(40, y).lineTo(40 + W, y).stroke();
         y += 8;
 
-        // ── ORDER INFO ROW ──────────────────────────────────────────
-        const infoColW = W / 4 - 2;
-        const orderInfo = [
-          { label: 'NO. PESANAN', value: invoice.invoice_number },
-          {
-            label: 'TANGGAL TRANSAKSI',
-            value: formatDate(invoice.issued_at || invoice.created_at),
-          },
-          { label: 'METODE PEMBAYARAN', value: invoice.payment_method || '-' },
-          {
-            label: 'JASA KIRIM',
-            value: invoice.courier_name
-              ? `${invoice.courier_name}${invoice.courier_service ? ' - ' + invoice.courier_service : ''}`
-              : '-',
-          },
-        ];
-
-        orderInfo.forEach((info, i) => {
-          const x = 40 + i * (infoColW + 8);
-          doc.font('Helvetica-Bold').fontSize(7).fillColor(midGray);
-          doc.text(info.label, x, y);
-          doc.font('Helvetica').fontSize(8).fillColor(darkGray);
-          doc.text(info.value, x, y + 6);
-        });
-
-        y += 16;
-
-        // ── TABLE HEADER ─────────────────────────────────────────────
-        const cols = {
-          no: { x: 40, w: 24 },
-          product: { x: 64, w: 220 },
-          qty: { x: 284, w: 40 },
-          price: { x: 324, w: 90 },
-          subtotal: { x: 414, w: 66 },
+        const tCols = {
+          no: { x: 40, w: 25 },
+          produk: { x: 65, w: 180 },
+          variasi: { x: 245, w: 70 },
+          harga: { x: 315, w: 70 },
+          qty: { x: 385, w: 60 },
+          subtotal: { x: 445, w: 70 }
         };
 
-        doc.rect(40, y, W, 18).fill(blue);
-        doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(8);
+        doc.font('Helvetica-Bold').fontSize(8).fillColor(darkGray);
+        doc.text('No.', tCols.no.x, y);
+        doc.text('Produk', tCols.produk.x, y);
+        doc.text('Variasi', tCols.variasi.x, y);
+        doc.text('Harga Produk', tCols.harga.x, y, { align: 'right' });
+        doc.text('Kuantitas', tCols.qty.x, y, { align: 'center' });
+        doc.text('Subtotal', tCols.subtotal.x, y, { align: 'right' });
 
-        doc.text('No', cols.no.x + 2, y + 4, { width: cols.no.w, align: 'center' });
-        doc.text('Produk', cols.product.x + 4, y + 4, { width: cols.product.w });
-        doc.text('Qty', cols.qty.x + 2, y + 4, { width: cols.qty.w, align: 'center' });
-        doc.text('Harga', cols.price.x + 2, y + 4, { width: cols.price.w, align: 'right' });
-        doc.text('Subtotal', cols.subtotal.x + 2, y + 4, { width: cols.subtotal.w, align: 'right' });
+        y += 15;
+        doc.strokeColor(borderGray).lineWidth(0.5).moveTo(40, y).lineTo(40 + W, y).stroke();
+        y += 8;
 
-        y += 18;
+        // Baris Item Tabel
+        doc.font('Helvetica').fontSize(8).fillColor(black);
+        let totalQty = 0;
 
-        // ── TABLE ROWS ───────────────────────────────────────────────
         (invoice.items || []).forEach((item: any, i: number) => {
-          const rowBg = i % 2 === 0 ? '#ffffff' : '#f8fafc';
-          const rowH = 22;
+          doc.text(String(i + 1), tCols.no.x, y);
 
-          doc.rect(40, y, W, rowH).fill(rowBg);
-          doc
-            .strokeColor(lightGray)
-            .lineWidth(0.3)
-            .rect(40, y, W, rowH)
-            .stroke();
+          const productH = doc.heightOfString(item.product_name || '-', { width: tCols.produk.w });
+          doc.text(item.product_name || '-', tCols.produk.x, y, { width: tCols.produk.w });
 
-          doc.fillColor(darkGray).font('Helvetica').fontSize(8);
-          doc.text(String(i + 1), cols.no.x + 2, y + 6, {
-            width: cols.no.w,
-            align: 'center',
-          });
-          const label = item.variasi
-            ? `${item.product_name} (${item.variasi})`
-            : item.product_name;
-          doc.text(label, cols.product.x + 4, y + 6, {
-            width: cols.product.w - 6,
-            lineBreak: false,
-            ellipsis: true,
-          });
-          doc.text(String(item.quantity), cols.qty.x + 2, y + 6, {
-            width: cols.qty.w,
-            align: 'center',
-          });
-          doc.text(rupiah(item.price), cols.price.x + 2, y + 6, {
-            width: cols.price.w,
-            align: 'right',
-          });
-          doc.text(rupiah(item.subtotal), cols.subtotal.x + 2, y + 6, {
-            width: cols.subtotal.w,
-            align: 'right',
-          });
+          doc.text(item.variasi || '-', tCols.variasi.x, y, { width: tCols.variasi.w });
+          doc.text(rupiah(item.price), tCols.harga.x, y, { width: tCols.harga.w, align: 'right' });
+          doc.text(String(item.quantity), tCols.qty.x, y, { width: tCols.qty.w, align: 'center' });
+          doc.text(rupiah(item.subtotal), tCols.subtotal.x, y, { width: tCols.subtotal.w, align: 'right' });
 
-          y += rowH;
+          totalQty += item.quantity;
+          y += Math.max(productH, 15) + 5;
         });
 
-        // ── SUMMARY ──────────────────────────────────────────────────
+        y += 5;
+        doc.strokeColor(borderGray).lineWidth(0.5).moveTo(40, y).lineTo(40 + W, y).stroke();
         y += 10;
-        const sumX = 40 + W - 200;
-        const sumW = 200;
 
-        doc.rect(sumX, y, sumW, 10).fill('#f8fafc');
+        // Subtotal Item & Kuantitas
+        doc.font('Helvetica-Bold').text('Subtotal', tCols.qty.x - 40, y, { width: 80, align: 'right' });
+        doc.text(rupiah(invoice.subtotal), tCols.subtotal.x, y, { width: tCols.subtotal.w, align: 'right' });
+        y += 15;
+        doc.font('Helvetica-Bold').text(`Total Kuantitas (Aktif) ${totalQty} produk`, tCols.qty.x - 100, y, { width: 140, align: 'right' });
 
-        const drawSummaryRow = (
-          label: string,
-          value: string,
-          bold = false,
-          color = darkGray,
-        ) => {
-          doc
-            .font(bold ? 'Helvetica-Bold' : 'Helvetica')
-            .fontSize(bold ? 10 : 8.5)
-            .fillColor(color);
-          doc.text(label, sumX + 6, y + 3, { width: 100 });
-          doc.text(value, sumX + 106, y + 3, { width: 88, align: 'right' });
-          y += bold ? 16 : 13;
+        y += 25;
+
+        // ── 6. SUMMARY BOX (Gray Box Kanan Bawah) ────────────────────
+        const sumW = 230;
+        const sumX = 40 + W - sumW;
+        doc.rect(sumX, y, sumW, 90).fill(lightGray);
+
+        y += 15;
+        doc.fillColor(black).font('Helvetica').fontSize(8);
+
+        const drawSumRow = (label: string, value: string, isTotal = false) => {
+          if(isTotal) doc.font('Helvetica-Bold').fontSize(10);
+          else doc.font('Helvetica').fontSize(8);
+
+          doc.text(label, sumX + 15, y, { width: 110 });
+          doc.text(value, sumX + 125, y, { width: 90, align: 'right' });
+          y += isTotal ? 20 : 15;
         };
 
-        drawSummaryRow('Subtotal', rupiah(invoice.subtotal));
-        drawSummaryRow('Ongkos Kirim', rupiah(invoice.shipping_cost));
+        drawSumRow('Subtotal Pesanan', rupiah(invoice.subtotal));
+        drawSumRow('Biaya Layanan/Ongkir', rupiah(invoice.shipping_cost));
+        
         if (Number(invoice.discount) > 0) {
-          drawSummaryRow('Diskon', `- ${rupiah(invoice.discount)}`, false, '#e53935');
+          drawSumRow('Diskon Voucher', `-${rupiah(invoice.discount)}`);
         }
         if (Number(invoice.ppn) > 0) {
-          drawSummaryRow('PPN 11%', rupiah(invoice.ppn));
+          drawSumRow('PPN 11%', rupiah(invoice.ppn));
         }
 
-        // Total divider
-        doc.strokeColor(blue).lineWidth(0.8).moveTo(sumX, y).lineTo(sumX + sumW, y).stroke();
         y += 5;
-        drawSummaryRow('TOTAL', rupiah(invoice.total), true, blue);
+        drawSumRow('Total Pembayaran', rupiah(invoice.total), true);
 
-        // ── FAKTUR PAJAK ─────────────────────────────────────────────
-        if (invoice.invoice_type === 'TAX' && invoice.company_name) {
-          y += 10;
+        y += 15;
+        doc.font('Helvetica').fontSize(8).fillColor(darkGray);
+        doc.text('Biaya-biaya yang ditagihkan oleh anandam.id (jika ada) sudah termasuk PPN', sumX, y, { width: sumW });
 
-          // White background with subtle border
-          doc.rect(40, y, W, 48).fill('#ffffff').stroke('#cbd5e1');
-          doc.font('Helvetica-Bold').fontSize(8).fillColor(darkGray);
-          doc.text('DATA FAKTUR PAJAK', 52, y + 8);
-          doc.font('Helvetica').fontSize(7.5).fillColor(midGray);
-          doc.text(`Perusahaan  : ${invoice.company_name}`, 52, y + 18);
-          doc.text(
-            `Alamat        : ${invoice.company_address || '-'}`,
-            52,
-            y + 26,
-          );
-          if (invoice.customer_npwp) {
-            doc.text(
-              `NPWP          : ${invoice.customer_npwp}`,
-              40 + W / 2,
-              y + 18,
-            );
-          }
-          if (invoice.company_email) {
-            doc.text(
-              `Email            : ${invoice.company_email}`,
-              40 + W / 2,
-              y + 26,
-            );
-          }
-
-          // Note about email delivery
-          doc.font('Helvetica-Oblique').fontSize(7).fillColor(midGray);
-          doc.text(
-            '* Faktur Pajak akan dikirim melalui email dalam 1-2 hari kerja setelah pesanan selesai.',
-            52,
-            y + 38,
-            { width: W - 24 },
-          );
-
-          y += 58;
-        }
-
-        // ── FOOTER ───────────────────────────────────────────────────
+        // ── 7. FOOTER ────────────────────────────────────────────────
         const pageH = doc.page.height;
-        doc
-          .font('Helvetica-Oblique')
-          .fontSize(7)
-          .fillColor('#94a3b8')
-          .text(
-            'Dokumen ini digenerate secara otomatis dan sah tanpa tanda tangan. | anandamcomputer.com',
-            40,
-            pageH - 40,
-            { align: 'center', width: W },
-          );
+        doc.font('Helvetica').fontSize(8).fillColor(black);
+        
+        // Sesuaikan dengan data perusahaan sebenarnya
+        doc.text('PT Anandam Global Integrasi', 40, pageH - 100);
+        doc.text('anandam.id | anandamcomputer.com', 40, pageH - 88);
+        doc.text('Jalan Teknologi No. 1, DI Yogyakarta', 40, pageH - 76);
+        // doc.text('NPWP: 01.234.567.8-901.000', 40, pageH - 64); // Uncomment jika ada NPWP
+
+        doc.fontSize(8).fillColor(darkGray);
+        doc.text('1 of 1', 40, pageH - 45, { align: 'center', width: W });
+        doc.text('End of receipt', 40, pageH - 35, { align: 'center', width: W });
 
         doc.end();
 
