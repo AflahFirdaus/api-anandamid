@@ -59,6 +59,9 @@ export class Voucher {
   @Column({ default: true })
   is_active: boolean;
 
+  @Column({ default: false })
+  is_hidden: boolean;
+
   @CreateDateColumn()
   created_at: Date;
 

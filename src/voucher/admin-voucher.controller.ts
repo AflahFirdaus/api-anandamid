@@ -5,6 +5,7 @@ import {
   Patch,
   Body,
   Param,
+  Query,
   UseGuards,
   Logger,
   HttpStatus,
@@ -12,6 +13,7 @@ import {
   ValidationPipe,
   HttpCode,
   ParseUUIDPipe,
+  ParseBoolPipe,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -98,10 +100,12 @@ export class AdminVoucherController {
     status: 401,
     description: 'Token tidak valid / bukan admin',
   })
-  async getAllVouchers(): Promise<ApiResponseWrapper> {
-    this.logger.log('Admin fetching all vouchers');
+  async getAllVouchers(
+    @Query('showHidden', new ParseBoolPipe({ optional: true })) showHidden?: boolean,
+  ): Promise<ApiResponseWrapper> {
+    this.logger.log(`Admin fetching all vouchers (showHidden: ${showHidden ?? false})`);
 
-    const vouchers = await this.voucherService.getAllVouchersWithStats();
+    const vouchers = await this.voucherService.getAllVouchersWithStats(showHidden ?? false);
 
     return {
       statusCode: HttpStatus.OK,
@@ -150,6 +154,50 @@ export class AdminVoucherController {
     return {
       statusCode: HttpStatus.OK,
       message: `Voucher "${result.code}" sekarang ${result.isActive ? 'AKTIF' : 'NON-AKTIF'}`,
+      data: result,
+    };
+  }
+
+  // ──────────────────────────────────────────────
+  //  PATCH /admin/vouchers/:id/toggle-hide
+  //  Toggle is_hidden
+  // ──────────────────────────────────────────────
+
+  @Patch(':id/toggle-hide')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Toggle hide/show voucher',
+    description:
+      'Mengubah status is_hidden voucher. Hidden → Visible, dan sebaliknya. Voucher yang di-hide tidak muncul di list default.',
+  })
+  @ApiParam({
+    name: 'id',
+    type: 'string',
+    description: 'UUID voucher',
+    example: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Status hide voucher berhasil diubah',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Voucher tidak ditemukan',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Token tidak valid / bukan admin',
+  })
+  async toggleVoucherHide(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<ApiResponseWrapper> {
+    this.logger.log(`Admin toggling voucher hide: ${id}`);
+
+    const result = await this.voucherService.toggleVoucherHide(id);
+
+    return {
+      statusCode: HttpStatus.OK,
+      message: `Voucher "${result.code}" sekarang ${result.isHidden ? 'DIHIDE' : 'TERLIHAT'}`,
       data: result,
     };
   }

@@ -32,10 +32,11 @@ export class VoucherCronService implements OnModuleInit, OnModuleDestroy {
    */
   onModuleInit(): void {
     this.logger.log(
-      `[Cron] Starting auto-release cron every ${VoucherCronService.CRON_INTERVAL_MS / 60000} minutes`,
+      `[Cron] Starting auto-release & auto-hide cron every ${VoucherCronService.CRON_INTERVAL_MS / 60000} minutes`,
     );
-    this.intervalHandle = setInterval(() => {
-      this.releaseStaleReservations();
+    this.intervalHandle = setInterval(async () => {
+      await this.releaseStaleReservations();
+      await this.autoHideExpiredVouchers();
     }, VoucherCronService.CRON_INTERVAL_MS);
   }
 
@@ -109,6 +110,28 @@ export class VoucherCronService implements OnModuleInit, OnModuleDestroy {
     } catch (error) {
       this.logger.error(
         `[Cron] releaseStaleReservations failed: ${(error as Error).message}`,
+        (error as Error).stack,
+      );
+    }
+  }
+
+  /**
+   * Cron Job: Auto-Hide Expired or Exhausted Vouchers
+   *
+   * Runs every 15 minutes alongside releaseStaleReservations.
+   * Voucher yang sudah expired (end_date < now) atau sudah habis kuota
+   * (max_usage > 0 && current_usage >= max_usage) akan di-set is_hidden = true.
+   * Admin tetap bisa melihatnya dengan query param ?showHidden=true.
+   */
+  async autoHideExpiredVouchers(): Promise<void> {
+    try {
+      const hiddenCount = await this.voucherService.autoHideExpiredOrExhaustedVouchers();
+      if (hiddenCount > 0) {
+        this.logger.log(`[Cron] Auto-hide ${hiddenCount} expired/exhausted voucher(s)`);
+      }
+    } catch (error) {
+      this.logger.error(
+        `[Cron] autoHideExpiredVouchers failed: ${(error as Error).message}`,
         (error as Error).stack,
       );
     }

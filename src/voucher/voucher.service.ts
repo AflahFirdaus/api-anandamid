@@ -56,6 +56,7 @@ export interface VoucherStatsDto {
   startDate: Date;
   endDate: Date;
   isActive: boolean;
+  isHidden: boolean;
   createdAt: Date;
 }
 
@@ -206,15 +207,14 @@ export class VoucherService {
       );
     }
 
-    const existingReserved = await this.voucherUsageRepository.findOne({
+    const existingReservedCount = await this.voucherUsageRepository.count({
       where: { user_id: userId, status: VOUCHER_USAGE_STATUS.RESERVED },
     });
 
-    if (existingReserved && existingReserved.voucher_id !== voucher.id) {
-      this.logger.log(
-        `User ${userId} has existing reservation ${existingReserved.id} (voucher ${existingReserved.voucher_id}), releasing...`,
+    if (existingReservedCount >= 2) {
+      throw new BadRequestException(
+        'Maksimal 2 voucher per pesanan. Lepaskan salah satu voucher terlebih dahulu.',
       );
-      await this.releaseVoucher(existingReserved.id);
     }
 
     const eligibility = await this.eligibilityRepository.findOne({
@@ -412,9 +412,16 @@ export class VoucherService {
   /**
    * Mengambil semua voucher (aktif & non-aktif) lengkap dengan statistik
    * currentUsage vs maxUsage untuk dashboard admin.
+   * Jika showHidden=false, hanya tampilkan voucher yang tidak di-hide.
    */
-  async getAllVouchersWithStats(): Promise<VoucherStatsDto[]> {
+  async getAllVouchersWithStats(showHidden: boolean = false): Promise<VoucherStatsDto[]> {
+    const where: any = {};
+    if (!showHidden) {
+      where.is_hidden = false;
+    }
+
     const vouchers = await this.voucherRepository.find({
+      where,
       order: { created_at: 'DESC' },
     });
 
@@ -432,6 +439,7 @@ export class VoucherService {
       startDate: v.start_date,
       endDate: v.end_date,
       isActive: v.is_active,
+      isHidden: v.is_hidden,
       createdAt: v.created_at,
     }));
   }
@@ -465,7 +473,63 @@ export class VoucherService {
   }
 
   // ──────────────────────────────────────────────
-  //  ADMIN METHOD 4: getVoucherByUsageId
+  //  ADMIN METHOD 4: toggleVoucherHide
+  //  Hide → Show, dan sebaliknya
+  // ──────────────────────────────────────────────
+
+  /**
+   * Toggle is_hidden voucher.
+   * Hidden → Visible, dan sebaliknya.
+   * Voucher yang sudah expired atau habis kuota otomatis di-hide oleh cron.
+   */
+  async toggleVoucherHide(id: string): Promise<{ code: string; isHidden: boolean }> {
+    const voucher = await this.voucherRepository.findOne({
+      where: { id },
+    });
+
+    if (!voucher) {
+      throw new NotFoundException('Voucher tidak ditemukan');
+    }
+
+    const newHidden = !voucher.is_hidden;
+
+    await this.voucherRepository.update({ id }, { is_hidden: newHidden });
+
+    this.logger.log(
+      `Voucher "${voucher.code}" hidden status changed to ${newHidden ? 'HIDDEN' : 'VISIBLE'} by admin`,
+    );
+
+    return { code: voucher.code, isHidden: newHidden };
+  }
+
+  /**
+   * Auto-hide voucher yang sudah expired atau sudah habis kuota.
+   * Dipanggil oleh cron job setiap jam.
+   * @returns Jumlah voucher yang di-hide
+   */
+  async autoHideExpiredOrExhaustedVouchers(): Promise<number> {
+    const now = new Date();
+
+    const result = await this.voucherRepository
+      .createQueryBuilder()
+      .update(Voucher)
+      .set({ is_hidden: true })
+      .where('is_hidden = :isHidden', { isHidden: false })
+      .andWhere(
+        '(end_date < :now OR (max_usage > 0 AND current_usage >= max_usage))',
+      )
+      .setParameters({ now })
+      .execute();
+
+    if (result.affected && result.affected > 0) {
+      this.logger.log(`Auto-hide ${result.affected} expired/exhausted vouchers`);
+    }
+
+    return result.affected || 0;
+  }
+
+  // ──────────────────────────────────────────────
+  //  ADMIN METHOD 5: getVoucherByUsageId
   // ──────────────────────────────────────────────
 
   /**
@@ -480,6 +544,45 @@ export class VoucherService {
     return this.voucherRepository.findOne({
       where: { id: usage.voucher_id },
     });
+  }
+
+  /**
+   * Bulk fetch multiple voucher usage records + vouchers.
+   * Digunakan oleh OrderService untuk memproses multi-voucher checkout.
+   */
+  async getVouchersByUsageIds(usageIds: string[]): Promise<{ usageId: string; voucher: Voucher; discountResult: DiscountResult }[]> {
+    const usages = await this.voucherUsageRepository.find({
+      where: {
+        id: In(usageIds),
+        status: VOUCHER_USAGE_STATUS.RESERVED,
+      },
+    });
+
+    if (usages.length === 0) return [];
+
+    const voucherIds = usages.map((u) => u.voucher_id);
+    const vouchers = await this.voucherRepository.find({
+      where: { id: In(voucherIds) },
+    });
+    const voucherMap = new Map(vouchers.map((v) => [v.id, v]));
+
+    const usageMap = new Map(usages.map((u) => [u.id, u]));
+
+    const results: { usageId: string; voucher: Voucher; discountResult: DiscountResult }[] = [];
+
+    for (const usageId of usageIds) {
+      const usage = usageMap.get(usageId);
+      if (!usage) continue;
+      const voucher = voucherMap.get(usage.voucher_id);
+      if (!voucher) continue;
+      results.push({
+        usageId: usage.id,
+        voucher,
+        discountResult: { discountAmount: 0, discountLabel: '' },
+      });
+    }
+
+    return results;
   }
 
   // ──────────────────────────────────────────────

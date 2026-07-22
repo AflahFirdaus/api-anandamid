@@ -27,6 +27,7 @@ import {
 } from './dto/update-order-status.dto';
 import { PaymentService } from '../payment/payment.service';
 import { VoucherService } from '../voucher/voucher.service';
+import { calculateDiscount } from '../voucher/voucher.utils';
 import {
   validateStatusTransition,
   validateBookingTransition,
@@ -2085,7 +2086,7 @@ export class OrderService {
     const courier_name = dto.courier_name;
     const courier_service = dto.courier_service;
     const payment_method = dto.payment_method;
-    const voucher_code = dto.voucher_code;
+    const voucher_usage_ids = dto.voucher_usage_ids || [];
     const pickup_estimate_minutes = dto.pickup_estimate_minutes;
     const delivery_distance_km = dto.delivery_distance_km;
     const is_tax_invoice_requested = dto.is_tax_invoice_requested || false;
@@ -2110,12 +2111,6 @@ export class OrderService {
       address = await this.addressRepo.findOne({ where: { id: address_id } as any, relations: ['user'] });
       if (!address) throw new NotFoundException('Alamat tidak ditemukan');
       if (address.user?.id !== userId) throw new BadRequestException('Alamat bukan milik user ini.');
-    }
-
-    let discount = 0;
-    if (voucher_code) {
-      const voucherResult = await (this.voucherService as any).applyVoucher(voucher_code, userId, undefined) as any;
-      discount = voucherResult.discount || 0;
     }
 
     let items: any[] = [];
@@ -2146,6 +2141,20 @@ export class OrderService {
       throw new BadRequestException('cart_ids atau product_id wajib diisi.');
     }
 
+    let discount = 0;
+    if (voucher_usage_ids.length > 0) {
+      const voucherResults = await this.voucherService.getVouchersByUsageIds(voucher_usage_ids);
+      for (const vr of voucherResults) {
+        const dResult = calculateDiscount(
+          vr.voucher.discount_type,
+          Number(vr.voucher.discount_value),
+          Math.max(subtotal + Number(shipping_cost || 0) - discount, 0),
+          vr.voucher.max_discount ? Number(vr.voucher.max_discount) : null,
+        );
+        discount += dResult.discountAmount;
+      }
+    }
+
     const shippingCost = shipping_cost || 0;
     const totalPrice = subtotal + Number(shippingCost) - discount;
 
@@ -2166,7 +2175,7 @@ export class OrderService {
       payment_method: payment_method || null,
       address_id: isStorePickup ? null : address_id,
       items: items as any,
-      voucher_code: voucher_code || null,
+      voucher_usage_ids: voucher_usage_ids.length > 0 ? voucher_usage_ids : null,
       discount_amount: discount || 0,
       is_store_pickup: isStorePickup,
       is_store_delivery: isStoreDelivery,

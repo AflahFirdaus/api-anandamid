@@ -224,12 +224,13 @@ export class CreateCheckoutDto {
   shipping_details?: Record<string, any>;
 
   @ApiPropertyOptional({
-    description: 'Voucher usage ID from apply-voucher endpoint (for discount)',
-    example: 'usage-uuid-abc',
+    description: 'Voucher usage IDs from apply-voucher endpoint (max 2 vouchers)',
+    example: ['usage-uuid-abc', 'usage-uuid-def'],
   })
   @IsOptional()
-  @IsString()
-  voucher_usage_id?: string;
+  @IsArray()
+  @IsString({ each: true })
+  voucher_usage_ids?: string[];
 
   @ApiPropertyOptional({
     description: 'Request faktur pajak?',
