@@ -157,6 +157,21 @@ export class OrderService {
     });
     if (!order || !order.items?.length) return;
 
+    // Confirm voucher usage saat pembayaran sukses (LUNAS)
+    // Voucher di-set CONFIRMED + is_used = true hanya setelah pembayaran berhasil
+    // Field voucher_usage_ids ada di order karena disimpan via `as any` di createCheckout
+    const orderAny = order as any;
+    if (orderAny.voucher_usage_ids && orderAny.voucher_usage_ids.length > 0) {
+      const usageIds = orderAny.voucher_usage_ids as string[];
+      for (const usageId of usageIds) {
+        try {
+          await this.voucherService.confirmVoucherUsage(usageId, orderId);
+        } catch (err) {
+          this.logger.error(`Failed to confirm voucher ${usageId} for order ${orderId}: ${(err as Error).message}`);
+        }
+      }
+    }
+
     // 1. Collect all product IDs from items
     const productIds = order.items
       .filter((i) => i.product)

@@ -124,28 +124,23 @@ export class VoucherService {
     const confirmedUsages = await this.voucherUsageRepository.find({
       where: {
         user_id: userId,
-        status: In([VOUCHER_USAGE_STATUS.CONFIRMED, VOUCHER_USAGE_STATUS.RELEASED]),
+        status: In([
+          VOUCHER_USAGE_STATUS.CONFIRMED,
+          VOUCHER_USAGE_STATUS.RELEASED,
+        ]),
       },
     });
-    const confirmedVoucherIds = new Set(confirmedUsages.map((u) => u.voucher_id));
-
-    // Cek juga UserVoucherEligibility (untuk voucher yang eligibility-nya sudah pernah digunakan)
-    const eligibilityRecords = await this.eligibilityRepository.find({
-      where: { user_id: userId },
-    });
-
-    const eligibilityMap = new Map(
-      eligibilityRecords.map((e) => [e.voucher_id, e.is_used]),
+    const confirmedVoucherIds = new Set(
+      confirmedUsages.map((u) => u.voucher_id),
     );
 
     return filteredVouchers
       .filter((v) => {
-        // Filter 1: sudah CONFIRMED/RELEASED dari VoucherUsage
+        // Hanya filter: sudah CONFIRMED/RELEASED dari VoucherUsage (benar-benar terpakai)
+        // UserVoucherEligibility.is_used TIDAK dicek di sini karena hanya di-set true
+        // saat checkout berhasil (confirmVoucherUsage), bukan saat reserve.
+        // Ini memungkinkan user untuk apply voucher, cek harga, lalu apply ulang nanti.
         if (confirmedVoucherIds.has(v.id)) return false;
-
-        // Filter 2: sudah is_used=true dari UserVoucherEligibility
-        const isUsed = eligibilityMap.get(v.id);
-        if (isUsed === true) return false;
 
         return true;
       })
@@ -235,7 +230,10 @@ export class VoucherService {
       where: {
         user_id: userId,
         voucher_id: voucher.id,
-        status: In([VOUCHER_USAGE_STATUS.CONFIRMED, VOUCHER_USAGE_STATUS.RELEASED]),
+        status: In([
+          VOUCHER_USAGE_STATUS.CONFIRMED,
+          VOUCHER_USAGE_STATUS.RELEASED,
+        ]),
       },
     });
     if (existingConfirmed) {
@@ -285,12 +283,9 @@ export class VoucherService {
 
     const savedUsage = await this.voucherUsageRepository.save(usage);
 
-    if (eligibility && !eligibility.is_used) {
-      await this.eligibilityRepository.update(
-        { id: eligibility.id },
-        { is_used: true },
-      );
-    }
+    // NOTE: is_used TIDAK di-set true di sini. Hanya di-set saat checkout benar-benar
+    // berhasil (confirmVoucherUsage). Ini agar user bisa apply voucher, cek harga,
+    // lalu apply ulang nanti tanpa voucher hilang dari daftar eligible.
 
     const discountResult = calculateDiscount(
       voucher.discount_type,
@@ -317,11 +312,18 @@ export class VoucherService {
   //  PUBLIC METHOD 3: confirmVoucherUsage
   // ──────────────────────────────────────────────
 
-  async confirmVoucherUsage(
-    usageId: string,
-    orderId: string,
-  ): Promise<void> {
-    const updateResult = await this.voucherUsageRepository.update(
+  async confirmVoucherUsage(usageId: string, orderId: string): Promise<void> {
+    const usage = await this.voucherUsageRepository.findOne({
+      where: { id: usageId, status: VOUCHER_USAGE_STATUS.RESERVED },
+    });
+    if (!usage) {
+      this.logger.warn(
+        `Voucher usage ${usageId} not found or already confirmed for order ${orderId}`,
+      );
+      return;
+    }
+
+    await this.voucherUsageRepository.update(
       { id: usageId, status: VOUCHER_USAGE_STATUS.RESERVED },
       {
         status: VOUCHER_USAGE_STATUS.CONFIRMED,
@@ -330,11 +332,21 @@ export class VoucherService {
       },
     );
 
-    if (updateResult.affected === 0) {
-      this.logger.warn(
-        `Voucher usage ${usageId} not found or already confirmed for order ${orderId}`,
+    // Set is_used = true di UserVoucherEligibility saat checkout benar-benar berhasil
+    // Ini memastikan voucher hangus setelah checkout sukses, bukan saat reserve
+    const eligibility = await this.eligibilityRepository.findOne({
+      where: { user_id: usage.user_id, voucher_id: usage.voucher_id },
+    });
+    if (eligibility && !eligibility.is_used) {
+      await this.eligibilityRepository.update(
+        { id: eligibility.id },
+        { is_used: true },
       );
     }
+
+    this.logger.log(
+      `Voucher usage ${usageId} confirmed for order ${orderId} — is_used set to true`,
+    );
   }
 
   // ──────────────────────────────────────────────
@@ -382,9 +394,7 @@ export class VoucherService {
 
       await queryRunner.commitTransaction();
 
-      this.logger.log(
-        `Voucher usage ${usageId} released — quota restored`,
-      );
+      this.logger.log(`Voucher usage ${usageId} released — quota restored`);
     } catch (error) {
       await queryRunner.rollbackTransaction();
       this.logger.error(
@@ -451,7 +461,9 @@ export class VoucherService {
    * currentUsage vs maxUsage untuk dashboard admin.
    * Jika showHidden=false, hanya tampilkan voucher yang tidak di-hide.
    */
-  async getAllVouchersWithStats(showHidden: boolean = false): Promise<VoucherStatsDto[]> {
+  async getAllVouchersWithStats(
+    showHidden: boolean = false,
+  ): Promise<VoucherStatsDto[]> {
     const where: any = {};
     if (!showHidden) {
       where.is_hidden = false;
@@ -489,7 +501,9 @@ export class VoucherService {
    * Toggle isActive voucher.
    * Aktif → Non-aktif, dan sebaliknya.
    */
-  async toggleVoucherStatus(id: string): Promise<{ code: string; isActive: boolean }> {
+  async toggleVoucherStatus(
+    id: string,
+  ): Promise<{ code: string; isActive: boolean }> {
     const voucher = await this.voucherRepository.findOne({
       where: { id },
     });
@@ -519,7 +533,9 @@ export class VoucherService {
    * Hidden → Visible, dan sebaliknya.
    * Voucher yang sudah expired atau habis kuota otomatis di-hide oleh cron.
    */
-  async toggleVoucherHide(id: string): Promise<{ code: string; isHidden: boolean }> {
+  async toggleVoucherHide(
+    id: string,
+  ): Promise<{ code: string; isHidden: boolean }> {
     const voucher = await this.voucherRepository.findOne({
       where: { id },
     });
@@ -559,7 +575,9 @@ export class VoucherService {
       .execute();
 
     if (result.affected && result.affected > 0) {
-      this.logger.log(`Auto-hide ${result.affected} expired/exhausted vouchers`);
+      this.logger.log(
+        `Auto-hide ${result.affected} expired/exhausted vouchers`,
+      );
     }
 
     return result.affected || 0;
@@ -587,7 +605,11 @@ export class VoucherService {
    * Bulk fetch multiple voucher usage records + vouchers.
    * Digunakan oleh OrderService untuk memproses multi-voucher checkout.
    */
-  async getVouchersByUsageIds(usageIds: string[]): Promise<{ usageId: string; voucher: Voucher; discountResult: DiscountResult }[]> {
+  async getVouchersByUsageIds(
+    usageIds: string[],
+  ): Promise<
+    { usageId: string; voucher: Voucher; discountResult: DiscountResult }[]
+  > {
     const usages = await this.voucherUsageRepository.find({
       where: {
         id: In(usageIds),
@@ -605,7 +627,11 @@ export class VoucherService {
 
     const usageMap = new Map(usages.map((u) => [u.id, u]));
 
-    const results: { usageId: string; voucher: Voucher; discountResult: DiscountResult }[] = [];
+    const results: {
+      usageId: string;
+      voucher: Voucher;
+      discountResult: DiscountResult;
+    }[] = [];
 
     for (const usageId of usageIds) {
       const usage = usageMap.get(usageId);
