@@ -119,27 +119,28 @@ export class VoucherService {
       return true;
     });
 
-    // Cek VoucherUsage untuk mengetahui voucher mana yang sudah CONFIRMED (benar-benar terpakai)
-    // Voucher dengan status RESERVED masih bisa di-release dan dipakai ulang
+    // Cek VoucherUsage CONFIRMED — hanya filter yang ordernya benar-benar sudah LUNAS
+    // CONFIRMED dengan order PENDING/BATAL berarti pembayaran belum sukses — voucher masih bisa dipakai
     const confirmedUsages = await this.voucherUsageRepository.find({
       where: {
         user_id: userId,
-        status: In([
-          VOUCHER_USAGE_STATUS.CONFIRMED,
-          VOUCHER_USAGE_STATUS.RELEASED,
-        ]),
+        status: VOUCHER_USAGE_STATUS.CONFIRMED,
       },
     });
-    const confirmedVoucherIds = new Set(
-      confirmedUsages.map((u) => u.voucher_id),
-    );
+    const paidStatuses = ['LUNAS', 'DIKEMAS', 'DIKIRIM', 'SELESAI'];
+    const confirmedVoucherIds = new Set<string>();
+    for (const usage of confirmedUsages) {
+      const order = await this.orderRepository.findOne({
+        where: { id: usage.order_id },
+      });
+      if (order && paidStatuses.includes(order.status)) {
+        confirmedVoucherIds.add(usage.voucher_id);
+      }
+    }
 
     return filteredVouchers
       .filter((v) => {
-        // Hanya filter: sudah CONFIRMED/RELEASED dari VoucherUsage (benar-benar terpakai)
-        // UserVoucherEligibility.is_used TIDAK dicek di sini karena hanya di-set true
-        // saat checkout berhasil (confirmVoucherUsage), bukan saat reserve.
-        // Ini memungkinkan user untuk apply voucher, cek harga, lalu apply ulang nanti.
+        // Hanya filter: sudah CONFIRMED dengan order LUNAS (benar-benar terpakai)
         if (confirmedVoucherIds.has(v.id)) return false;
 
         return true;
@@ -225,20 +226,31 @@ export class VoucherService {
       await this.releaseVoucher(existingReserved.id);
     }
 
-    // Cek apakah user sudah pernah CONFIRMED/RELEASED (benar-benar terpakai)
+    // Cek apakah user sudah pernah CONFIRMED (benar-benar terpakai di transaksi sukses)
+    // RELEASED = sudah di-release (reservasi expired/dibatalkan) → boleh dipakai lagi
     const existingConfirmed = await this.voucherUsageRepository.findOne({
       where: {
         user_id: userId,
         voucher_id: voucher.id,
-        status: In([
-          VOUCHER_USAGE_STATUS.CONFIRMED,
-          VOUCHER_USAGE_STATUS.RELEASED,
-        ]),
+        status: VOUCHER_USAGE_STATUS.CONFIRMED,
       },
     });
     if (existingConfirmed) {
-      throw new BadRequestException(
-        'Anda sudah pernah menggunakan voucher ini',
+      // Double-check: pastikan order terkait benar-benar sukses (LUNAS), bukan PENDING
+      // Order PENDING berarti pembayaran belum selesai — voucher boleh dipakai ulang
+      const order = await this.orderRepository.findOne({
+        where: { id: existingConfirmed.order_id },
+      });
+      const paidStatuses = ['LUNAS', 'DIKEMAS', 'DIKIRIM', 'SELESAI'];
+      if (order && paidStatuses.includes(order.status)) {
+        // Order benar-benar sukses — voucher hangus
+        throw new BadRequestException(
+          'Anda sudah pernah menggunakan voucher ini',
+        );
+      }
+      // Order tidak ditemukan, masih PENDING, atau BATAL — voucher belum benar-benar terpakai
+      this.logger.log(
+        `User ${userId} re-using voucher ${voucherCode} — previous order ${existingConfirmed.order_id} is ${order?.status || 'not found'}`,
       );
     }
 
@@ -252,12 +264,10 @@ export class VoucherService {
       );
     }
 
-    const eligibility = await this.eligibilityRepository.findOne({
-      where: { user_id: userId, voucher_id: voucher.id },
-    });
-    if (eligibility && eligibility.is_used) {
-      throw new BadRequestException('Voucher sudah pernah digunakan');
-    }
+    // NOTE: UserVoucherEligibility.is_used tidak dicek di sini karena hanya
+    // digunakan untuk user eligibility (misal NEW_USER). Status "sudah pernah
+    // dipakai" hanya ditentukan oleh VoucherUsage dengan status CONFIRMED/RELEASED.
+    // Lihat pengecekan existingConfirmed di atas.
 
     const updateResult = await this.voucherRepository
       .createQueryBuilder()
