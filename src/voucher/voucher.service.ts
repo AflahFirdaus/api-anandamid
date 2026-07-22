@@ -83,6 +83,9 @@ export class VoucherService {
     private readonly dataSource: DataSource,
   ) {}
 
+  // UUID regex untuk validasi apakah order_id benar-benar UUID (bukan placeholder seperti "RESERVED_xxx")
+  private readonly uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
   // ──────────────────────────────────────────────
   //  PUBLIC METHOD 1: getEligibleVouchers
   // ──────────────────────────────────────────────
@@ -130,6 +133,8 @@ export class VoucherService {
     const paidStatuses = ['LUNAS', 'DIKEMAS', 'DIKIRIM', 'SELESAI'];
     const confirmedVoucherIds = new Set<string>();
     for (const usage of confirmedUsages) {
+      // Skip jika order_id bukan UUID valid (misal "RESERVED_xxx" atau "CONFIRMED_PLACEHOLDER")
+      if (!usage.order_id || !this.uuidRegex.test(usage.order_id)) continue;
       const order = await this.orderRepository.findOne({
         where: { id: usage.order_id },
       });
@@ -235,22 +240,27 @@ export class VoucherService {
         status: VOUCHER_USAGE_STATUS.CONFIRMED,
       },
     });
+    let existingConfirmedStatus: string | null = null;
     if (existingConfirmed) {
-      // Double-check: pastikan order terkait benar-benar sukses (LUNAS), bukan PENDING
-      // Order PENDING berarti pembayaran belum selesai — voucher boleh dipakai ulang
-      const order = await this.orderRepository.findOne({
-        where: { id: existingConfirmed.order_id },
-      });
-      const paidStatuses = ['LUNAS', 'DIKEMAS', 'DIKIRIM', 'SELESAI'];
-      if (order && paidStatuses.includes(order.status)) {
-        // Order benar-benar sukses — voucher hangus
-        throw new BadRequestException(
-          'Anda sudah pernah menggunakan voucher ini',
-        );
+      // Skip jika order_id bukan UUID valid (misal "RESERVED_xxx" dipromosikan ke CONFIRMED)
+      if (existingConfirmed.order_id && this.uuidRegex.test(existingConfirmed.order_id)) {
+        const confirmedOrder = await this.orderRepository.findOne({
+          where: { id: existingConfirmed.order_id },
+        });
+        if (confirmedOrder) {
+          existingConfirmedStatus = confirmedOrder.status;
+          const paidStatuses = ['LUNAS', 'DIKEMAS', 'DIKIRIM', 'SELESAI'];
+          if (paidStatuses.includes(confirmedOrder.status)) {
+            // Order benar-benar sukses — voucher hangus
+            throw new BadRequestException(
+              'Anda sudah pernah menggunakan voucher ini',
+            );
+          }
+        }
       }
       // Order tidak ditemukan, masih PENDING, atau BATAL — voucher belum benar-benar terpakai
       this.logger.log(
-        `User ${userId} re-using voucher ${voucherCode} — previous order ${existingConfirmed.order_id} is ${order?.status || 'not found'}`,
+        `User ${userId} re-using voucher ${voucherCode} — previous order ${existingConfirmed.order_id} is ${existingConfirmedStatus || 'not found'}`,
       );
     }
 
