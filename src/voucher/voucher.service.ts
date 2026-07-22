@@ -219,19 +219,16 @@ export class VoucherService {
       order: { used_at: 'DESC' },
     });
     if (existingUsage) {
-      // Jika status RESERVED, ini adalah reservasi lama yang belum ke-checkout
-      // Release dulu agar user bisa apply ulang
+      // Jika status RESERVED → sudah di-reserve sebelumnya, tolak (tidak boleh double)
       if (existingUsage.status === VOUCHER_USAGE_STATUS.RESERVED) {
-        this.logger.log(
-          `User ${userId} re-applying voucher ${voucherCode}. Releasing old reservation ${existingUsage.id}...`,
-        );
-        await this.releaseVoucher(existingUsage.id);
-      } else {
-        // CONFIRMED / RELEASED — sudah benar-benar dipakai sebelumnya
         throw new BadRequestException(
-          'Anda sudah pernah menggunakan voucher ini',
+          'Anda sudah mengambil voucher ini. Tidak bisa mengambil voucher yang sama dua kali.',
         );
       }
+      // CONFIRMED / RELEASED — sudah benar-benar dipakai sebelumnya
+      throw new BadRequestException(
+        'Anda sudah pernah menggunakan voucher ini',
+      );
     }
 
     const existingReservedCount = await this.voucherUsageRepository.count({
