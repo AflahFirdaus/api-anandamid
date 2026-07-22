@@ -259,7 +259,7 @@ export class VoucherService {
       .andWhere('is_active = :isActive', { isActive: true })
       .andWhere('start_date <= :now', { now })
       .andWhere('end_date >= :now', { now })
-      .andWhere('current_usage < max_usage')
+      .andWhere('(max_usage = 0 OR current_usage < max_usage)')
       .execute();
 
     if (updateResult.affected === 0) {
