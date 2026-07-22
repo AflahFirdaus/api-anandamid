@@ -14,6 +14,7 @@ import { LoginDto } from './dto/login.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { ResendOtpDto } from './dto/resend-otp.dto';
 import { GoogleRegisterPhoneDto } from './dto/google-register-phone.dto';
+import { UpdatePhoneDto } from './dto/update-phone.dto';
 
 @Controller('user/auth')
 export class UserController {
@@ -66,6 +67,11 @@ export class UserController {
     @Post('google-register-phone')
     async googleRegisterPhone(@Body() body: GoogleRegisterPhoneDto) {
         return this.userService.googleRegisterPhone(body);
+    }
+
+    @Post('update-phone')
+    async updatePhone(@Body() body: UpdatePhoneDto) {
+        return this.userService.updatePhone(body.current_phone, body.new_phone);
     }
 
     // ================= PROFILE ENDPOINTS =================

@@ -626,6 +626,52 @@ export class UserService {
     }
   }
 
+  // ================= UPDATE PHONE NUMBER (SEBELUM VERIFIKASI OTP) =================
+  async updatePhone(current_phone: string, new_phone: string) {
+    if (!current_phone || !new_phone) {
+      throw new BadRequestException('Nomor lama dan nomor baru wajib diisi!');
+    }
+
+    const formattedNewPhone = this.whatsappService.formatPhoneNumber(new_phone);
+
+    // Cari user berdasarkan nomor lama
+    const user = await this.findUserByPhone(current_phone);
+    if (!user) {
+      throw new UnauthorizedException('Nomor WhatsApp lama tidak ditemukan!');
+    }
+
+    // Cek apakah nomor baru sudah dipakai akun lain (kecuali akun yang sama)
+    const existingPhone = await this.userRepo.findOne({
+      where: { phone_number: formattedNewPhone },
+    });
+    if (existingPhone && existingPhone.id !== user.id) {
+      throw new ConflictException('Nomor WhatsApp sudah digunakan oleh akun lain!');
+    }
+
+    // Update nomor HP + reset OTP
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpExpires = new Date(Date.now() + 5 * 60 * 1000);
+
+    user.phone_number = formattedNewPhone;
+    user.is_whatsapp_verified = false;
+    user.whatsapp_otp = otpCode;
+    user.whatsapp_otp_expires = otpExpires;
+    await this.userRepo.save(user);
+
+    // Kirim OTP ke nomor baru
+    this.whatsappService
+      .sendOtp(formattedNewPhone, otpCode)
+      .catch((err) =>
+        this.whatsappService['logger'].error('Gagal kirim update-phone OTP', err),
+      );
+
+    return {
+      status: 'NEED_VERIFICATION',
+      phone_number: formattedNewPhone,
+      message: 'Nomor WhatsApp berhasil diperbarui. Silakan verifikasi OTP.',
+    };
+  }
+
   // ================= ADDRESS MANAGEMENT =================
 
   async addAddress(userId: string, dto: any) {
