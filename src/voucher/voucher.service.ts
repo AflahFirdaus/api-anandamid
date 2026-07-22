@@ -119,6 +119,17 @@ export class VoucherService {
       return true;
     });
 
+    // Cek VoucherUsage untuk mengetahui voucher mana yang sudah CONFIRMED (benar-benar terpakai)
+    // Voucher dengan status RESERVED masih bisa di-release dan dipakai ulang
+    const confirmedUsages = await this.voucherUsageRepository.find({
+      where: {
+        user_id: userId,
+        status: In([VOUCHER_USAGE_STATUS.CONFIRMED, VOUCHER_USAGE_STATUS.RELEASED]),
+      },
+    });
+    const confirmedVoucherIds = new Set(confirmedUsages.map((u) => u.voucher_id));
+
+    // Cek juga UserVoucherEligibility (untuk voucher yang eligibility-nya sudah pernah digunakan)
     const eligibilityRecords = await this.eligibilityRepository.find({
       where: { user_id: userId },
     });
@@ -129,8 +140,13 @@ export class VoucherService {
 
     return filteredVouchers
       .filter((v) => {
+        // Filter 1: sudah CONFIRMED/RELEASED dari VoucherUsage
+        if (confirmedVoucherIds.has(v.id)) return false;
+
+        // Filter 2: sudah is_used=true dari UserVoucherEligibility
         const isUsed = eligibilityMap.get(v.id);
         if (isUsed === true) return false;
+
         return true;
       })
       .map((v) => ({
@@ -200,11 +216,22 @@ export class VoucherService {
 
     const existingUsage = await this.voucherUsageRepository.findOne({
       where: { user_id: userId, voucher_id: voucher.id },
+      order: { used_at: 'DESC' },
     });
     if (existingUsage) {
-      throw new BadRequestException(
-        'Anda sudah pernah menggunakan voucher ini',
-      );
+      // Jika status RESERVED, ini adalah reservasi lama yang belum ke-checkout
+      // Release dulu agar user bisa apply ulang
+      if (existingUsage.status === VOUCHER_USAGE_STATUS.RESERVED) {
+        this.logger.log(
+          `User ${userId} re-applying voucher ${voucherCode}. Releasing old reservation ${existingUsage.id}...`,
+        );
+        await this.releaseVoucher(existingUsage.id);
+      } else {
+        // CONFIRMED / RELEASED — sudah benar-benar dipakai sebelumnya
+        throw new BadRequestException(
+          'Anda sudah pernah menggunakan voucher ini',
+        );
+      }
     }
 
     const existingReservedCount = await this.voucherUsageRepository.count({
