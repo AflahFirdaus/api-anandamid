@@ -214,18 +214,31 @@ export class VoucherService {
       }
     }
 
-    const existingUsage = await this.voucherUsageRepository.findOne({
-      where: { user_id: userId, voucher_id: voucher.id },
-      order: { used_at: 'DESC' },
+    // Cek apakah user sudah pernah me-reserve voucher yang SAMA
+    // Jika status RESERVED → release dulu agar bisa apply ulang (misal user hapus dari frontend)
+    const existingReserved = await this.voucherUsageRepository.findOne({
+      where: {
+        user_id: userId,
+        voucher_id: voucher.id,
+        status: VOUCHER_USAGE_STATUS.RESERVED,
+      },
     });
-    if (existingUsage) {
-      // Jika status RESERVED → sudah di-reserve sebelumnya, tolak (tidak boleh double)
-      if (existingUsage.status === VOUCHER_USAGE_STATUS.RESERVED) {
-        throw new BadRequestException(
-          'Anda sudah mengambil voucher ini. Tidak bisa mengambil voucher yang sama dua kali.',
-        );
-      }
-      // CONFIRMED / RELEASED — sudah benar-benar dipakai sebelumnya
+    if (existingReserved) {
+      this.logger.log(
+        `User ${userId} re-applying voucher ${voucherCode}. Releasing old reservation ${existingReserved.id}...`,
+      );
+      await this.releaseVoucher(existingReserved.id);
+    }
+
+    // Cek apakah user sudah pernah CONFIRMED/RELEASED (benar-benar terpakai)
+    const existingConfirmed = await this.voucherUsageRepository.findOne({
+      where: {
+        user_id: userId,
+        voucher_id: voucher.id,
+        status: In([VOUCHER_USAGE_STATUS.CONFIRMED, VOUCHER_USAGE_STATUS.RELEASED]),
+      },
+    });
+    if (existingConfirmed) {
       throw new BadRequestException(
         'Anda sudah pernah menggunakan voucher ini',
       );
