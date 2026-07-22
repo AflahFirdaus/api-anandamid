@@ -1,5 +1,5 @@
-import { IsString, IsNotEmpty, IsNumber, Min } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
+import { IsString, IsNotEmpty, IsNumber, Min, IsOptional, IsArray } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class ApplyVoucherDto {
   @ApiProperty({
@@ -18,4 +18,13 @@ export class ApplyVoucherDto {
   @IsNumber()
   @Min(0, { message: 'Total belanja tidak boleh negatif' })
   orderTotal: number;
+
+  @ApiPropertyOptional({
+    description: 'Array product IDs yang ada di keranjang checkout (untuk validasi voucher target)',
+    example: ['product-uuid-1', 'product-uuid-2'],
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  productIds?: string[];
 }

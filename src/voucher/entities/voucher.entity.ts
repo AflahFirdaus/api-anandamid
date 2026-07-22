@@ -70,4 +70,11 @@ export class Voucher {
 
   @OneToMany(() => UserVoucherEligibility, (eligibility) => eligibility.voucher)
   eligibility: UserVoucherEligibility[];
+
+  // ── Target fields untuk voucher hasil nego ──
+  @Column({ type: 'varchar', nullable: true })
+  target_user_id: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  target_product_id: string | null;
 }

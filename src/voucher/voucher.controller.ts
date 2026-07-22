@@ -142,6 +142,7 @@ export class VoucherController {
       userId,
       dto.voucherCode,
       dto.orderTotal,
+      dto.productIds,
     );
 
     return {

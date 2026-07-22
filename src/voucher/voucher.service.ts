@@ -33,6 +33,8 @@ export interface EligibleVoucherDto {
   maxUsage: number;
   currentUsage: number;
   endDate: Date;
+  /** Jika diisi, voucher hanya berlaku untuk produk dengan ID ini */
+  targetProductId: string | null;
 }
 
 export interface AppliedVoucherResult {
@@ -58,6 +60,8 @@ export interface VoucherStatsDto {
   isActive: boolean;
   isHidden: boolean;
   createdAt: Date;
+  targetUserId: string | null;
+  targetProductId: string | null;
 }
 
 // Status internal untuk VoucherUsage
@@ -92,6 +96,8 @@ export class VoucherService {
 
   /**
    * Mengambil semua voucher yang eligible untuk user berdasarkan orderTotal.
+   * - Voucher dengan target_user_id hanya tampil untuk user tersebut.
+   * - Voucher dengan target_product_id disertakan informasinya.
    */
   async getEligibleVouchers(
     userId: string,
@@ -110,6 +116,8 @@ export class VoucherService {
     const eligibleVouchers = vouchers.filter((v) => {
       if (v.max_usage > 0 && v.current_usage >= v.max_usage) return false;
       if (Number(v.min_purchase) > orderTotal) return false;
+      // Filter berdasarkan target_user_id: jika diisi, hanya untuk user tersebut
+      if (v.target_user_id && v.target_user_id !== userId) return false;
       return true;
     });
 
@@ -123,7 +131,6 @@ export class VoucherService {
     });
 
     // Cek VoucherUsage CONFIRMED — hanya filter yang ordernya benar-benar sudah LUNAS
-    // CONFIRMED dengan order PENDING/BATAL berarti pembayaran belum sukses — voucher masih bisa dipakai
     const confirmedUsages = await this.voucherUsageRepository.find({
       where: {
         user_id: userId,
@@ -133,7 +140,6 @@ export class VoucherService {
     const paidStatuses = ['LUNAS', 'DIKEMAS', 'DIKIRIM', 'SELESAI'];
     const confirmedVoucherIds = new Set<string>();
     for (const usage of confirmedUsages) {
-      // Skip jika order_id bukan UUID valid (misal "RESERVED_xxx" atau "CONFIRMED_PLACEHOLDER")
       if (!usage.order_id || !this.uuidRegex.test(usage.order_id)) continue;
       const order = await this.orderRepository.findOne({
         where: { id: usage.order_id },
@@ -145,9 +151,7 @@ export class VoucherService {
 
     return filteredVouchers
       .filter((v) => {
-        // Hanya filter: sudah CONFIRMED dengan order LUNAS (benar-benar terpakai)
         if (confirmedVoucherIds.has(v.id)) return false;
-
         return true;
       })
       .map((v) => ({
@@ -168,6 +172,7 @@ export class VoucherService {
         maxUsage: v.max_usage,
         currentUsage: v.current_usage,
         endDate: v.end_date,
+        targetProductId: v.target_product_id || null,
       }));
   }
 
@@ -179,6 +184,7 @@ export class VoucherService {
     userId: string,
     voucherCode: string,
     orderTotal: number,
+    productIds?: string[],
   ): Promise<AppliedVoucherResult> {
     const now = new Date();
 
@@ -215,8 +221,27 @@ export class VoucherService {
       }
     }
 
+    // ── Validasi target_user_id ──
+    if (voucher.target_user_id && voucher.target_user_id !== userId) {
+      throw new BadRequestException('Voucher ini tidak tersedia untuk akun Anda');
+    }
+
+    // ── Validasi target_product_id ──
+    if (voucher.target_product_id) {
+      if (!productIds || productIds.length === 0) {
+        throw new BadRequestException(
+          'Voucher ini hanya berlaku untuk produk tertentu. Silakan pilih produk yang sesuai.',
+        );
+      }
+      if (!productIds.includes(voucher.target_product_id)) {
+        // Cari nama produk untuk pesan error (opsional, bisa tanpa nama produk)
+        throw new BadRequestException(
+          'Voucher ini hanya berlaku untuk produk tertentu yang tidak ada di keranjang Anda.',
+        );
+      }
+    }
+
     // Cek apakah user sudah pernah me-reserve voucher yang SAMA
-    // Jika status RESERVED → release dulu agar bisa apply ulang (misal user hapus dari frontend)
     const existingReserved = await this.voucherUsageRepository.findOne({
       where: {
         user_id: userId,
@@ -232,7 +257,6 @@ export class VoucherService {
     }
 
     // Cek apakah user sudah pernah CONFIRMED (benar-benar terpakai di transaksi sukses)
-    // RELEASED = sudah di-release (reservasi expired/dibatalkan) → boleh dipakai lagi
     const existingConfirmed = await this.voucherUsageRepository.findOne({
       where: {
         user_id: userId,
@@ -242,7 +266,6 @@ export class VoucherService {
     });
     let existingConfirmedStatus: string | null = null;
     if (existingConfirmed) {
-      // Skip jika order_id bukan UUID valid (misal "RESERVED_xxx" dipromosikan ke CONFIRMED)
       if (existingConfirmed.order_id && this.uuidRegex.test(existingConfirmed.order_id)) {
         const confirmedOrder = await this.orderRepository.findOne({
           where: { id: existingConfirmed.order_id },
@@ -251,14 +274,12 @@ export class VoucherService {
           existingConfirmedStatus = confirmedOrder.status;
           const paidStatuses = ['LUNAS', 'DIKEMAS', 'DIKIRIM', 'SELESAI'];
           if (paidStatuses.includes(confirmedOrder.status)) {
-            // Order benar-benar sukses — voucher hangus
             throw new BadRequestException(
               'Anda sudah pernah menggunakan voucher ini',
             );
           }
         }
       }
-      // Order tidak ditemukan, masih PENDING, atau BATAL — voucher belum benar-benar terpakai
       this.logger.log(
         `User ${userId} re-using voucher ${voucherCode} — previous order ${existingConfirmed.order_id} is ${existingConfirmedStatus || 'not found'}`,
       );
@@ -273,11 +294,6 @@ export class VoucherService {
         'Maksimal 2 voucher per pesanan. Lepaskan salah satu voucher terlebih dahulu.',
       );
     }
-
-    // NOTE: UserVoucherEligibility.is_used tidak dicek di sini karena hanya
-    // digunakan untuk user eligibility (misal NEW_USER). Status "sudah pernah
-    // dipakai" hanya ditentukan oleh VoucherUsage dengan status CONFIRMED/RELEASED.
-    // Lihat pengecekan existingConfirmed di atas.
 
     const updateResult = await this.voucherRepository
       .createQueryBuilder()
@@ -302,10 +318,6 @@ export class VoucherService {
     });
 
     const savedUsage = await this.voucherUsageRepository.save(usage);
-
-    // NOTE: is_used TIDAK di-set true di sini. Hanya di-set saat checkout benar-benar
-    // berhasil (confirmVoucherUsage). Ini agar user bisa apply voucher, cek harga,
-    // lalu apply ulang nanti tanpa voucher hilang dari daftar eligible.
 
     const discountResult = calculateDiscount(
       voucher.discount_type,
@@ -353,7 +365,6 @@ export class VoucherService {
     );
 
     // Set is_used = true di UserVoucherEligibility saat checkout benar-benar berhasil
-    // Ini memastikan voucher hangus setelah checkout sukses, bukan saat reserve
     const eligibility = await this.eligibilityRepository.findOne({
       where: { user_id: usage.user_id, voucher_id: usage.voucher_id },
     });
@@ -433,7 +444,7 @@ export class VoucherService {
 
   /**
    * Membuat voucher baru dari admin dashboard.
-   * Kode voucher otomatis di-UPPERCASE dan divalidasi unique.
+   * Mendukung target_user_id dan target_product_id untuk voucher hasil nego.
    */
   async createVoucher(dto: CreateVoucherDto): Promise<Voucher> {
     const normalizedCode = dto.code.trim().toUpperCase();
@@ -461,6 +472,8 @@ export class VoucherService {
       start_date: new Date(dto.startDate),
       end_date: new Date(dto.endDate),
       is_active: true,
+      target_user_id: dto.targetUserId || null,
+      target_product_id: dto.targetProductId || null,
     });
 
     const saved = await this.voucherRepository.findOneOrFail({
@@ -477,9 +490,7 @@ export class VoucherService {
   // ──────────────────────────────────────────────
 
   /**
-   * Mengambil semua voucher (aktif & non-aktif) lengkap dengan statistik
-   * currentUsage vs maxUsage untuk dashboard admin.
-   * Jika showHidden=false, hanya tampilkan voucher yang tidak di-hide.
+   * Mengambil semua voucher (aktif & non-aktif) lengkap dengan statistik.
    */
   async getAllVouchersWithStats(
     showHidden: boolean = false,
@@ -510,6 +521,8 @@ export class VoucherService {
       isActive: v.is_active,
       isHidden: v.is_hidden,
       createdAt: v.created_at,
+      targetUserId: v.target_user_id || null,
+      targetProductId: v.target_product_id || null,
     }));
   }
 
@@ -517,10 +530,6 @@ export class VoucherService {
   //  ADMIN METHOD 3: toggleVoucherStatus
   // ──────────────────────────────────────────────
 
-  /**
-   * Toggle isActive voucher.
-   * Aktif → Non-aktif, dan sebaliknya.
-   */
   async toggleVoucherStatus(
     id: string,
   ): Promise<{ code: string; isActive: boolean }> {
@@ -545,14 +554,8 @@ export class VoucherService {
 
   // ──────────────────────────────────────────────
   //  ADMIN METHOD 4: toggleVoucherHide
-  //  Hide → Show, dan sebaliknya
   // ──────────────────────────────────────────────
 
-  /**
-   * Toggle is_hidden voucher.
-   * Hidden → Visible, dan sebaliknya.
-   * Voucher yang sudah expired atau habis kuota otomatis di-hide oleh cron.
-   */
   async toggleVoucherHide(
     id: string,
   ): Promise<{ code: string; isHidden: boolean }> {
@@ -577,8 +580,6 @@ export class VoucherService {
 
   /**
    * Auto-hide voucher yang sudah expired atau sudah habis kuota.
-   * Dipanggil oleh cron job setiap jam.
-   * @returns Jumlah voucher yang di-hide
    */
   async autoHideExpiredOrExhaustedVouchers(): Promise<number> {
     const now = new Date();
@@ -607,10 +608,6 @@ export class VoucherService {
   //  ADMIN METHOD 5: getVoucherByUsageId
   // ──────────────────────────────────────────────
 
-  /**
-   * Mencari voucher berdasarkan voucher usage ID (dari reservasi).
-   * Digunakan oleh OrderService saat checkout untuk menghitung diskon.
-   */
   async getVoucherByUsageId(usageId: string): Promise<Voucher | null> {
     const usage = await this.voucherUsageRepository.findOne({
       where: { id: usageId, status: VOUCHER_USAGE_STATUS.RESERVED },
@@ -621,10 +618,6 @@ export class VoucherService {
     });
   }
 
-  /**
-   * Bulk fetch multiple voucher usage records + vouchers.
-   * Digunakan oleh OrderService untuk memproses multi-voucher checkout.
-   */
   async getVouchersByUsageIds(
     usageIds: string[],
   ): Promise<

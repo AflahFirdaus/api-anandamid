@@ -126,4 +126,22 @@ export class CreateVoucherDto {
   @IsDateString()
   @Validate(IsAfterStartDate)
   endDate: string;
+
+  // ── Target fields untuk voucher hasil nego ──
+
+  @ApiPropertyOptional({
+    description: 'Batasi voucher hanya untuk user tertentu (UUID user)',
+    example: 'user-uuid-123',
+  })
+  @IsOptional()
+  @IsString()
+  targetUserId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Batasi voucher hanya untuk produk tertentu (UUID produk)',
+    example: 'product-uuid-456',
+  })
+  @IsOptional()
+  @IsString()
+  targetProductId?: string;
 }
