@@ -1161,121 +1161,179 @@ export class OrderService {
 
   async retryRefund(orderId: string, note?: string): Promise<any> {
     const maxRetry = parseInt(process.env.MAX_REFUND_RETRY || '3', 10);
-    const order = await this.orderRepo.findOne({
-      where: { id: orderId } as any,
-      lock: { mode: 'pessimistic_write' },
-    } as any);
-    if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
-    if (order.status !== 'REFUND_FAILED')
-      throw new BadRequestException(
-        'Hanya pesanan REFUND_FAILED yang bisa di-retry.',
-      );
-    if (order.refund_retry_count >= maxRetry) {
-      throw new BadRequestException(
-        `Refund sudah di-retry ${maxRetry}x. Proses manual diperlukan.`,
-      );
-    }
-
-    order.refund_retry_count = (order.refund_retry_count || 0) + 1;
-    order.refund_note = note || (null as any);
-    order.refund_status = 'retrying';
-    await this.orderRepo.save(order);
+    
+    // Gunakan dataSource.transaction + queryRunner untuk pessimistic lock
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
 
     try {
-      const refundResult = await this.paymentService.refundTransaction(
-        order.invoice_number,
-        Math.round(Number(order.total_price)),
-        order.cancel_reason || 'Retry refund',
-      );
-      order.refund_transaction_id =
-        refundResult?.transaction_id || order.refund_transaction_id;
-      order.refund_key = refundResult?.refund_key || order.refund_key;
-      order.refund_status = refundResult?.status || 'pending';
-      order.refund_response = refundResult || undefined;
-      order.status = 'REFUNDING';
-      await this.orderRepo.save(order);
+      const order = await queryRunner.manager.findOne(Order, {
+        where: { id: orderId } as any,
+        lock: { mode: 'pessimistic_write' },
+      } as any);
 
-      this.logger.log(
-        `[REFUND] operation_id=${order.refund_operation_id || '?'} order=${order.invoice_number} retry=${order.refund_retry_count} status=REFUNDING actor=ADMIN`,
-      );
+      if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
+      if (order.status !== 'REFUND_FAILED')
+        throw new BadRequestException(
+          'Hanya pesanan REFUND_FAILED yang bisa di-retry.',
+        );
+      if (order.refund_retry_count >= maxRetry) {
+        throw new BadRequestException(
+          `Refund sudah di-retry ${maxRetry}x. Proses manual diperlukan.`,
+        );
+      }
 
-      return {
-        message: 'Retry refund berhasil, status=REFUNDING',
-        status: 'REFUNDING',
-      };
+      order.refund_retry_count = (order.refund_retry_count || 0) + 1;
+      order.refund_note = note || (null as any);
+      order.refund_status = 'retrying';
+      await queryRunner.manager.save(Order, order);
+
+      // Commit dulu sebelum panggil Midtrans (I/O lambat tidak perlu di txn)
+      await queryRunner.commitTransaction();
+
+      try {
+        const refundResult = await this.paymentService.refundTransaction(
+          order.invoice_number,
+          Math.round(Number(order.total_price)),
+          order.cancel_reason || 'Retry refund',
+        );
+        order.refund_transaction_id =
+          refundResult?.transaction_id || order.refund_transaction_id;
+        order.refund_key = refundResult?.refund_key || order.refund_key;
+        order.refund_status = refundResult?.status || 'pending';
+        order.refund_response = refundResult || undefined;
+        order.status = 'REFUNDING';
+        await this.orderRepo.save(order);
+
+        this.logger.log(
+          `[REFUND] operation_id=${order.refund_operation_id || '?'} order=${order.invoice_number} retry=${order.refund_retry_count} status=REFUNDING`,
+        );
+
+        return {
+          message: 'Retry refund berhasil, status=REFUNDING',
+          status: 'REFUNDING',
+        };
+      } catch (err: any) {
+        order.refund_status = 'failed';
+        order.refund_response = { error: err.message } as any;
+        await this.orderRepo.save(order);
+
+        this.logger.error(
+          `[REFUND] operation_id=${order.refund_operation_id || '?'} order=${order.invoice_number} retry=${order.refund_retry_count} status=REFUND_FAILED error=${err.message}`,
+        );
+
+        throw new BadRequestException(
+          `Retry refund gagal (${order.refund_retry_count}/${maxRetry}): ${err.message}`,
+        );
+      }
     } catch (err: any) {
-      order.refund_status = 'failed';
-      order.refund_response = { error: err.message } as any;
-      await this.orderRepo.save(order);
-
-      this.logger.error(
-        `[REFUND] operation_id=${order.refund_operation_id || '?'} order=${order.invoice_number} retry=${order.refund_retry_count} status=REFUND_FAILED error=${err.message}`,
-      );
-
+      if (queryRunner.isTransactionActive) {
+        await queryRunner.rollbackTransaction();
+      }
+      await queryRunner.release();
+      
+      if (err instanceof BadRequestException || err instanceof NotFoundException) {
+        throw err;
+      }
       throw new BadRequestException(
-        `Retry refund gagal (${order.refund_retry_count}/${maxRetry}): ${err.message}`,
+        `Gagal memproses retry refund: ${err.message}`,
       );
+    } finally {
+      if (!queryRunner.isReleased) {
+        await queryRunner.release();
+      }
     }
   }
 
   async updateOrderStatus(orderId: string, dto: UpdateOrderStatusDto) {
-    const order = await this.orderRepo.findOne({
-      where: { id: orderId },
-      relations: ['items', 'items.product', 'items.product.variants'],
-    });
-    if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
     try {
-      validateStatusTransition(order.status, dto.status);
-    } catch (e: any) {
-      throw new BadRequestException(e.message);
-    }
-    if (order.status === 'PENDING' && dto.status === 'LUNAS')
-      await this.deductStock(orderId);
-    if (
-      (order.status === 'LUNAS' && dto.status === 'BATAL') ||
-      (['REFUNDING', 'REFUND_FAILED', 'CANCEL_REQUESTED', 'LUNAS'].includes(
-        order.status,
-      ) &&
-        ((dto.status as string) === 'CANCELLED' || dto.status === 'BATAL'))
-    ) {
-      await this.restoreStock(orderId);
-    }
-    if (dto.status === 'DIKIRIM') {
-      order.delivered_at = new Date();
-    }
-    if (dto.status === 'SELESAI') order.completed_at = new Date();
-    order.status = dto.status as string;
-    if (dto.tracking_number !== undefined)
-      order.tracking_number = dto.tracking_number;
-    if (dto.courier_name !== undefined) order.courier_name = dto.courier_name;
-    if (dto.courier_service !== undefined)
-      order.courier_service = dto.courier_service;
-    if (dto.awb_number !== undefined) order.awb_number = dto.awb_number;
-    if (dto.awb_url !== undefined) order.awb_url = dto.awb_url;
-    const savedOrder = await this.orderRepo.save(order);
+      const order = await queryRunner.manager.findOne(Order, {
+        where: { id: orderId },
+        relations: ['items', 'items.product', 'items.product.variants'],
+        lock: { mode: 'pessimistic_write' },
+      } as any);
+      
+      if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
+      
+      try {
+        validateStatusTransition(order.status, dto.status);
+      } catch (e: any) {
+        throw new BadRequestException(e.message);
+      }
 
-    // Notif: update status oleh admin
-    this.notificationService
-      .sendOrderStatusNotif(
-        savedOrder.user_id,
-        savedOrder,
-        dto.status as string,
-      )
-      .catch(() => {});
+      if (order.status === 'PENDING' && dto.status === 'LUNAS') {
+        // Deduct stock menggunakan query (dalam transaksi via queryRunner tidak bisa karena bulk query)
+        // Kita panggil deductStock biasa, yang menggunakan orderRepo sendiri
+        await this.deductStock(orderId);
+      }
+      
+      if (
+        (order.status === 'LUNAS' && dto.status === 'BATAL') ||
+        (['REFUNDING', 'REFUND_FAILED', 'CANCEL_REQUESTED', 'LUNAS'].includes(
+          order.status,
+        ) &&
+          ((dto.status as string) === 'CANCELLED' || dto.status === 'BATAL'))
+      ) {
+        await this.restoreStock(orderId);
+      }
 
-    // Generate invoice when status changes to SIAP, DIKIRIM, or SELESAI
-    if (['SIAP', 'DIKIRIM', 'SELESAI'].includes(dto.status as string)) {
-      this.generateInvoiceForOrder(savedOrder.id).catch((err) => {
-        this.logger.error(
-          `[INVOICE] Failed to generate invoice for order ${savedOrder.id}: ${err.message}`,
-        );
-      });
+      if (dto.status === 'DIKIRIM') {
+        order.delivered_at = new Date();
+      }
+      if (dto.status === 'SELESAI') order.completed_at = new Date();
+      
+      order.status = dto.status as string;
+      if (dto.tracking_number !== undefined)
+        order.tracking_number = dto.tracking_number;
+      if (dto.courier_name !== undefined) order.courier_name = dto.courier_name;
+      if (dto.courier_service !== undefined)
+        order.courier_service = dto.courier_service;
+      if (dto.awb_number !== undefined) order.awb_number = dto.awb_number;
+      if (dto.awb_url !== undefined) order.awb_url = dto.awb_url;
+      
+      const savedOrder = await queryRunner.manager.save(Order, order);
+      await queryRunner.commitTransaction();
+
+      // Notif: update status oleh admin (non-blocking)
+      this.notificationService
+        .sendOrderStatusNotif(
+          savedOrder.user_id,
+          savedOrder,
+          dto.status as string,
+        )
+        .catch(() => {});
+
+      // Generate invoice when status changes to SIAP, DIKIRIM, or SELESAI
+      if (['SIAP', 'DIKIRIM', 'SELESAI'].includes(dto.status as string)) {
+        this.generateInvoiceForOrder(savedOrder.id).catch((err) => {
+          this.logger.error(
+            `[INVOICE] Failed to generate invoice for order ${savedOrder.id}: ${err.message}`,
+          );
+        });
+      }
+
+      return {
+        message: `Status diubah: ${dto.status}`,
+        order: savedOrder,
+      };
+    } catch (err: any) {
+      await queryRunner.rollbackTransaction();
+      await queryRunner.release();
+      
+      if (err instanceof BadRequestException || err instanceof NotFoundException) {
+        throw err;
+      }
+      throw new BadRequestException(`Gagal update status: ${err.message}`);
+    } finally {
+      if (!queryRunner.isReleased) {
+        await queryRunner.release();
+      }
     }
-
-    return {
-      message: `Status diubah: ${dto.status}`,
-      order: savedOrder,
-    };
   }
 
   async processOrder(
