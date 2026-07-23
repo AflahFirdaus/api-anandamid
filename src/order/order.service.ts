@@ -1223,9 +1223,9 @@ export class OrderService {
           `[REFUND] operation_id=${order.refund_operation_id || '?'} order=${order.invoice_number} retry=${order.refund_retry_count} status=REFUND_FAILED error=${err.message}`,
         );
 
-        throw new BadRequestException(
-          `Retry refund gagal (${order.refund_retry_count}/${maxRetry}): ${err.message}`,
-        );
+        // Sembunyikan detail teknis error dari user
+        const userFriendlyMsg = this.sanitizeErrorMessage(err.message, order.refund_retry_count, maxRetry);
+        throw new BadRequestException(userFriendlyMsg);
       }
     } catch (err: any) {
       if (queryRunner.isTransactionActive) {
@@ -1244,6 +1244,32 @@ export class OrderService {
         await queryRunner.release();
       }
     }
+  }
+
+  /**
+   * Sanitasi pesan error agar tidak menampilkan detail teknis ke user
+   */
+  private sanitizeErrorMessage(errorMsg: string, currentRetry: number, maxRetry: number): string {
+    const technicalPatterns = [
+      'Midtrans', 'HTTP status code', 'API response', 'status_code',
+      'status_message', "Transaction doesn't exist", 'transaction not found',
+      '401', '403', '404', '500', '502', '503', '504',
+      'ECONNRESET', 'ETIMEDOUT', 'timeout', 'fetch failed',
+      'Cannot read property', 'undefined', 'TypeError', 'ReferenceError',
+    ];
+
+    const isTechnical = technicalPatterns.some(p => 
+      errorMsg.toLowerCase().includes(p.toLowerCase())
+    );
+
+    if (isTechnical) {
+      if (currentRetry < maxRetry) {
+        return `Refund otomatis gagal diproses. Silakan coba lagi nanti atau hubungi admin untuk bantuan. (Percobaan ${currentRetry}/${maxRetry})`;
+      }
+      return `Refund otomatis gagal diproses setelah ${currentRetry} kali percobaan. Silakan hubungi admin untuk refund manual.`;
+    }
+
+    return errorMsg;
   }
 
   async updateOrderStatus(orderId: string, dto: UpdateOrderStatusDto) {
