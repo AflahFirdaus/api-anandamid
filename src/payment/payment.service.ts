@@ -44,23 +44,34 @@ export class PaymentService {
   /**
    * Determine which payment methods to show based on gross amount.
    * Rules:
-   *   - < 100.000   : QRIS only
-   *   - 100k - 500k : QRIS + Bank Transfer (VA)
-   *   - > 500.000   : Bank Transfer (VA) only
+   *   - < 100.000   : QRIS only (qris, gopay, shopeepay)
+   *   - 100k - 500k : VA + QRIS (VA direkomendasikan paling atas)
+   *   - > 500.000   : Virtual Account (VA) only
    *
    * Returns a list of payment method channels enabled for this transaction amount.
    */
   private resolveEnabledPayments(grossAmount: number): string[] {
+    const vaChannels = [
+      'bca_va',
+      'echannel',
+      'bni_va',
+      'bri_va',
+      'permata_va',
+      'cimb_va',
+      'other_va',
+    ];
+    const qrisChannels = ['qris', 'gopay', 'shopeepay'];
+
     if (grossAmount < 100000) {
       // Hanya QRIS
-      return ['qris'];
+      return qrisChannels;
     }
     if (grossAmount > 500000) {
-      // Hanya Bank Transfer (VA) — semua bank yang aktif di dashboard
-      return ['bank_transfer'];
+      // Hanya Virtual Account (VA)
+      return vaChannels;
     }
-    // 100.000 <= grossAmount <= 500.000 → QRIS + VA
-    return ['qris', 'bank_transfer'];
+    // 100.000 <= grossAmount <= 500.000 → VA + QRIS (VA ditaruh dipaling atas agar direkomendasikan dipaling atas)
+    return [...vaChannels, ...qrisChannels];
   }
 
   /**
@@ -70,17 +81,56 @@ export class PaymentService {
    */
   private validatePaymentMethod(grossAmount: number, paymentType: string): boolean {
     const allowed = this.resolveEnabledPayments(grossAmount);
-    // paymentType from Midtrans: "qris", "bank_transfer", "bca", "bni", etc.
     const normalizedType = paymentType?.toLowerCase() || '';
-    
-    // Check if payment type is in allowed list
-    // For bank_transfer, check if any VA channel is allowed
-    if (normalizedType === 'bank_transfer') {
-      // Bank transfer is allowed if any bank channel is in the list
-      return allowed.some(p => ['bca', 'bni', 'mandiri', 'bri', 'permata', 'bank_transfer'].includes(p));
+
+    const vaIdentifiers = [
+      'bank_transfer',
+      'echannel',
+      'bca_va',
+      'bni_va',
+      'bri_va',
+      'permata_va',
+      'cimb_va',
+      'other_va',
+      'bca',
+      'bni',
+      'bri',
+      'permata',
+      'mandiri',
+      'cimb',
+    ];
+
+    const isVaPayment = vaIdentifiers.some(
+      (id) => normalizedType.includes(id) || id.includes(normalizedType),
+    );
+
+    if (isVaPayment) {
+      return allowed.some((p) =>
+        [
+          'bca_va',
+          'echannel',
+          'bni_va',
+          'bri_va',
+          'permata_va',
+          'cimb_va',
+          'other_va',
+        ].includes(p),
+      );
     }
-    
-    return allowed.some(p => normalizedType.includes(p));
+
+    const isQrisPayment = ['qris', 'gopay', 'shopeepay'].some(
+      (q) => normalizedType.includes(q) || q.includes(normalizedType),
+    );
+
+    if (isQrisPayment) {
+      return allowed.some((p) =>
+        ['qris', 'gopay', 'shopeepay'].includes(p),
+      );
+    }
+
+    return allowed.some(
+      (p) => normalizedType.includes(p) || p.includes(normalizedType),
+    );
   }
 
   async createTransaction(
