@@ -26,7 +26,9 @@ export class PaymentService {
     private readonly variantRepo: Repository<ProductVariant>,
     private readonly notificationService: NotificationService,
   ) {
-    this.logger.log(`Initializing Midtrans with serverKey: ${process.env.MIDTRANS_SERVER_KEY ? 'SET' : 'NOT SET'}, isProduction: ${process.env.MIDTRANS_IS_PRODUCTION}`);
+    this.logger.log(
+      `Initializing Midtrans with serverKey: ${process.env.MIDTRANS_SERVER_KEY ? 'SET' : 'NOT SET'}, isProduction: ${process.env.MIDTRANS_IS_PRODUCTION}`,
+    );
     this.snap = new midtransClient.Snap({
       isProduction: process.env.MIDTRANS_IS_PRODUCTION === 'true',
       serverKey: process.env.MIDTRANS_SERVER_KEY,
@@ -45,35 +47,47 @@ export class PaymentService {
    *   - < 100.000   : QRIS only
    *   - 100k - 500k : QRIS + Bank Transfer (VA)
    *   - > 500.000   : Bank Transfer (VA) only
+   *
+   * List enabled payments that are active in Midtrans dashboard.
+   * Using specific channel codes ensures Midtrans shows available options.
    */
   private resolveEnabledPayments(grossAmount: number): string[] {
     if (grossAmount < 100000) {
       return ['qris'];
     }
     if (grossAmount > 500000) {
-      return ['bank_transfer'];
+      // Bank Transfer channels active in your Midtrans dashboard
+      return ['bca', 'bni', 'mandiri', 'bri', 'permata'];
     }
     // 100.000 <= grossAmount <= 500.000
-    return ['qris', 'bank_transfer'];
+    return ['qris', 'bca', 'bni', 'mandiri', 'bri', 'permata'];
   }
 
-  async createTransaction(orderId: string, grossAmount: number, customerDetails?: any) {
+  async createTransaction(
+    orderId: string,
+    grossAmount: number,
+    customerDetails?: any,
+  ) {
     const finishUrl = `${process.env.VITE_SITE_URL || 'https://anandam.id'}/user/purchase`;
     const enabledPayments = this.resolveEnabledPayments(grossAmount);
     const parameter = {
       transaction_details: { order_id: orderId, gross_amount: grossAmount },
       customer_details: customerDetails || {},
-      credit_card: { secure: true },
       callbacks: { finish: finishUrl },
       enabled_payments: enabledPayments,
     };
-    this.logger.log(`Creating Midtrans transaction for ${orderId} amount ${grossAmount} enabled_payments=[${enabledPayments.join(',')}]`);
+    this.logger.log(
+      `Creating Midtrans transaction for ${orderId} amount ${grossAmount} enabled_payments=[${enabledPayments.join(',')}]`,
+    );
     try {
       const result = await this.snap.createTransaction(parameter);
       this.logger.log(`Midtrans transaction created: ${orderId}`);
       return result;
     } catch (error: any) {
-      this.logger.error(`Midtrans Error for ${orderId}: ${error.message}`, error?.apiResponse || error?.response || '');
+      this.logger.error(
+        `Midtrans Error for ${orderId}: ${error.message}`,
+        error?.apiResponse || error?.response || '',
+      );
       throw new Error(`Midtrans Error: ${error.message}`);
     }
   }
@@ -83,13 +97,23 @@ export class PaymentService {
    * - If status is 'capture' (credit card not yet settled), calls cancel/void API.
    * - If status is 'settlement', calls refund API.
    */
-  async refundTransaction(orderId: string, amount: number, reason: string): Promise<any> {
-    this.logger.log(`[REFUND] Requesting refund for ${orderId}, amount=${amount}, reason=${reason}`);
+  async refundTransaction(
+    orderId: string,
+    amount: number,
+    reason: string,
+  ): Promise<any> {
+    this.logger.log(
+      `[REFUND] Requesting refund for ${orderId}, amount=${amount}, reason=${reason}`,
+    );
     try {
       // Step 1: Check current transaction status from Midtrans
       const isProd = process.env.MIDTRANS_IS_PRODUCTION === 'true';
-      const base = isProd ? 'https://api.midtrans.com/v2' : 'https://api.sandbox.midtrans.com/v2';
-      const auth = Buffer.from(`${process.env.MIDTRANS_SERVER_KEY}:`).toString('base64');
+      const base = isProd
+        ? 'https://api.midtrans.com/v2'
+        : 'https://api.sandbox.midtrans.com/v2';
+      const auth = Buffer.from(`${process.env.MIDTRANS_SERVER_KEY}:`).toString(
+        'base64',
+      );
 
       let transactionStatus: string | null = null;
       try {
@@ -99,16 +123,22 @@ export class PaymentService {
         });
         const statusData = await statusRes.json();
         transactionStatus = statusData?.transaction_status || null;
-        this.logger.log(`[REFUND] Midtrans transaction_status for ${orderId}: ${transactionStatus}`);
+        this.logger.log(
+          `[REFUND] Midtrans transaction_status for ${orderId}: ${transactionStatus}`,
+        );
       } catch (statusErr: any) {
-        this.logger.warn(`[REFUND] Could not fetch transaction status for ${orderId}: ${statusErr.message}`);
+        this.logger.warn(
+          `[REFUND] Could not fetch transaction status for ${orderId}: ${statusErr.message}`,
+        );
       }
 
       let result: any;
 
       // Step 2: If status is 'capture', call cancel (void) — refund is not possible yet
       if (transactionStatus === 'capture') {
-        this.logger.log(`[REFUND] Status is 'capture', calling cancel (void) API for ${orderId}`);
+        this.logger.log(
+          `[REFUND] Status is 'capture', calling cancel (void) API for ${orderId}`,
+        );
         const cancelRes = await fetch(`${base}/${orderId}/cancel`, {
           method: 'POST',
           headers: {
@@ -122,7 +152,9 @@ export class PaymentService {
             `Cancel (void) API error: HTTP ${cancelRes.status}. API response: ${JSON.stringify(result)}`,
           );
         }
-        this.logger.log(`[REFUND] Cancel (void) success for ${orderId}: ${JSON.stringify(result)}`);
+        this.logger.log(
+          `[REFUND] Cancel (void) success for ${orderId}: ${JSON.stringify(result)}`,
+        );
         return result;
       }
 
@@ -153,7 +185,9 @@ export class PaymentService {
         }
       }
 
-      this.logger.log(`[REFUND] Success for ${orderId}: ${JSON.stringify(result)}`);
+      this.logger.log(
+        `[REFUND] Success for ${orderId}: ${JSON.stringify(result)}`,
+      );
       return result;
     } catch (error: any) {
       const apiResponse = error?.ApiResponse || error?.apiResponse;
@@ -171,11 +205,15 @@ export class PaymentService {
    * This is called as part of handleNotification when refund status is detected.
    */
   async processRefundNotification(order: Order): Promise<void> {
-    this.logger.log(`[REFUND NOTIFICATION] Processing refund for order ${order.id} (${order.invoice_number})`);
+    this.logger.log(
+      `[REFUND NOTIFICATION] Processing refund for order ${order.id} (${order.invoice_number})`,
+    );
 
     // Idempotency: sudah CANCELLED/BATAL → skip
     if (order.status === 'CANCELLED' || order.status === 'BATAL') {
-      this.logger.log(`[REFUND NOTIFICATION] Order already cancelled, skipping duplicate`);
+      this.logger.log(
+        `[REFUND NOTIFICATION] Order already cancelled, skipping duplicate`,
+      );
       return;
     }
 
@@ -199,8 +237,11 @@ export class PaymentService {
       if (fullOrder) {
         for (const item of fullOrder.items) {
           if (!item.product) continue;
-          let mv = item.product.variants?.find((v) => v.variant_name === item.variasi);
-          if (!mv && item.product.variants?.length > 0) mv = item.product.variants[0];
+          let mv = item.product.variants?.find(
+            (v) => v.variant_name === item.variasi,
+          );
+          if (!mv && item.product.variants?.length > 0)
+            mv = item.product.variants[0];
           if (mv) {
             const beforeStock = mv.stock;
             mv.stock += item.quantity;
@@ -236,7 +277,9 @@ export class PaymentService {
       });
 
       await queryRunner.commitTransaction();
-      this.logger.log(`[REFUND NOTIFICATION] Successfully processed refund for order ${order.invoice_number}`);
+      this.logger.log(
+        `[REFUND NOTIFICATION] Successfully processed refund for order ${order.invoice_number}`,
+      );
 
       // Kirim notifikasi CANCELLED ke user (WebSocket + email)
       // Dipanggil setelah commitTransaction agar data sudah tersimpan
@@ -259,20 +302,23 @@ export class PaymentService {
       }
     } catch (err: any) {
       await queryRunner.rollbackTransaction();
-      this.logger.error(`[REFUND NOTIFICATION] Failed, rolled back: ${err.message}`);
+      this.logger.error(
+        `[REFUND NOTIFICATION] Failed, rolled back: ${err.message}`,
+      );
       throw err;
     } finally {
       await queryRunner.release();
     }
   }
 
-
   /**
    * Handle Midtrans webhook notification
    */
   async handleNotification(notificationBody: any) {
     try {
-      this.logger.log(`Midtrans notification received: ${JSON.stringify(notificationBody)}`);
+      this.logger.log(
+        `Midtrans notification received: ${JSON.stringify(notificationBody)}`,
+      );
 
       // Verify signature
       const serverKey = process.env.MIDTRANS_SERVER_KEY || '';
@@ -293,15 +339,23 @@ export class PaymentService {
       const transactionStatus = notificationBody.transaction_status;
       const fraudStatus = notificationBody.fraud_status;
 
-      this.logger.log(`Order ${orderId}: status=${transactionStatus}, fraud=${fraudStatus}`);
+      this.logger.log(
+        `Order ${orderId}: status=${transactionStatus}, fraud=${fraudStatus}`,
+      );
 
       // Find order
-      let order = await this.orderRepo.findOne({ where: { invoice_number: orderId } });
+      let order = await this.orderRepo.findOne({
+        where: { invoice_number: orderId },
+      });
 
       if (!order && orderId && orderId.includes('-R')) {
         const baseInvoice = orderId.split('-R')[0];
-        this.logger.log(`Trying partial match with base invoice: ${baseInvoice}`);
-        const orders = await this.orderRepo.find({ where: { invoice_number: baseInvoice } });
+        this.logger.log(
+          `Trying partial match with base invoice: ${baseInvoice}`,
+        );
+        const orders = await this.orderRepo.find({
+          where: { invoice_number: baseInvoice },
+        });
         if (orders.length > 0) {
           order = orders[0];
           this.logger.log(`Order found via partial match: ${order.id}`);
@@ -314,7 +368,11 @@ export class PaymentService {
       }
 
       // Handle refund notifications (settlement refund)
-      if (transactionStatus === 'refund' || transactionStatus === 'refund_complete' || transactionStatus === 'return') {
+      if (
+        transactionStatus === 'refund' ||
+        transactionStatus === 'refund_complete' ||
+        transactionStatus === 'return'
+      ) {
         await this.processRefundNotification(order);
         return { status: 'success', message: 'Refund processed' };
       }
@@ -339,7 +397,11 @@ export class PaymentService {
         newStatus = 'LUNAS';
       } else if (transactionStatus === 'settlement') {
         newStatus = 'LUNAS';
-      } else if (transactionStatus === 'cancel' || transactionStatus === 'deny' || transactionStatus === 'expire') {
+      } else if (
+        transactionStatus === 'cancel' ||
+        transactionStatus === 'deny' ||
+        transactionStatus === 'expire'
+      ) {
         newStatus = 'BATAL';
       } else if (transactionStatus === 'pending') {
         newStatus = 'PENDING';
@@ -359,13 +421,18 @@ export class PaymentService {
             if (fullOrder) {
               for (const item of fullOrder.items) {
                 if (!item.product) continue;
-                let mv = item.product.variants?.find((v) => v.variant_name === item.variasi);
-                if (!mv && item.product.variants?.length > 0) mv = item.product.variants[0];
+                let mv = item.product.variants?.find(
+                  (v) => v.variant_name === item.variasi,
+                );
+                if (!mv && item.product.variants?.length > 0)
+                  mv = item.product.variants[0];
                 if (mv) {
                   if (mv.stock >= item.quantity) {
                     mv.stock -= item.quantity;
                     await this.variantRepo.save(mv);
-                    this.logger.log(`[Webhook] Deducted stock for ${item.product_name} by ${item.quantity}`);
+                    this.logger.log(
+                      `[Webhook] Deducted stock for ${item.product_name} by ${item.quantity}`,
+                    );
                   }
                 }
               }
@@ -391,7 +458,9 @@ export class PaymentService {
               newStatus,
             );
           } catch (notifErr: any) {
-            this.logger.warn(`[Webhook] Notification failed for ${orderId}: ${notifErr.message}`);
+            this.logger.warn(
+              `[Webhook] Notification failed for ${orderId}: ${notifErr.message}`,
+            );
           }
         }
       } else {
@@ -400,8 +469,12 @@ export class PaymentService {
 
       return { status: 'success', message: 'Notification processed' };
     } catch (error: any) {
-      this.logger.error(`Failed to process Midtrans notification: ${error.message}`);
-      throw new Error(`Failed to process Midtrans notification: ${error.message}`);
+      this.logger.error(
+        `Failed to process Midtrans notification: ${error.message}`,
+      );
+      throw new Error(
+        `Failed to process Midtrans notification: ${error.message}`,
+      );
     }
   }
 }
