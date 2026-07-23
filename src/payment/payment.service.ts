@@ -52,13 +52,15 @@ export class PaymentService {
    */
   private resolveEnabledPayments(grossAmount: number): string[] {
     if (grossAmount < 100000) {
+      // Hanya QRIS
       return ['qris'];
     }
     if (grossAmount > 500000) {
-      return ['bca', 'bni', 'mandiri', 'bri', 'permata'];
+      // Hanya Bank Transfer (VA) — semua bank yang aktif di dashboard
+      return ['bank_transfer'];
     }
-    // 100.000 <= grossAmount <= 500.000
-    return ['qris', 'bca', 'bni', 'mandiri', 'bri', 'permata'];
+    // 100.000 <= grossAmount <= 500.000 → QRIS + VA
+    return ['qris', 'bank_transfer'];
   }
 
   /**
@@ -87,13 +89,15 @@ export class PaymentService {
     customerDetails?: any,
   ) {
     const finishUrl = `${process.env.VITE_SITE_URL || 'https://anandam.id'}/user/purchase`;
+    const enabledPayments = this.resolveEnabledPayments(grossAmount);
     const parameter = {
       transaction_details: { order_id: orderId, gross_amount: grossAmount },
       customer_details: customerDetails || {},
       credit_card: { secure: true },
       callbacks: { finish: finishUrl },
+      enabled_payments: enabledPayments,
     };
-    this.logger.log(`Creating Midtrans transaction for ${orderId} amount ${grossAmount}`);
+    this.logger.log(`Creating Midtrans transaction for ${orderId} amount ${grossAmount} enabled=[${enabledPayments.join(',')}]`);
     try {
       const result = await this.snap.createTransaction(parameter);
       this.logger.log(`Midtrans transaction created: ${orderId}`);
@@ -424,6 +428,33 @@ export class PaymentService {
 
       if (notificationBody.payment_type) {
         order.payment_method = notificationBody.payment_type;
+      }
+
+      // ── Validasi metode pembayaran ────────────────────────────────────
+      // Saat payment menjadi LUNAS/settlement, cek apakah metode yang digunakan sesuai aturan
+      const paymentType = notificationBody.payment_type;
+      if ((newStatus === 'LUNAS') && paymentType) {
+        const allowed = this.resolveEnabledPayments(Number(grossAmount));
+        this.logger.log(
+          `Payment method validation: order=${orderId} amount=${grossAmount} type=${paymentType} allowed=[${allowed.join(',')}]`,
+        );
+        // Jika tidak sesuai, langsung refund
+        if (!this.validatePaymentMethod(Number(grossAmount), paymentType)) {
+          this.logger.warn(
+            `[VALIDATION FAILED] Order ${orderId} paid with ${paymentType} but amount ${grossAmount} only allows [${allowed.join(',')}]. Initiating refund.`,
+          );
+          try {
+            // Non-blocking: refund asynchronously
+            this.refundTransaction(
+              orderId,
+              Number(grossAmount),
+              `Metode pembayaran ${paymentType} tidak diizinkan untuk nominal ini. Hanya: ${allowed.join(', ')}`,
+            ).catch(e => this.logger.error(`Auto-refund failed for ${orderId}: ${e.message}`));
+          } catch (refundErr: any) {
+            this.logger.error(`Auto-refund error for ${orderId}: ${refundErr.message}`);
+          }
+          return { status: 'success', message: 'Refund initiated for invalid payment method' };
+        }
       }
 
       if (order.status !== newStatus) {
