@@ -141,7 +141,8 @@ export class OrderService {
     variants: ProductVariant[],
   ): { variantId: string; qty: number } | null {
     if (!item.product || !variants || variants.length === 0) return null;
-    const mv = variants.find((v) => v.variant_name === item.variasi) || variants[0];
+    const mv =
+      variants.find((v) => v.variant_name === item.variasi) || variants[0];
     if (!mv) return null;
     return { variantId: mv.id, qty: item.quantity };
   }
@@ -167,7 +168,9 @@ export class OrderService {
         try {
           await this.voucherService.confirmVoucherUsage(usageId, orderId);
         } catch (err) {
-          this.logger.error(`Failed to confirm voucher ${usageId} for order ${orderId}: ${(err as Error).message}`);
+          this.logger.error(
+            `Failed to confirm voucher ${usageId} for order ${orderId}: ${(err as Error).message}`,
+          );
         }
       }
     }
@@ -317,7 +320,9 @@ export class OrderService {
     await this.cartRepo.delete(dto.cart_ids);
 
     // Notif: pesanan baru (PENDING)
-    this.notificationService.sendOrderStatusNotif(userId, saved, 'PENDING').catch(() => {});
+    this.notificationService
+      .sendOrderStatusNotif(userId, saved, 'PENDING')
+      .catch(() => {});
 
     return { message: 'Checkout keranjang berhasil', order: saved };
   }
@@ -357,7 +362,9 @@ export class OrderService {
     const saved = await this.orderRepo.save(no);
 
     // Notif: pesanan baru (PENDING)
-    this.notificationService.sendOrderStatusNotif(userId, saved, 'PENDING').catch(() => {});
+    this.notificationService
+      .sendOrderStatusNotif(userId, saved, 'PENDING')
+      .catch(() => {});
 
     return {
       message: 'Checkout langsung berhasil',
@@ -365,11 +372,7 @@ export class OrderService {
     };
   }
 
-  async findMyOrders(
-    userId: string,
-    page: number = 1,
-    limit: number = 20,
-  ) {
+  async findMyOrders(userId: string, page: number = 1, limit: number = 20) {
     const skip = (page - 1) * limit;
     const [orders, total] = await this.orderRepo.findAndCount({
       where: { user_id: userId } as any,
@@ -485,7 +488,9 @@ export class OrderService {
       await this.orderRepo.save(order);
 
       // Notif: status pembayaran berubah
-      this.notificationService.sendOrderStatusNotif(order.user_id, order, ns).catch(() => {});
+      this.notificationService
+        .sendOrderStatusNotif(order.user_id, order, ns)
+        .catch(() => {});
 
       return { message: `→ ${ns}`, status: ns };
     }
@@ -566,6 +571,9 @@ export class OrderService {
     if (order.status !== 'PENDING')
       throw new BadRequestException('Hanya PENDING.');
     
+    // Note: Voucher sudah CONFIRMED saat checkout dan HANGUS — tidak dikembalikan
+    // meskipun user cancel, karena user sudah commit ke Midtrans Snap.
+
     order.status = 'BATAL';
     order.cancelled_at = new Date();
     order.cancel_reason = 'CANCELLED_BY_USER';
@@ -727,7 +735,8 @@ export class OrderService {
       }
 
       // 3. Validasi fulfillment status — cek apakah sudah masuk tahap booking kurir ke Biteship
-      const currentFulfillment = order.fulfillment_status || FulfillmentStatus.NONE;
+      const currentFulfillment =
+        order.fulfillment_status || FulfillmentStatus.NONE;
       if (!this.CANCELLABLE_FULFILLMENT_STATUSES.includes(currentFulfillment)) {
         await queryRunner.rollbackTransaction();
         throw new BadRequestException(
@@ -736,7 +745,10 @@ export class OrderService {
       }
 
       // 4. Booking status guard — extra safety net
-      if (order.booking_status === 'BOOKING' || order.booking_status === 'BOOKED') {
+      if (
+        order.booking_status === 'BOOKING' ||
+        order.booking_status === 'BOOKED'
+      ) {
         await queryRunner.rollbackTransaction();
         throw new BadRequestException(
           'Pesanan sudah dalam proses booking kurir dan tidak dapat dibatalkan.',
@@ -774,7 +786,9 @@ export class OrderService {
       await queryRunner.manager.save(Order, order);
 
       // Notif: CANCEL_REQUESTED
-      this.notificationService.sendOrderStatusNotif(order.user_id, order, 'CANCEL_REQUESTED').catch(() => {});
+      this.notificationService
+        .sendOrderStatusNotif(order.user_id, order, 'CANCEL_REQUESTED')
+        .catch(() => {});
 
       // 8. History: USER_REQUEST_CANCEL
       await this.saveOrderHistory(
@@ -851,7 +865,9 @@ export class OrderService {
         );
 
         // Notif: REFUNDING
-        this.notificationService.sendOrderStatusNotif(order.user_id, order, 'REFUNDING').catch(() => {});
+        this.notificationService
+          .sendOrderStatusNotif(order.user_id, order, 'REFUNDING')
+          .catch(() => {});
 
         return {
           message:
@@ -920,7 +936,9 @@ export class OrderService {
           err.message?.includes('412') ||
           err.message?.includes('400') ||
           err.message?.includes('406') ||
-          err.message?.toLowerCase().includes('transaction status cannot be updated') ||
+          err.message
+            ?.toLowerCase()
+            .includes('transaction status cannot be updated') ||
           err.message?.toLowerCase().includes('refund is not supported');
 
         if (isManualRefund) {
@@ -1064,8 +1082,9 @@ export class OrderService {
       );
 
       // Notif: CANCELLED (refund berhasil)
-      this.notificationService.sendOrderStatusNotif(order.user_id, order, 'CANCELLED').catch(() => {});
-
+      this.notificationService
+        .sendOrderStatusNotif(order.user_id, order, 'CANCELLED')
+        .catch(() => {});
     } catch (err: any) {
       await queryRunner.rollbackTransaction();
       this.logger.error(
@@ -1151,7 +1170,9 @@ export class OrderService {
       await this.deductStock(orderId);
     if (
       (order.status === 'LUNAS' && dto.status === 'BATAL') ||
-      (['REFUNDING', 'REFUND_FAILED', 'CANCEL_REQUESTED', 'LUNAS'].includes(order.status) &&
+      (['REFUNDING', 'REFUND_FAILED', 'CANCEL_REQUESTED', 'LUNAS'].includes(
+        order.status,
+      ) &&
         ((dto.status as string) === 'CANCELLED' || dto.status === 'BATAL'))
     ) {
       await this.restoreStock(orderId);
@@ -1171,12 +1192,20 @@ export class OrderService {
     const savedOrder = await this.orderRepo.save(order);
 
     // Notif: update status oleh admin
-    this.notificationService.sendOrderStatusNotif(savedOrder.user_id, savedOrder, dto.status as string).catch(() => {});
+    this.notificationService
+      .sendOrderStatusNotif(
+        savedOrder.user_id,
+        savedOrder,
+        dto.status as string,
+      )
+      .catch(() => {});
 
     // Generate invoice when status changes to SIAP, DIKIRIM, or SELESAI
     if (['SIAP', 'DIKIRIM', 'SELESAI'].includes(dto.status as string)) {
       this.generateInvoiceForOrder(savedOrder.id).catch((err) => {
-        this.logger.error(`[INVOICE] Failed to generate invoice for order ${savedOrder.id}: ${err.message}`);
+        this.logger.error(
+          `[INVOICE] Failed to generate invoice for order ${savedOrder.id}: ${err.message}`,
+        );
       });
     }
 
@@ -1253,7 +1282,9 @@ export class OrderService {
           );
 
           // Notif: DIKEMAS (setelah AWB berhasil)
-          this.notificationService.sendOrderStatusNotif(saved.user_id, saved, 'DIKEMAS').catch(() => {});
+          this.notificationService
+            .sendOrderStatusNotif(saved.user_id, saved, 'DIKEMAS')
+            .catch(() => {});
 
           this.fetchAndSaveTrackingUrl(saved).catch((e) =>
             this.logger.warn(
@@ -1325,7 +1356,9 @@ export class OrderService {
     );
 
     // Notif: DIKEMAS (untuk instant/same-day yang tidak butuh AWB booking)
-    this.notificationService.sendOrderStatusNotif(order.user_id, order, 'DIKEMAS').catch(() => {});
+    this.notificationService
+      .sendOrderStatusNotif(order.user_id, order, 'DIKEMAS')
+      .catch(() => {});
 
     return { message: 'Pesanan diproses.', order: order };
   }
@@ -1413,9 +1446,7 @@ export class OrderService {
     }
   }
 
-  private async generateInstantBooking(
-    order: Order,
-  ): Promise<{
+  private async generateInstantBooking(order: Order): Promise<{
     biteship_order_id: string;
     awb_number: string;
     awb_url: string;
@@ -1641,9 +1672,7 @@ export class OrderService {
     }
   }
 
-  private async generateAwb(
-    order: Order,
-  ): Promise<{
+  private async generateAwb(order: Order): Promise<{
     biteship_order_id: string;
     awb_number: string;
     awb_url: string;
@@ -1744,7 +1773,9 @@ export class OrderService {
       this.logger.error(`[AWB] API error: ${JSON.stringify(data)}`);
       return null;
     }
-    this.logger.log(`[AWB] API success: id=${data.id} waybill=${data.waybill_id}`);
+    this.logger.log(
+      `[AWB] API success: id=${data.id} waybill=${data.waybill_id}`,
+    );
     return {
       biteship_order_id: data.id || '',
       awb_number: data.waybill_id || '',
@@ -1775,7 +1806,8 @@ export class OrderService {
       .leftJoinAndSelect('items.product', 'product')
       .orderBy('order.created_at', 'DESC');
 
-    if (query.status) qb.andWhere('order.status = :status', { status: query.status });
+    if (query.status)
+      qb.andWhere('order.status = :status', { status: query.status });
     if (query.search) {
       qb.andWhere(
         '(order.invoice_number ILIKE :search OR user.full_name ILIKE :search OR user.email ILIKE :search)',
@@ -1783,12 +1815,19 @@ export class OrderService {
       );
     }
     if (query.startDate) {
-      qb.andWhere('order.created_at >= :startDate', { startDate: new Date(query.startDate) });
+      qb.andWhere('order.created_at >= :startDate', {
+        startDate: new Date(query.startDate),
+      });
     }
     if (query.endDate) {
-      qb.andWhere('order.created_at <= :endDate', { endDate: new Date(query.endDate + 'T23:59:59.999Z') });
+      qb.andWhere('order.created_at <= :endDate', {
+        endDate: new Date(query.endDate + 'T23:59:59.999Z'),
+      });
     }
-    if (query.payment_method) qb.andWhere('order.payment_method = :payment_method', { payment_method: query.payment_method });
+    if (query.payment_method)
+      qb.andWhere('order.payment_method = :payment_method', {
+        payment_method: query.payment_method,
+      });
 
     const page = parseInt(query.page, 10) || 1;
     const limit = parseInt(query.limit, 10) || 20;
@@ -1800,10 +1839,14 @@ export class OrderService {
     // Count orders per status (without pagination & status filter)
     const countQb = this.orderRepo.createQueryBuilder('order');
     if (query.startDate) {
-      countQb.andWhere('order.created_at >= :startDate', { startDate: new Date(query.startDate) });
+      countQb.andWhere('order.created_at >= :startDate', {
+        startDate: new Date(query.startDate),
+      });
     }
     if (query.endDate) {
-      countQb.andWhere('order.created_at <= :endDate', { endDate: new Date(query.endDate + 'T23:59:59.999Z') });
+      countQb.andWhere('order.created_at <= :endDate', {
+        endDate: new Date(query.endDate + 'T23:59:59.999Z'),
+      });
     }
     const countsRaw = await countQb
       .select('order.status, COUNT(order.id) as count')
@@ -1833,10 +1876,15 @@ export class OrderService {
     if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
 
     if (!order.awb_number)
-      throw new BadRequestException('AWB number not available. Book courier first.');
+      throw new BadRequestException(
+        'AWB number not available. Book courier first.',
+      );
 
     // Build recipient from shipping_address_snapshot (always reliable)
-    const addrSnap = (order.shipping_address_snapshot || {}) as Record<string, any>;
+    const addrSnap = (order.shipping_address_snapshot || {}) as Record<
+      string,
+      any
+    >;
     const recipient = {
       name: addrSnap.recipient_name || order.user?.full_name || '',
       phone: addrSnap.phone_number || order.user?.phone_number || '',
@@ -1847,7 +1895,9 @@ export class OrderService {
     const sender = {
       name: process.env.STORE_CONTACT_NAME || 'Anandam Computer',
       phone: process.env.STORE_PHONE || '6281228134747',
-      address: process.env.STORE_ADDRESS || 'Jl. Affandi No.17, Soropadan, Condongcatur, Kec. Depok, Kabupaten Sleman, Yogyakarta 55283',
+      address:
+        process.env.STORE_ADDRESS ||
+        'Jl. Affandi No.17, Soropadan, Condongcatur, Kec. Depok, Kabupaten Sleman, Yogyakarta 55283',
     };
 
     // Items
@@ -1857,7 +1907,10 @@ export class OrderService {
       weight: item.product?.weight || 200,
     }));
 
-    const totalWeight = items.reduce((sum, i) => sum + i.weight * i.quantity, 0);
+    const totalWeight = items.reduce(
+      (sum, i) => sum + i.weight * i.quantity,
+      0,
+    );
 
     // If there is already an immutable shipping_snapshot on the order, prefer its values
     // (it may have been created by the old shipping-label.service.ts flow)
@@ -1883,14 +1936,15 @@ export class OrderService {
         },
         weightKg: snap.weightKg || (totalWeight / 1000).toFixed(1),
         items: snap.items || items,
-        isCod: snap.isCod ?? (order.payment_method || '').toLowerCase().includes('cod'),
+        isCod:
+          snap.isCod ??
+          (order.payment_method || '').toLowerCase().includes('cod'),
         isFragile: snap.isFragile ?? false,
         printCount: snap.printCount ?? 0,
         version: snap.version || 'v2',
       },
     };
   }
-
 
   async requestPickup(orderId: string) {
     const order = await this.orderRepo.findOne({
@@ -1979,7 +2033,9 @@ export class OrderService {
     const order = await this.orderRepo.findOne({ where: { id: orderId } });
     if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
     if (order.status !== 'DIKEMAS')
-      throw new BadRequestException('Hanya pesanan DIKEMAS yang bisa ditandai siap ambil.');
+      throw new BadRequestException(
+        'Hanya pesanan DIKEMAS yang bisa ditandai siap ambil.',
+      );
     if (order.shipping_type !== 'store_pickup')
       throw new BadRequestException('Hanya pesanan ambil di toko.');
 
@@ -1991,11 +2047,15 @@ export class OrderService {
       action: 'READY_FOR_PICKUP',
       description: 'Pesanan siap diambil di toko',
     });
-    this.notificationService.sendOrderStatusNotif(order.user_id, order, 'SIAP').catch(() => {});
+    this.notificationService
+      .sendOrderStatusNotif(order.user_id, order, 'SIAP')
+      .catch(() => {});
 
     // Generate invoice when marked as ready for pickup
     this.generateInvoiceForOrder(order.id).catch((err) => {
-      this.logger.error(`[INVOICE] Failed to generate invoice for order ${order.id}: ${err.message}`);
+      this.logger.error(
+        `[INVOICE] Failed to generate invoice for order ${order.id}: ${err.message}`,
+      );
     });
 
     return { message: 'Pesanan siap diambil di toko.', order };
@@ -2005,7 +2065,9 @@ export class OrderService {
     const order = await this.orderRepo.findOne({ where: { id: orderId } });
     if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
     if (order.status !== 'DIKEMAS')
-      throw new BadRequestException('Hanya pesanan DIKEMAS yang bisa ditandai siap antar.');
+      throw new BadRequestException(
+        'Hanya pesanan DIKEMAS yang bisa ditandai siap antar.',
+      );
     if (order.shipping_type !== 'store_delivery')
       throw new BadRequestException('Hanya pesanan delivery toko.');
 
@@ -2017,11 +2079,15 @@ export class OrderService {
       action: 'READY_FOR_DELIVERY',
       description: 'Pesanan siap diantar',
     });
-    this.notificationService.sendOrderStatusNotif(order.user_id, order, 'SIAP').catch(() => {});
+    this.notificationService
+      .sendOrderStatusNotif(order.user_id, order, 'SIAP')
+      .catch(() => {});
 
     // Generate invoice when marked as ready for delivery
     this.generateInvoiceForOrder(order.id).catch((err) => {
-      this.logger.error(`[INVOICE] Failed to generate invoice for order ${order.id}: ${err.message}`);
+      this.logger.error(
+        `[INVOICE] Failed to generate invoice for order ${order.id}: ${err.message}`,
+      );
     });
 
     return { message: 'Pesanan siap diantar.', order };
@@ -2042,11 +2108,15 @@ export class OrderService {
       action: 'DELIVERED',
       description: 'Pesanan ditandai terkirim',
     });
-    this.notificationService.sendOrderStatusNotif(order.user_id, order, 'DIKIRIM').catch(() => {});
+    this.notificationService
+      .sendOrderStatusNotif(order.user_id, order, 'DIKIRIM')
+      .catch(() => {});
 
     // Generate invoice when marked as delivered
     this.generateInvoiceForOrder(order.id).catch((err) => {
-      this.logger.error(`[INVOICE] Failed to generate invoice for order ${order.id}: ${err.message}`);
+      this.logger.error(
+        `[INVOICE] Failed to generate invoice for order ${order.id}: ${err.message}`,
+      );
     });
 
     return { message: 'Pesanan ditandai terkirim.', order };
@@ -2071,7 +2141,9 @@ export class OrderService {
 
     // Generate invoice when order is completed
     this.generateInvoiceForOrder(order.id).catch((err) => {
-      this.logger.error(`[INVOICE] Failed to generate invoice for order ${order.id}: ${err.message}`);
+      this.logger.error(
+        `[INVOICE] Failed to generate invoice for order ${order.id}: ${err.message}`,
+      );
     });
 
     return { message: 'Pesanan selesai.', order };
@@ -2098,11 +2170,18 @@ export class OrderService {
     const quantity = dto.quantity || direct_item?.quantity;
     const notes = dto.notes;
     const address_id = dto.address_id;
-    const shipping_type = dto.shipping_type || (dto.shipping_method === 'instant' ? 'instant' : 'regular');
-    const shipping_method = dto.shipping_method || 
-      (shipping_type === 'store_pickup' ? 'STORE_PICKUP' :
-       shipping_type === 'store_delivery' ? 'STORE_DELIVERY' :
-       shipping_type === 'instant' ? 'INSTANT' : 'REGULAR');
+    const shipping_type =
+      dto.shipping_type ||
+      (dto.shipping_method === 'instant' ? 'instant' : 'regular');
+    const shipping_method =
+      dto.shipping_method ||
+      (shipping_type === 'store_pickup'
+        ? 'STORE_PICKUP'
+        : shipping_type === 'store_delivery'
+          ? 'STORE_DELIVERY'
+          : shipping_type === 'instant'
+            ? 'INSTANT'
+            : 'REGULAR');
     const shipping_cost = dto.shipping_cost;
     const courier_name = dto.courier_name;
     const courier_service = dto.courier_service;
@@ -2116,7 +2195,9 @@ export class OrderService {
     // For store_pickup: no address needed
     // For store_delivery: address needed for delivery but shipping_cost = 0
     if (shipping_type === 'store_delivery' && !dto.address_id)
-      throw new BadRequestException('Alamat pengiriman wajib diisi untuk delivery toko.');
+      throw new BadRequestException(
+        'Alamat pengiriman wajib diisi untuk delivery toko.',
+      );
     if (shipping_type === 'store_pickup') {
       // No address needed for store pickup - skip address validation
     } else if (!dto.address_id) {
@@ -2129,42 +2210,78 @@ export class OrderService {
     // Only validate address if address_id is provided (not store_pickup)
     let address: any = null;
     if (address_id) {
-      address = await this.addressRepo.findOne({ where: { id: address_id } as any, relations: ['user'] });
+      address = await this.addressRepo.findOne({
+        where: { id: address_id } as any,
+        relations: ['user'],
+      });
       if (!address) throw new NotFoundException('Alamat tidak ditemukan');
-      if (address.user?.id !== userId) throw new BadRequestException('Alamat bukan milik user ini.');
+      if (address.user?.id !== userId)
+        throw new BadRequestException('Alamat bukan milik user ini.');
     }
 
     let items: any[] = [];
     let subtotal = 0;
 
     if (cart_ids && cart_ids.length > 0) {
-      const cartItems = await this.cartRepo.find({ where: { id: In(cart_ids), user_id: userId }, relations: ['product', 'product.variants'] });
+      const cartItems = await this.cartRepo.find({
+        where: { id: In(cart_ids), user_id: userId },
+        relations: ['product', 'product.variants'],
+      });
       for (const cart of cartItems) {
-        let mv = cart.product.variants?.find((v) => v.variant_name === cart.selected_variasi);
-        if (!mv && cart.product.variants?.length > 0) mv = cart.product.variants[0];
-        if (!mv) throw new BadRequestException(`Variasi ${cart.product.name} tidak valid`);
-        const fp = Number(mv.price_discount || 0) > 0 ? Number(mv.price_normal || 0) - Number(mv.price_discount || 0) : Number(mv.price_normal || 0);
+        let mv = cart.product.variants?.find(
+          (v) => v.variant_name === cart.selected_variasi,
+        );
+        if (!mv && cart.product.variants?.length > 0)
+          mv = cart.product.variants[0];
+        if (!mv)
+          throw new BadRequestException(
+            `Variasi ${cart.product.name} tidak valid`,
+          );
+        const fp =
+          Number(mv.price_discount || 0) > 0
+            ? Number(mv.price_normal || 0) - Number(mv.price_discount || 0)
+            : Number(mv.price_normal || 0);
         subtotal += fp * cart.quantity;
-        items.push({ product: { id: cart.product.id }, product_name: cart.product.name, variasi: mv.variant_name, quantity: cart.quantity, price: fp });
+        items.push({
+          product: { id: cart.product.id },
+          product_name: cart.product.name,
+          variasi: mv.variant_name,
+          quantity: cart.quantity,
+          price: fp,
+        });
       }
       await this.cartRepo.delete(cart_ids);
     } else if (product_id && variasi && quantity) {
-      const product = await this.productRepo.findOne({ where: { id: product_id }, relations: ['variants'] });
+      const product = await this.productRepo.findOne({
+        where: { id: product_id },
+        relations: ['variants'],
+      });
       if (!product) throw new NotFoundException('Produk tidak ditemukan');
       let mv = product.variants?.find((v) => v.variant_name === variasi);
       if (!mv && product.variants?.length > 0) mv = product.variants[0];
       if (!mv) throw new BadRequestException('Variasi produk tidak valid.');
-      if (mv.stock < quantity) throw new BadRequestException(`Stok ${product.name} tidak mencukupi.`);
-      const fp = Number(mv.price_discount || 0) > 0 ? Number(mv.price_normal || 0) - Number(mv.price_discount || 0) : Number(mv.price_normal || 0);
+      if (mv.stock < quantity)
+        throw new BadRequestException(`Stok ${product.name} tidak mencukupi.`);
+      const fp =
+        Number(mv.price_discount || 0) > 0
+          ? Number(mv.price_normal || 0) - Number(mv.price_discount || 0)
+          : Number(mv.price_normal || 0);
       subtotal += fp * quantity;
-      items.push({ product: { id: product.id }, product_name: product.name, variasi: mv.variant_name, quantity, price: fp });
+      items.push({
+        product: { id: product.id },
+        product_name: product.name,
+        variasi: mv.variant_name,
+        quantity,
+        price: fp,
+      });
     } else {
       throw new BadRequestException('cart_ids atau product_id wajib diisi.');
     }
 
     let discount = 0;
     if (voucher_usage_ids.length > 0) {
-      const voucherResults = await this.voucherService.getVouchersByUsageIds(voucher_usage_ids);
+      const voucherResults =
+        await this.voucherService.getVouchersByUsageIds(voucher_usage_ids);
       for (const vr of voucherResults) {
         const dResult = calculateDiscount(
           vr.voucher.discount_type,
@@ -2196,25 +2313,32 @@ export class OrderService {
       payment_method: payment_method || null,
       address_id: isStorePickup ? null : address_id,
       items: items as any,
-      voucher_usage_ids: voucher_usage_ids.length > 0 ? voucher_usage_ids : null,
+      voucher_usage_ids:
+        voucher_usage_ids.length > 0 ? voucher_usage_ids : null,
       discount_amount: discount || 0,
       is_store_pickup: isStorePickup,
       is_store_delivery: isStoreDelivery,
-      pickup_estimate_minutes: isStorePickup ? (pickup_estimate_minutes || 30) : null,
-      delivery_distance_km: isStoreDelivery ? Math.round(delivery_distance_km || 0) || null : null,
-      shipping_address_snapshot: isStorePickup ? null : {
-        recipient_name: address.recipient_name || user.full_name,
-        phone_number: address.phone_number || user.phone_number,
-        full_address: address.full_address,
-        postal_code: address.postal_code,
-        latitude: address.latitude,
-        longitude: address.longitude,
-        area_id: address.area_id,
-        subdistrict: address.subdistrict,
-        city: address.city,
-        province: address.province,
-        label: address.label,
-      },
+      pickup_estimate_minutes: isStorePickup
+        ? pickup_estimate_minutes || 30
+        : null,
+      delivery_distance_km: isStoreDelivery
+        ? Math.round(delivery_distance_km || 0) || null
+        : null,
+      shipping_address_snapshot: isStorePickup
+        ? null
+        : {
+            recipient_name: address.recipient_name || user.full_name,
+            phone_number: address.phone_number || user.phone_number,
+            full_address: address.full_address,
+            postal_code: address.postal_code,
+            latitude: address.latitude,
+            longitude: address.longitude,
+            area_id: address.area_id,
+            subdistrict: address.subdistrict,
+            city: address.city,
+            province: address.province,
+            label: address.label,
+          },
     } as any);
 
     // Add tax invoice request data if applicable
@@ -2230,7 +2354,7 @@ export class OrderService {
       };
     }
 
-    const savedOrder = await this.orderRepo.save(order) as any;
+    const savedOrder = (await this.orderRepo.save(order)) as any;
 
     const customerName = user.full_name || 'Customer';
     const tx = await this.paymentService.createTransaction(
@@ -2247,6 +2371,21 @@ export class OrderService {
     savedOrder.payment_token = tx.token;
     savedOrder.payment_redirect_url = tx.redirect_url;
     const result = await this.orderRepo.save(savedOrder);
+
+    // ⭐ KONFIRMASI VOUCHER SETELAH CHECKOUT BERHASIL + PAYMENT TOKEN DIBUAT
+    // Voucher langsung terpakai (CONFIRMED) karena user sudah commit checkout.
+    // Jika 24 jam tidak bayar, auto-cancel akan me-release voucher.
+    if (voucher_usage_ids && voucher_usage_ids.length > 0) {
+      for (const usageId of voucher_usage_ids) {
+        try {
+          await this.voucherService.confirmVoucherUsage(usageId, result.id);
+        } catch (err) {
+          this.logger.error(
+            `Failed to confirm voucher usage ${usageId} for order ${result.id}: ${(err as Error).message}`,
+          );
+        }
+      }
+    }
 
     await this.orderHistoryRepo.save({
       order_id: result.id,
@@ -2276,13 +2415,20 @@ export class OrderService {
         where: { id: item.product_id },
         relations: ['variants'],
       });
-      if (!product) throw new NotFoundException(`Produk ${item.product_id} tidak ditemukan`);
+      if (!product)
+        throw new NotFoundException(
+          `Produk ${item.product_id} tidak ditemukan`,
+        );
       let mv = product.variants?.find((v) => v.variant_name === item.variasi);
       if (!mv && product.variants?.length > 0) mv = product.variants[0];
-      if (!mv) throw new BadRequestException(`Variasi ${product.name} tidak valid`);
+      if (!mv)
+        throw new BadRequestException(`Variasi ${product.name} tidak valid`);
       if (mv.stock < (item.quantity || 1))
         throw new BadRequestException(`Stok ${product.name} tidak mencukupi.`);
-      const fp = Number(mv.price_discount || 0) > 0 ? Number(mv.price_normal || 0) - Number(mv.price_discount || 0) : Number(mv.price_normal || 0);
+      const fp =
+        Number(mv.price_discount || 0) > 0
+          ? Number(mv.price_normal || 0) - Number(mv.price_discount || 0)
+          : Number(mv.price_normal || 0);
       const qty = item.quantity || 1;
       totalPrice += fp * qty;
       orderItems.push({
@@ -2319,7 +2465,9 @@ export class OrderService {
       where: { biteship_order_id: orderId } as any,
     });
     if (!order) {
-      this.logger.warn(`[WEBHOOK] Order not found for biteship_order_id=${orderId}`);
+      this.logger.warn(
+        `[WEBHOOK] Order not found for biteship_order_id=${orderId}`,
+      );
       return { received: true };
     }
 
@@ -2339,7 +2487,9 @@ export class OrderService {
           description: `Paket diambil kurir (Biteship webhook: ${status})`,
           metadata: { webhook_payload: payload },
         });
-        this.notificationService.sendOrderStatusNotif(order.user_id, order, 'DIKIRIM').catch(() => {});
+        this.notificationService
+          .sendOrderStatusNotif(order.user_id, order, 'DIKIRIM')
+          .catch(() => {});
         break;
       case 'delivered':
         order.status = 'DIKIRIM';
@@ -2352,12 +2502,16 @@ export class OrderService {
           description: 'Paket telah terkirim (Biteship webhook)',
           metadata: { webhook_payload: payload },
         });
-        this.notificationService.sendOrderStatusNotif(order.user_id, order, 'DIKIRIM').catch(() => {});
+        this.notificationService
+          .sendOrderStatusNotif(order.user_id, order, 'DIKIRIM')
+          .catch(() => {});
         break;
       case 'on_delivery':
         break;
       default:
-        this.logger.log(`[WEBHOOK] Unhandled status ${status} for order ${order.invoice_number}`);
+        this.logger.log(
+          `[WEBHOOK] Unhandled status ${status} for order ${order.invoice_number}`,
+        );
     }
 
     return { received: true };
@@ -2370,8 +2524,10 @@ export class OrderService {
    * @returns Number of orders cancelled
    */
   async autoCancelPendingOrders(expiryHours: number = 24): Promise<number> {
-    const expiredThreshold = new Date(Date.now() - expiryHours * 60 * 60 * 1000);
-    
+    const expiredThreshold = new Date(
+      Date.now() - expiryHours * 60 * 60 * 1000,
+    );
+
     // PENDING orders don't have stock deducted yet (deduction happens at LUNAS),
     // so we only need basic order data — no need to load relations
     const expiredOrders = await this.orderRepo.find({
@@ -2382,11 +2538,15 @@ export class OrderService {
     });
 
     if (expiredOrders.length === 0) {
-      this.logger.log(`[AUTO_CANCEL] No expired PENDING orders found (threshold: ${expiryHours}h)`);
+      this.logger.log(
+        `[AUTO_CANCEL] No expired PENDING orders found (threshold: ${expiryHours}h)`,
+      );
       return 0;
     }
 
-    this.logger.log(`[AUTO_CANCEL] Found ${expiredOrders.length} expired PENDING orders to cancel`);
+    this.logger.log(
+      `[AUTO_CANCEL] Found ${expiredOrders.length} expired PENDING orders to cancel`,
+    );
 
     let cancelledCount = 0;
     for (const order of expiredOrders) {
@@ -2426,6 +2586,9 @@ export class OrderService {
           await queryRunner.commitTransaction();
           cancelledCount++;
 
+          // Note: Voucher sudah CONFIRMED saat checkout (setelah payment token Midtrans) dan HANGUS.
+          // Tidak dikembalikan meskipun order expired, karena user sudah masuk Snap Midtrans.
+
           this.logger.log(
             `[AUTO_CANCEL] ✅ Cancelled order ${order.invoice_number} (${order.id})`,
           );
@@ -2435,7 +2598,6 @@ export class OrderService {
           this.notificationService
             .sendOrderStatusNotif(order.user_id, order, 'BATAL')
             .catch(() => {});
-
         } catch (err: any) {
           await queryRunner.rollbackTransaction();
           this.logger.error(
@@ -2451,7 +2613,9 @@ export class OrderService {
       }
     }
 
-    this.logger.log(`[AUTO_CANCEL] Done. ${cancelledCount}/${expiredOrders.length} orders cancelled`);
+    this.logger.log(
+      `[AUTO_CANCEL] Done. ${cancelledCount}/${expiredOrders.length} orders cancelled`,
+    );
     return cancelledCount;
   }
 
@@ -2463,7 +2627,9 @@ export class OrderService {
       await this.invoiceService.generateInvoice(orderId);
       this.logger.log(`[INVOICE] Invoice generated for order ${orderId}`);
     } catch (err: any) {
-      this.logger.error(`[INVOICE] Failed to generate invoice for order ${orderId}: ${err.message}`);
+      this.logger.error(
+        `[INVOICE] Failed to generate invoice for order ${orderId}: ${err.message}`,
+      );
     }
   }
 
@@ -2486,10 +2652,7 @@ export class OrderService {
       order.is_locked = true;
     }
 
-    if (
-      fulfillmentStatus === 'NONE' &&
-      currentOrderStatus === 'DIKEMAS'
-    ) {
+    if (fulfillmentStatus === 'NONE' && currentOrderStatus === 'DIKEMAS') {
       newStatus = 'LUNAS';
       order.is_locked = false;
     }
@@ -2508,8 +2671,13 @@ export class OrderService {
           fulfillment_status: fulfillmentStatus,
         },
       });
-      this.logger.log(`[REPAIR] order=${order.invoice_number} ${currentOrderStatus}→${newStatus} fulfillment=${fulfillmentStatus}`);
-      return { message: `Status diperbaiki: ${currentOrderStatus} → ${newStatus}`, order };
+      this.logger.log(
+        `[REPAIR] order=${order.invoice_number} ${currentOrderStatus}→${newStatus} fulfillment=${fulfillmentStatus}`,
+      );
+      return {
+        message: `Status diperbaiki: ${currentOrderStatus} → ${newStatus}`,
+        order,
+      };
     }
 
     return { message: 'Tidak ada perbaikan yang diperlukan.', order };

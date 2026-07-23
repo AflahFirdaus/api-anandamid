@@ -256,7 +256,7 @@ export class VoucherService {
       await this.releaseVoucher(existingReserved.id);
     }
 
-    // Cek apakah user sudah pernah CONFIRMED (benar-benar terpakai di transaksi sukses)
+    // Cek apakah user sudah pernah CONFIRMED (voucher SUDAH terikat ke order)
     const existingConfirmed = await this.voucherUsageRepository.findOne({
       where: {
         user_id: userId,
@@ -276,6 +276,14 @@ export class VoucherService {
           if (paidStatuses.includes(confirmedOrder.status)) {
             throw new BadRequestException(
               'Anda sudah pernah menggunakan voucher ini',
+            );
+          }
+          // ⛔ CEK BARU: Jika voucher sudah CONFIRMED dan ordernya masih PENDING (belum bayar)
+          // artinya user sudah checkout dengan voucher ini dan tinggal bayar
+          // TIDAK BOLEH pakai voucher yang sama untuk order lain
+          if (confirmedOrder.status === 'PENDING') {
+            throw new BadRequestException(
+              'Voucher ini sudah terpakai di pesanan yang menunggu pembayaran. Silakan bayar pesanan sebelumnya atau tunggu hingga 24 jam hingga pesanan kadaluarsa.',
             );
           }
         }
@@ -659,6 +667,86 @@ export class VoucherService {
     }
 
     return results;
+  }
+
+  // ──────────────────────────────────────────────
+  //  PUBLIC METHOD 6: releaseVoucherByOrderId
+  //  Release vouchers yang CONFIRMED untuk order tertentu (saat cancel/expire)
+  // ──────────────────────────────────────────────
+
+  async releaseVoucherByOrderId(orderId: string): Promise<number> {
+    const usages = await this.voucherUsageRepository.find({
+      where: { order_id: orderId, status: VOUCHER_USAGE_STATUS.CONFIRMED },
+    });
+
+    if (usages.length === 0) {
+      this.logger.log(`No CONFIRMED vouchers found for order ${orderId} to release`);
+      return 0;
+    }
+
+    let releasedCount = 0;
+    for (const usage of usages) {
+      try {
+        const queryRunner = this.dataSource.createQueryRunner();
+        await queryRunner.connect();
+        await queryRunner.startTransaction();
+
+        try {
+          const locked = await queryRunner.manager.findOne(VoucherUsage, {
+            where: { id: usage.id, status: VOUCHER_USAGE_STATUS.CONFIRMED },
+            lock: { mode: 'pessimistic_write' },
+          });
+
+          if (!locked) {
+            await queryRunner.rollbackTransaction();
+            continue;
+          }
+
+          // Kembalikan current_usage voucher
+          await queryRunner.manager
+            .createQueryBuilder()
+            .update(Voucher)
+            .set({ current_usage: () => 'current_usage - 1' })
+            .where('id = :id', { id: usage.voucher_id })
+            .andWhere('current_usage > 0')
+            .execute();
+
+          // Update status menjadi RELEASED
+          await queryRunner.manager.update(
+            VoucherUsage,
+            { id: usage.id },
+            { status: VOUCHER_USAGE_STATUS.RELEASED },
+          );
+
+          // Reset is_used di eligibility
+          await queryRunner.manager.update(
+            UserVoucherEligibility,
+            { user_id: usage.user_id, voucher_id: usage.voucher_id },
+            { is_used: false },
+          );
+
+          await queryRunner.commitTransaction();
+          releasedCount++;
+
+          this.logger.log(
+            `Voucher usage ${usage.id} (voucher=${usage.voucher_id}) released for cancelled order ${orderId} — quota restored`,
+          );
+        } catch (err) {
+          await queryRunner.rollbackTransaction();
+          this.logger.error(
+            `Failed to release voucher usage ${usage.id} for order ${orderId}: ${(err as Error).message}`,
+          );
+        } finally {
+          await queryRunner.release();
+        }
+      } catch (err) {
+        this.logger.error(
+          `Unexpected error releasing voucher usage ${usage.id}: ${(err as Error).message}`,
+        );
+      }
+    }
+
+    return releasedCount;
   }
 
   // ──────────────────────────────────────────────

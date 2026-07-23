@@ -10,10 +10,15 @@ export class WhatsappService {
 
   constructor(private readonly configService: ConfigService) {
     this.apiKey = this.configService.get<string>('FONTE_API_KEY') ?? '';
-    this.senderName = this.configService.get<string>('FONTE_SENDER_NAME') ?? 'Anandam Computer';
-    this.apiUrl = this.configService.get<string>('FONTE_API_URL') ?? 'https://api.fonnte.com/send';
+    this.senderName =
+      this.configService.get<string>('FONTE_SENDER_NAME') ?? 'Anandam Computer';
+    this.apiUrl =
+      this.configService.get<string>('FONTE_API_URL') ??
+      'https://api.fonnte.com/send';
     if (!this.apiKey) {
-      this.logger.warn('FONTE API Key is missing! Please check FONTE_API_KEY in .env');
+      this.logger.warn(
+        'FONTE API Key is missing! Please check FONTE_API_KEY in .env',
+      );
     }
   }
 
@@ -33,10 +38,15 @@ export class WhatsappService {
       return false;
     }
     if (!this.apiKey) {
-      this.logger.error('Gagal mengirim WhatsApp OTP: API Key FONTE belum dikonfigurasi.');
+      this.logger.error(
+        'Gagal mengirim WhatsApp OTP: API Key FONTE belum dikonfigurasi.',
+      );
       return false;
     }
-    const otpMsg = '*ANANDAM COMPUTER*\n\nHalo,\n\nKode verifikasi (OTP) Anda adalah:\n\n*' + otpCode + '*\n\nKode ini berlaku selama 5 menit.\nJangan bagikan kode ini kepada siapa pun.\n\nTerima kasih telah mempercayai Anandam Computer!\n\n*Anandam Computer*';
+    const otpMsg =
+      '*ANANDAM.ID*\nKode verifikasi (OTP) Anda adalah:\n\n*' +
+      otpCode +
+      '*\n\nKode ini berlaku selama 5 menit.\nJangan bagikan kode ini kepada siapa pun.\n\nTerima kasih telah mempercayai Anandam.ID!\n\n*Anandam.ID*';
     const payload = {
       target: formattedPhone,
       message: otpMsg,
@@ -46,23 +56,43 @@ export class WhatsappService {
     try {
       const response = await fetch(this.apiUrl, {
         method: 'POST',
-        headers: { 'Authorization': this.apiKey, 'Content-Type': 'application/json' },
+        headers: {
+          Authorization: this.apiKey,
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify(payload),
       });
       const data = await response.json();
       if (!response.ok) {
-        this.logger.error('Gagal kirim WA OTP ' + formattedPhone + ' via FONTE. HTTP ' + response.status + '. ' + JSON.stringify(data));
+        this.logger.error(
+          'Gagal kirim WA OTP ' +
+            formattedPhone +
+            ' via FONTE. HTTP ' +
+            response.status +
+            '. ' +
+            JSON.stringify(data),
+        );
         return false;
       }
       if (data.status === true) {
-        this.logger.log('WA OTP berhasil ke ' + formattedPhone + ' via FONTE. ID: ' + data.id);
+        this.logger.log(
+          'WA OTP berhasil ke ' + formattedPhone + ' via FONTE. ID: ' + data.id,
+        );
         return true;
       } else {
-        this.logger.error('Gagal kirim WA OTP ' + formattedPhone + ' via FONTE. ' + JSON.stringify(data));
+        this.logger.error(
+          'Gagal kirim WA OTP ' +
+            formattedPhone +
+            ' via FONTE. ' +
+            JSON.stringify(data),
+        );
         return false;
       }
     } catch (error) {
-      this.logger.error('Error kirim WA OTP via FONTE ke ' + formattedPhone, error);
+      this.logger.error(
+        'Error kirim WA OTP via FONTE ke ' + formattedPhone,
+        error,
+      );
       return false;
     }
   }
