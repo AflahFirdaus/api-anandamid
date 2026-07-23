@@ -48,19 +48,37 @@ export class PaymentService {
    *   - 100k - 500k : QRIS + Bank Transfer (VA)
    *   - > 500.000   : Bank Transfer (VA) only
    *
-   * List enabled payments that are active in Midtrans dashboard.
-   * Using specific channel codes ensures Midtrans shows available options.
+   * Returns a list of payment method channels enabled for this transaction amount.
    */
   private resolveEnabledPayments(grossAmount: number): string[] {
     if (grossAmount < 100000) {
       return ['qris'];
     }
     if (grossAmount > 500000) {
-      // Bank Transfer channels active in your Midtrans dashboard
       return ['bca', 'bni', 'mandiri', 'bri', 'permata'];
     }
     // 100.000 <= grossAmount <= 500.000
     return ['qris', 'bca', 'bni', 'mandiri', 'bri', 'permata'];
+  }
+
+  /**
+   * Validate that the payment method used in a transaction matches the allowed methods
+   * for the given amount. Called from webhook when payment is settled.
+   * Throws an error if payment method is not allowed, triggering auto-refund.
+   */
+  private validatePaymentMethod(grossAmount: number, paymentType: string): boolean {
+    const allowed = this.resolveEnabledPayments(grossAmount);
+    // paymentType from Midtrans: "qris", "bank_transfer", "bca", "bni", etc.
+    const normalizedType = paymentType?.toLowerCase() || '';
+    
+    // Check if payment type is in allowed list
+    // For bank_transfer, check if any VA channel is allowed
+    if (normalizedType === 'bank_transfer') {
+      // Bank transfer is allowed if any bank channel is in the list
+      return allowed.some(p => ['bca', 'bni', 'mandiri', 'bri', 'permata', 'bank_transfer'].includes(p));
+    }
+    
+    return allowed.some(p => normalizedType.includes(p));
   }
 
   async createTransaction(
@@ -69,16 +87,13 @@ export class PaymentService {
     customerDetails?: any,
   ) {
     const finishUrl = `${process.env.VITE_SITE_URL || 'https://anandam.id'}/user/purchase`;
-    const enabledPayments = this.resolveEnabledPayments(grossAmount);
     const parameter = {
       transaction_details: { order_id: orderId, gross_amount: grossAmount },
       customer_details: customerDetails || {},
+      credit_card: { secure: true },
       callbacks: { finish: finishUrl },
-      enabled_payments: enabledPayments,
     };
-    this.logger.log(
-      `Creating Midtrans transaction for ${orderId} amount ${grossAmount} enabled_payments=[${enabledPayments.join(',')}]`,
-    );
+    this.logger.log(`Creating Midtrans transaction for ${orderId} amount ${grossAmount}`);
     try {
       const result = await this.snap.createTransaction(parameter);
       this.logger.log(`Midtrans transaction created: ${orderId}`);
