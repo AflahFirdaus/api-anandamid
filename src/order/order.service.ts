@@ -416,7 +416,19 @@ export class OrderService {
     );
     order.payment_token = tx.token;
     (order as any).payment_redirect_url = tx.redirect_url;
+    // ⭐ Simpan Midtrans Order ID untuk keperluan refund nanti
+    (order as any).midtrans_order_id = midtransOrderId;
     await this.orderRepo.save(order);
+
+    // Simpan ke order history untuk referensi
+    await this.orderHistoryRepo.save({
+      order_id: order.id,
+      actor: 'SYSTEM',
+      action: 'RETRY_PAYMENT',
+      description: `Retry payment dengan Midtrans Order ID: ${midtransOrderId}`,
+      metadata: { midtrans_order_id: midtransOrderId },
+    });
+
     return {
       message: 'Token pembayaran berhasil dibuat',
       payment: { token: tx.token, redirect_url: tx.redirect_url },
@@ -910,6 +922,57 @@ export class OrderService {
         }
 
         // Real failure
+        // ⭐ Handle 404: Transaction doesn't exist in Midtrans
+        // Bisa terjadi jika order dibayar manual (admin) atau payment token expired
+        // Dalam kasus ini, kita langsung cancel saja tanpa refund Midtrans
+        const isNotFound =
+          err.message?.includes('404') ||
+          err.message?.toLowerCase().includes("transaction doesn't exist") ||
+          err.message?.toLowerCase().includes('transaction not found');
+
+        if (isNotFound) {
+          // Transaksi tidak ditemukan di Midtrans — langsung cancel
+          order.status = 'CANCELLED';
+          order.cancelled_at = new Date();
+          order.refund_status = 'not_applicable';
+          order.refund_response = { info: 'Transaction not found in Midtrans, cancelled directly' } as any;
+          await queryRunner.manager.save(Order, order);
+
+          await this.saveOrderHistory(
+            queryRunner,
+            order.id,
+            'SYSTEM',
+            'REFUND_SKIPPED',
+            'Transaksi tidak ditemukan di Midtrans. Pesanan langsung dibatalkan.',
+            operationId,
+            'CANCEL_REQUESTED',
+            'CANCELLED',
+            {
+              error: err.message,
+              midtrans_404: true,
+              action: 'cancelled_directly',
+            },
+          );
+
+          await queryRunner.commitTransaction();
+
+          this.logger.warn(
+            `[REFUND] operation_id=${operationId} order=${order.invoice_number} status=CANCELLED (Midtrans 404 — cancelled directly)`,
+          );
+
+          this.notificationService
+            .sendOrderStatusNotif(order.user_id, order, 'CANCELLED')
+            .catch(() => {});
+
+          return {
+            message:
+              'Pesanan berhasil dibatalkan karena tidak ditemukan transaksi pembayaran.',
+            status: 'CANCELLED',
+            refund_operation_id: operationId,
+          };
+        }
+
+        // Non-404 failure — mark as REFUND_FAILED
         order.status = 'REFUND_FAILED';
         order.refund_status = 'failed';
         order.refund_response = { error: err.message } as any;

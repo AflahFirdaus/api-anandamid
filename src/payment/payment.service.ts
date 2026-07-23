@@ -214,45 +214,48 @@ export class PaymentService {
         'base64',
       );
 
+      // ⭐ Resolve actual Midtrans order ID:
+      // Retry payment menggunakan format: INV-xxx-R{timestamp}
+      // Kita cek status dengan orderId asli, jika 404 coba cari order history
+      const resolvedOrderId = await this.resolveMidtransOrderId(orderId);
+
+      // Fetch actual transaction status with resolvedOrderId
       let transactionStatus: string | null = null;
       try {
-        const statusRes = await fetch(`${base}/${orderId}/status`, {
+        const statusRes = await fetch(`${base}/${resolvedOrderId}/status`, {
           method: 'GET',
           headers: { Authorization: `Basic ${auth}` },
         });
         const statusData = await statusRes.json();
         transactionStatus = statusData?.transaction_status || null;
         this.logger.log(
-          `[REFUND] Midtrans transaction_status for ${orderId}: ${transactionStatus}`,
+          `[REFUND] Resolved order ID: ${resolvedOrderId}, transaction_status: ${transactionStatus}`,
         );
       } catch (statusErr: any) {
         this.logger.warn(
-          `[REFUND] Could not fetch transaction status for ${orderId}: ${statusErr.message}`,
+          `[REFUND] Could not fetch transaction status for ${resolvedOrderId}: ${statusErr.message}`,
         );
       }
 
-      let result: any;
-
-      // Step 2: If status is 'capture', call cancel (void) — refund is not possible yet
       if (transactionStatus === 'capture') {
         this.logger.log(
-          `[REFUND] Status is 'capture', calling cancel (void) API for ${orderId}`,
+          `[REFUND] Status is 'capture', calling cancel (void) API for ${resolvedOrderId}`,
         );
-        const cancelRes = await fetch(`${base}/${orderId}/cancel`, {
+        const cancelRes = await fetch(`${base}/${resolvedOrderId}/cancel`, {
           method: 'POST',
           headers: {
             Authorization: `Basic ${auth}`,
             'Content-Type': 'application/json',
           },
         });
-        result = await cancelRes.json();
+        const result = await cancelRes.json();
         if (!cancelRes.ok && result?.status_code !== '200') {
           throw new Error(
             `Cancel (void) API error: HTTP ${cancelRes.status}. API response: ${JSON.stringify(result)}`,
           );
         }
         this.logger.log(
-          `[REFUND] Cancel (void) success for ${orderId}: ${JSON.stringify(result)}`,
+          `[REFUND] Cancel (void) success for ${resolvedOrderId}: ${JSON.stringify(result)}`,
         );
         return result;
       }
@@ -260,15 +263,16 @@ export class PaymentService {
       // Step 3: For 'settlement' and other statuses, call refund API
       const parameter = { amount, reason };
 
+      let result: any;
       if (typeof this.core.transaction?.refundDirect === 'function') {
-        result = await this.core.transaction.refundDirect(orderId, parameter);
+        result = await this.core.transaction.refundDirect(resolvedOrderId, parameter);
       } else if (typeof this.core.transaction?.refund === 'function') {
-        result = await this.core.transaction.refund(orderId, parameter);
+        result = await this.core.transaction.refund(resolvedOrderId, parameter);
       } else if (typeof this.core.transactions?.refundDirect === 'function') {
-        result = await this.core.transactions.refundDirect(orderId, parameter);
+        result = await this.core.transactions.refundDirect(resolvedOrderId, parameter);
       } else {
         // Fallback: call REST API directly
-        const res = await fetch(`${base}/${orderId}/refund`, {
+        const res = await fetch(`${base}/${resolvedOrderId}/refund`, {
           method: 'POST',
           headers: {
             Authorization: `Basic ${auth}`,
@@ -285,7 +289,7 @@ export class PaymentService {
       }
 
       this.logger.log(
-        `[REFUND] Success for ${orderId}: ${JSON.stringify(result)}`,
+        `[REFUND] Success for ${resolvedOrderId}: ${JSON.stringify(result)}`,
       );
       return result;
     } catch (error: any) {
@@ -296,6 +300,77 @@ export class PaymentService {
       );
       throw new Error(`Refund failed: ${error.message}`);
     }
+  }
+
+  /**
+   * Resolve the actual Midtrans Order ID from an invoice number.
+   * For retry payments, the Midtrans Order ID = invoice_number-R{timestamp}
+   * We look for it in the order's payment history or try common patterns.
+   */
+  private async resolveMidtransOrderId(invoiceNumber: string): Promise<string> {
+    const isProd = process.env.MIDTRANS_IS_PRODUCTION === 'true';
+    const base = isProd
+      ? 'https://api.midtrans.com/v2'
+      : 'https://api.sandbox.midtrans.com/v2';
+    const auth = Buffer.from(`${process.env.MIDTRANS_SERVER_KEY}:`).toString('base64');
+
+    // Cek apakah invoice number langsung valid di Midtrans (untuk initial payment)
+    try {
+      const res = await fetch(`${base}/${invoiceNumber}/status`, {
+        method: 'GET',
+        headers: { Authorization: `Basic ${auth}` },
+      });
+      if (res.ok) {
+        return invoiceNumber;
+      }
+    } catch {
+      // ignore
+    }
+
+    // Jika tidak valid, cari order di database
+    const order = await this.orderRepo.findOne({
+      where: { invoice_number: invoiceNumber } as any,
+    });
+    if (!order) return invoiceNumber;
+
+    // Cari di OrderHistory untuk action RETRY_PAYMENT (paling baru)
+    const histories = await this.orderHistoryRepo.find({
+      where: { order_id: order.id } as any,
+      order: { created_at: 'DESC' },
+      take: 20,
+    });
+
+    for (const h of histories) {
+      const meta = h.metadata as any;
+      if (meta?.midtrans_order_id) {
+        const midtransId = meta.midtrans_order_id as string;
+        this.logger.log(`[RESOLVE] Found midtrans_order_id from history: ${midtransId}`);
+        return midtransId;
+      }
+    }
+
+    // Fallback: buat dummy midtransOrderId dari pola retry payment
+    // Karena order sudah LUNAS, pasti sudah ada transaksi, coba pola INV-xxx-R*
+    // Kita coba cek dengan pola timestamp dari created_at order
+    if (order.created_at) {
+      const timestamp = Math.floor(order.created_at.getTime() / 1000).toString().slice(-6);
+      const candidate = `${invoiceNumber}-R${timestamp}`;
+      try {
+        const res = await fetch(`${base}/${candidate}/status`, {
+          method: 'GET',
+          headers: { Authorization: `Basic ${auth}` },
+        });
+        if (res.ok) {
+          this.logger.log(`[RESOLVE] Found midtrans_order_id via pattern: ${candidate}`);
+          return candidate;
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    this.logger.warn(`[RESOLVE] Could not resolve Midtrans order ID for ${invoiceNumber}. Using as-is.`);
+    return invoiceNumber;
   }
 
   /**
