@@ -145,6 +145,72 @@ export class OrderController {
     return this.orderService.requestCancel(req.user.id, orderId, body);
   }
 
+  // ====================== USER RETRY REFUND (REFUND_FAILED) ======================
+  @UseGuards(JwtUserGuard)
+  @Post(':id/refund/retry')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Retry refund for REFUND_FAILED order (User)',
+    description: 'Allows user to retry refund up to MAX_REFUND_RETRY (default 3) times. Includes 1-hour rate limit check.'
+  })
+  @ApiResponse({ status: 200, description: 'Refund retry initiated' })
+  @ApiResponse({ status: 400, description: 'Validation error or rate limit exceeded' })
+  async retryRefundUser(
+    @Req() req: any,
+    @Param('id') orderId: string,
+    @Body() body: { note?: string },
+  ) {
+    // Verify order belongs to user
+    const order = await this.orderService.findOneOrder(orderId);
+    if (order.user_id !== req.user.id) {
+      throw new HttpException('Akses ditolak', HttpStatus.FORBIDDEN);
+    }
+    if (order.status !== 'REFUND_FAILED') {
+      throw new HttpException('Hanya pesanan REFUND_FAILED yang bisa di-retry.', HttpStatus.BAD_REQUEST);
+    }
+    
+    // Rate limit: 3 retries per hour per order
+    const maxRetryPerHour = parseInt(process.env.REFUND_RETRY_PER_HOUR || '3', 10);
+    const refundRetryCount = order.refund_retry_count || 0;
+    const lastRetryAt = order.refund_requested_at || order.refunded_at || order.cancelled_at;
+    
+    if (refundRetryCount >= maxRetryPerHour && lastRetryAt) {
+      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+      if (lastRetryAt > oneHourAgo) {
+        const minutesLeft = Math.ceil((lastRetryAt.getTime() + 60 * 60 * 1000 - Date.now()) / (60 * 1000));
+        throw new HttpException(
+          `Anda sudah mencoba refund ${refundRetryCount}x dalam 1 jam. Silakan coba lagi dalam ${minutesLeft} menit, atau hubungi admin.`,
+          HttpStatus.TOO_MANY_REQUESTS
+        );
+      }
+    }
+    
+    return this.orderService.retryRefund(orderId, body.note);
+  }
+
+  // ====================== USER GET REFUND STATUS ======================
+  @UseGuards(JwtUserGuard)
+  @Get(':id/refund/status')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Get refund status for order (User)' })
+  async getRefundStatus(@Req() req: any, @Param('id') orderId: string) {
+    const order = await this.orderService.findOneOrder(orderId);
+    if (order.user_id !== req.user.id) {
+      throw new HttpException('Akses ditolak', HttpStatus.FORBIDDEN);
+    }
+    return {
+      status: order.status,
+      refund_status: order.refund_status,
+      refund_retry_count: order.refund_retry_count || 0,
+      refund_note: order.refund_note,
+      refund_requested_at: order.refund_requested_at,
+      refund_completed_at: order.refund_completed_at,
+      cancelled_at: order.cancelled_at,
+      cancel_reason: order.cancel_reason,
+      cancel_reason_detail: order.cancel_reason_detail,
+    };
+  }
+
   @UseGuards(JwtUserGuard)
   @Get(':id/tracking')
   @ApiBearerAuth('JWT-auth')
