@@ -152,14 +152,18 @@ export class PaymentService {
     customerDetails?: any,
     startTime?: Date,
   ) {
-    // Redirect ke halaman pesanan saya setelah Snap (baik bayar/tidak bayar)
-    const finishUrl = `${process.env.VITE_SITE_URL || 'https://anandam.id'}/user/purchase?order_id=${orderId}`;
+    // Redirect ke halaman pesanan saya setelah Snap (baik bayar/tidak bayar/klik kembali)
+    const purchaseUrl = `${process.env.VITE_SITE_URL || 'https://anandam.id'}/user/purchase?order_id=${orderId}`;
     const enabledPayments = this.resolveEnabledPayments(grossAmount);
     const parameter: any = {
       transaction_details: { order_id: orderId, gross_amount: grossAmount },
       customer_details: customerDetails || {},
       credit_card: { secure: true },
-      callbacks: { finish: finishUrl },
+      callbacks: {
+        finish: purchaseUrl,
+        pending: purchaseUrl,
+        error: purchaseUrl,
+      },
       enabled_payments: enabledPayments,
     };
 
