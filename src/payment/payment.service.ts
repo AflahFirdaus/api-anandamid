@@ -133,21 +133,46 @@ export class PaymentService {
     );
   }
 
+  private formatMidtransTime(date: Date): string {
+    const d = new Date(date);
+    const wib = new Date(d.getTime() + 7 * 60 * 60 * 1000);
+    const pad = (n: number) => (n < 10 ? '0' + n : n);
+    const year = wib.getUTCFullYear();
+    const month = pad(wib.getUTCMonth() + 1);
+    const day = pad(wib.getUTCDate());
+    const hours = pad(wib.getUTCHours());
+    const minutes = pad(wib.getUTCMinutes());
+    const seconds = pad(wib.getUTCSeconds());
+    return `${year}-${month}-${day} ${hours}:${minutes}:${seconds} +0700`;
+  }
+
   async createTransaction(
     orderId: string,
     grossAmount: number,
     customerDetails?: any,
+    startTime?: Date,
   ) {
     const finishUrl = `${process.env.VITE_SITE_URL || 'https://anandam.id'}/user/purchase`;
     const enabledPayments = this.resolveEnabledPayments(grossAmount);
-    const parameter = {
+    const parameter: any = {
       transaction_details: { order_id: orderId, gross_amount: grossAmount },
       customer_details: customerDetails || {},
       credit_card: { secure: true },
       callbacks: { finish: finishUrl },
       enabled_payments: enabledPayments,
     };
-    this.logger.log(`Creating Midtrans transaction for ${orderId} amount ${grossAmount} enabled=[${enabledPayments.join(',')}]`);
+
+    if (startTime) {
+      parameter.expiry = {
+        start_time: this.formatMidtransTime(startTime),
+        unit: 'hour',
+        duration: 24,
+      };
+    }
+
+    this.logger.log(
+      `Creating Midtrans transaction for ${orderId} amount ${grossAmount} enabled=[${enabledPayments.join(',')}]${startTime ? ` expiryStart=${this.formatMidtransTime(startTime)}` : ''}`,
+    );
     try {
       const result = await this.snap.createTransaction(parameter);
       this.logger.log(`Midtrans transaction created: ${orderId}`);

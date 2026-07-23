@@ -397,16 +397,22 @@ export class OrderService {
       throw new BadRequestException(
         'Hanya pesanan PENDING yang bisa dibayar ulang',
       );
+
+    const timestampSuffix = Date.now().toString().slice(-6);
+    const midtransOrderId = `${order.invoice_number}-R${timestampSuffix}`;
+
     const tx = await this.paymentService.createTransaction(
-      `${order.invoice_number}-R${order.id.slice(0, 8)}`,
-      Math.round(order.total_price),
+      midtransOrderId,
+      Math.round(Number(order.total_price)),
       {
-        first_name: order.user.full_name || 'Customer',
-        email: order.user.email,
-        phone: order.user.phone_number || '',
+        first_name: order.user?.full_name || 'Customer',
+        email: order.user?.email || '',
+        phone: order.user?.phone_number || '',
       },
+      order.created_at,
     );
     order.payment_token = tx.token;
+    (order as any).payment_redirect_url = tx.redirect_url;
     await this.orderRepo.save(order);
     return {
       message: 'Token pembayaran berhasil dibuat',
@@ -2235,6 +2241,7 @@ export class OrderService {
         email: user.email,
         phone: user.phone_number || '',
       },
+      savedOrder.created_at,
     );
 
     savedOrder.payment_token = tx.token;
