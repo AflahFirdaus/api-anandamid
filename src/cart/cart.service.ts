@@ -37,31 +37,6 @@ export class CartService {
         const carts = await this.cartRepo.find({
             where: { user_id: userId },
             relations: ['product', 'product.images', 'product.variants'],
-            select: {
-                id: true,
-                quantity: true,
-                selected_variasi: true,
-                product: {
-                    id: true,
-                    name: true,
-                    weight: true,
-                    length: true,
-                    width: true,
-                    height: true,
-                    images: {
-                        id: true,
-                        thumbnail_url: true,
-                        sort_order: true,
-                    },
-                    variants: {
-                        id: true,
-                        variant_name: true,
-                        price_normal: true,
-                        price_discount: true,
-                        stock: true,
-                    }
-                },
-            },
             order: { created_at: 'DESC' },
         });
 

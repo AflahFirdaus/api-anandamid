@@ -39,15 +39,35 @@ export class PaymentService {
     });
   }
 
+  /**
+   * Determine which payment methods to show based on gross amount.
+   * Rules:
+   *   - < 100.000   : QRIS only
+   *   - 100k - 500k : QRIS + Bank Transfer (VA)
+   *   - > 500.000   : Bank Transfer (VA) only
+   */
+  private resolveEnabledPayments(grossAmount: number): string[] {
+    if (grossAmount < 100000) {
+      return ['qris'];
+    }
+    if (grossAmount > 500000) {
+      return ['bank_transfer'];
+    }
+    // 100.000 <= grossAmount <= 500.000
+    return ['qris', 'bank_transfer'];
+  }
+
   async createTransaction(orderId: string, grossAmount: number, customerDetails?: any) {
     const finishUrl = `${process.env.VITE_SITE_URL || 'https://anandam.id'}/user/purchase`;
+    const enabledPayments = this.resolveEnabledPayments(grossAmount);
     const parameter = {
       transaction_details: { order_id: orderId, gross_amount: grossAmount },
       customer_details: customerDetails || {},
       credit_card: { secure: true },
       callbacks: { finish: finishUrl },
+      enabled_payments: enabledPayments,
     };
-    this.logger.log(`Creating Midtrans transaction for ${orderId} amount ${grossAmount}`);
+    this.logger.log(`Creating Midtrans transaction for ${orderId} amount ${grossAmount} enabled_payments=[${enabledPayments.join(',')}]`);
     try {
       const result = await this.snap.createTransaction(parameter);
       this.logger.log(`Midtrans transaction created: ${orderId}`);
