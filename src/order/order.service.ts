@@ -401,9 +401,36 @@ export class OrderService {
         'Hanya pesanan PENDING yang bisa dibayar ulang',
       );
 
+    // ⭐ Cek apakah pesanan sudah melewati batas waktu pembayaran (24 jam)
+    const expiryHours = parseInt(process.env.AUTO_CANCEL_PENDING_HOURS || '24', 10);
+    const orderAge = Date.now() - new Date(order.created_at).getTime();
+    const isExpired = orderAge > expiryHours * 60 * 60 * 1000;
+
+    if (isExpired) {
+      // Auto-cancel pesanan yang sudah expired daripada membiarkan error Midtrans
+      await this.orderRepo.update(order.id, {
+        status: 'BATAL',
+        cancelled_at: new Date(),
+        cancel_reason: 'EXPIRED_AUTO_CANCEL',
+        cancel_reason_detail: `Pesanan dibatalkan otomatis karena tidak dibayar dalam ${expiryHours} jam`,
+      } as any);
+      await this.orderHistoryRepo.save({
+        order_id: order.id,
+        actor: 'SYSTEM',
+        action: 'AUTO_CANCELLED',
+        description: `Pesanan dibatalkan otomatis saat retry payment (tidak dibayar dalam ${expiryHours} jam)`,
+        metadata: { before_status: 'PENDING', after_status: 'BATAL', expiry_hours: expiryHours },
+      });
+      throw new BadRequestException(
+        `Batas waktu pembayaran telah habis (${expiryHours} jam). Pesanan telah dibatalkan otomatis. Silakan buat pesanan baru.`,
+      );
+    }
+
     const timestampSuffix = Date.now().toString().slice(-6);
     const midtransOrderId = `${order.invoice_number}-R${timestampSuffix}`;
 
+    // ⭐ Gunakan new Date() sebagai start_time, bukan order.created_at
+    // Ini memastikan expiry Midtrans selalu di masa depan (24 jam dari sekarang)
     const tx = await this.paymentService.createTransaction(
       midtransOrderId,
       Math.round(Number(order.total_price)),
@@ -412,7 +439,7 @@ export class OrderService {
         email: order.user?.email || '',
         phone: order.user?.phone_number || '',
       },
-      order.created_at,
+      new Date(),
     );
     order.payment_token = tx.token;
     (order as any).payment_redirect_url = tx.redirect_url;
