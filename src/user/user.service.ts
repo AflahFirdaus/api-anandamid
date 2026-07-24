@@ -11,9 +11,9 @@ import { UserAddress } from './entities/user-address.entity';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { OAuth2Client } from 'google-auth-library';
-import { Resend } from 'resend';
 import * as crypto from 'crypto';
 import { NotificationService } from '../notification/notification.service';
+import { EmailService } from '../notification/email.service';
 import { Voucher, VoucherType } from '../voucher/entities/voucher.entity';
 import { WhatsappService } from '../notification/whatsapp.service';
 import { RegisterDto } from './dto/register.dto';
@@ -22,7 +22,6 @@ import { GoogleRegisterPhoneDto } from './dto/google-register-phone.dto';
 @Injectable()
 export class UserService {
   private googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
-  private resend = new Resend(process.env.RESEND_API_KEY);
 
   constructor(
     @InjectRepository(User)
@@ -34,6 +33,7 @@ export class UserService {
     private jwtService: JwtService,
     private readonly notificationService: NotificationService,
     private readonly whatsappService: WhatsappService,
+    private readonly emailService: EmailService,
   ) {}
 
   // ================= REGISTER =================
@@ -851,8 +851,7 @@ export class UserService {
     const frontendUrl = process.env.FRONTEND_URL;
     const resetLink = `${frontendUrl}/reset-password?token=${token}`;
 
-    await this.resend.emails.send({
-      from: 'Anandam Computer <no-reply@anandam.id>',
+    await this.emailService.send({
       to: email,
       subject: 'Reset Password Akun Anandam',
       html: `
