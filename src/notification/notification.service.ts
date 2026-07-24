@@ -2,10 +2,10 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
-import { Resend } from 'resend';
 import { Notification, NotificationType } from './entities/notification.entity';
 import { NotificationGateway } from './notification.gateway';
 import { User } from '../user/entities/user.entity';
+import { EmailService } from './email.service';
 
 // ── Copy template pesan ala Shopee/Gojek ──────────────────────────────────
 
@@ -80,10 +80,22 @@ function getOrderNotifTemplate(
 // ── Email HTML template ────────────────────────────────────────────────────
 
 /**
- * Status order yang memicu pengiriman email notifikasi.
- * Hanya 4 event penting, sisanya hanya push WebSocket.
+ * Semua status order akan memicu pengiriman email notifikasi.
+ * Setiap perubahan status dari dibuat sampai selesai akan dikirim email.
  */
-const EMAIL_TRIGGER_STATUSES = new Set(['PENDING', 'SIAP', 'CANCELLED', 'REFUNDING', 'SELESAI']);
+const EMAIL_TRIGGER_STATUSES = new Set([
+  'PENDING',
+  'LUNAS',
+  'DIKEMAS',
+  'SIAP',
+  'DIKIRIM',
+  'SELESAI',
+  'BATAL',
+  'CANCELLED',
+  'CANCEL_REQUESTED',
+  'REFUNDING',
+  'REFUND_FAILED',
+]);
 
 interface EmailTemplateData {
   userName: string;
@@ -99,9 +111,16 @@ function buildEmailHtml(data: EmailTemplateData): string {
 
   const statusColorMap: Record<string, { bg: string; text: string; label: string }> = {
     PENDING: { bg: '#FFF7ED', text: '#C2410C', label: 'Menunggu Pembayaran' },
-    CANCELLED: { bg: '#FEF2F2', text: '#B91C1C', label: 'Dibatalkan' },
-    REFUNDING: { bg: '#EFF6FF', text: '#1D4ED8', label: 'Refund Diproses' },
+    LUNAS: { bg: '#F0FDF4', text: '#15803D', label: 'Pembayaran Berhasil' },
+    DIKEMAS: { bg: '#EFF6FF', text: '#1D4ED8', label: 'Sedang Dikemas' },
+    SIAP: { bg: '#F0FDF4', text: '#15803D', label: 'Siap Diambil' },
+    DIKIRIM: { bg: '#F0FDF4', text: '#15803D', label: 'Sedang Dikirim' },
     SELESAI: { bg: '#F0FDF4', text: '#15803D', label: 'Pesanan Selesai' },
+    BATAL: { bg: '#FEF2F2', text: '#B91C1C', label: 'Dibatalkan' },
+    CANCELLED: { bg: '#FEF2F2', text: '#B91C1C', label: 'Dibatalkan' },
+    CANCEL_REQUESTED: { bg: '#FFF7ED', text: '#C2410C', label: 'Menunggu Pembatalan' },
+    REFUNDING: { bg: '#EFF6FF', text: '#1D4ED8', label: 'Refund Diproses' },
+    REFUND_FAILED: { bg: '#FEF2F2', text: '#B91C1C', label: 'Refund Gagal' },
   };
 
   const badge = statusColorMap[status] ?? {
@@ -200,8 +219,6 @@ function buildEmailHtml(data: EmailTemplateData): string {
 @Injectable()
 export class NotificationService {
   private readonly logger = new Logger(NotificationService.name);
-  private readonly resend: Resend;
-  private readonly fromEmail: string;
   private readonly frontendUrl: string;
 
   constructor(
@@ -211,17 +228,13 @@ export class NotificationService {
     private readonly userRepo: Repository<User>,
     private readonly gateway: NotificationGateway,
     private readonly configService: ConfigService,
+    private readonly emailService: EmailService,
   ) {
-    const apiKey = this.configService.get<string>('RESEND_API_KEY') ?? '';
-    this.resend = new Resend(apiKey);
-    this.fromEmail =
-      this.configService.get<string>('RESEND_FROM_EMAIL') ?? 'noreply@anandam.id';
     this.frontendUrl =
       this.configService.get<string>('FRONTEND_URL') ?? 'https://anandam.id';
 
-    // Log config saat startup — untuk verifikasi env terbaca dengan benar
     this.logger.log(
-      `[EMAIL] Config loaded → from=${this.fromEmail} apiKey=${apiKey ? apiKey.slice(0, 10) + '...' : 'MISSING!'} frontend=${this.frontendUrl}`,
+      `[EMAIL] NotificationService initialized → frontend=${this.frontendUrl}`,
     );
   }
 
@@ -259,12 +272,10 @@ export class NotificationService {
   // ── Email: kirim dengan retry maksimal 2 percobaan ────────────────────────
 
   /**
-   * Mengirim email via Resend dengan maksimal 2 percobaan.
+   * Mengirim email via SMTP sendiri (EmailService) dengan maksimal 2 percobaan.
    * - Percobaan 1: langsung kirim
    * - Jika gagal, percobaan 2 (terakhir): kirim sekali lagi
    * - Jika keduanya gagal: log warning, berhenti (tidak throw error)
-   *
-   * Dibatasi 2 percobaan untuk menghemat API quota Resend.
    */
   private async sendEmailWithRetry(
     to: string,
@@ -276,16 +287,14 @@ export class NotificationService {
 
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       try {
-        const { error } = await this.resend.emails.send({
-          from: `Anandam <${this.fromEmail}>`,
+        const { error } = await this.emailService.send({
           to,
           subject,
           html,
         });
 
         if (error) {
-          // Resend mengembalikan error object (bukan throw) saat request gagal
-          throw new Error(error.message ?? JSON.stringify(error));
+          throw new Error(error);
         }
 
         this.logger.log(
@@ -391,7 +400,7 @@ export class NotificationService {
   /**
    * Dipanggil setiap kali status pesanan berubah.
    * - Push WebSocket: semua status
-   * - Kirim email: hanya PENDING, CANCELLED, REFUNDING, SELESAI
+   * - Kirim email: SEMUA status (dari dibuat sampai selesai)
    *
    * order param: minimal butuh { id, invoice_number, user_id, courier_name? }
    */
@@ -417,9 +426,7 @@ export class NotificationService {
       status: newStatus,
     });
 
-    // 2. Kirim email hanya untuk 4 status penting (fire-and-forget)
-    // Note: .catch() di sini hanya sebagai safety net — error sesungguhnya
-    // sudah di-log di dalam dispatchOrderEmail itu sendiri
+    // 2. Kirim email untuk SEMUA perubahan status (fire-and-forget)
     if (EMAIL_TRIGGER_STATUSES.has(newStatus)) {
       this.dispatchOrderEmail(userId, order, newStatus).catch((err: any) => {
         this.logger.error(`[EMAIL] Unhandled dispatch error | userId=${userId} status=${newStatus} | ${err?.message}`);
