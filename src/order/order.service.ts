@@ -373,6 +373,11 @@ export class OrderService {
   }
 
   async findMyOrders(userId: string, page: number = 1, limit: number = 20) {
+    // ⭐ Batalkan dulu semua order PENDING yang sudah kedaluwarsa (>24 jam)
+    await this.autoCancelPendingOrders().catch((err) =>
+      this.logger.error(`Auto cancel error in findMyOrders: ${err.message}`),
+    );
+
     const skip = (page - 1) * limit;
     const [orders, total] = await this.orderRepo.findAndCount({
       where: { user_id: userId } as any,
@@ -1969,6 +1974,27 @@ export class OrderService {
       ],
     });
     if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
+
+    // ⭐ Jika pesanan PENDING dan usianya >24 jam, otomatis batalkan
+    if (order.status === 'PENDING') {
+      const expiryHours = parseInt(process.env.AUTO_CANCEL_PENDING_HOURS || '24', 10);
+      const orderAge = Date.now() - new Date(order.created_at).getTime();
+      if (orderAge > expiryHours * 60 * 60 * 1000) {
+        order.status = 'BATAL';
+        order.cancelled_at = new Date();
+        order.cancel_reason = 'EXPIRED_AUTO_CANCEL';
+        order.cancel_reason_detail = `Pesanan dibatalkan otomatis karena tidak dibayar dalam ${expiryHours} jam`;
+        await this.orderRepo.save(order);
+        await this.orderHistoryRepo.save({
+          order_id: order.id,
+          actor: 'SYSTEM',
+          action: 'AUTO_CANCELLED',
+          description: `Pesanan dibatalkan otomatis saat diakses (tidak dibayar dalam ${expiryHours} jam)`,
+          metadata: { before_status: 'PENDING', after_status: 'BATAL', expiry_hours: expiryHours },
+        });
+      }
+    }
+
     return order;
   }
 
