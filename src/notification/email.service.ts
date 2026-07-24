@@ -42,10 +42,10 @@ export class EmailService {
         user,
         pass,
       },
-      // Timeout 10 detik untuk koneksi
-      connectionTimeout: 10000,
-      greetingTimeout: 10000,
-      socketTimeout: 15000,
+      // Timeout 30 detik untuk koneksi (server mail kadang lambat)
+      connectionTimeout: 30000,
+      greetingTimeout: 30000,
+      socketTimeout: 45000,
     });
 
     this.logger.log(
