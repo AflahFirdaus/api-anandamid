@@ -10,6 +10,7 @@ import {
   UploadedFile,
   Headers,
   UnauthorizedException,
+  BadRequestException,
 } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { diskStorage } from "multer";
@@ -20,7 +21,20 @@ import { CreateMessageDto } from "./dto/create-message.dto";
 import { ChatGateway } from "./chat.gateway";
 import { JwtService } from "@nestjs/jwt";
 
-// Konfigurasi upload selaras dengan contoh Anda
+// Hanya izinkan JPG, PNG, PDF
+const ALLOWED_MIMETYPES = ['image/jpeg', 'image/png', 'application/pdf'];
+const ALLOWED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.pdf'];
+
+// Filter file untuk multer
+const fileFilter = (req: any, file: Express.Multer.File, cb: (error: any, accept: boolean) => void) => {
+  const ext = extname(file.originalname).toLowerCase();
+  if (!ALLOWED_MIMETYPES.includes(file.mimetype) && !ALLOWED_EXTENSIONS.includes(ext)) {
+    return cb(new BadRequestException('Hanya file JPG, PNG, dan PDF yang diperbolehkan'), false);
+  }
+  cb(null, true);
+};
+
+// Konfigurasi upload
 const chatMediaStorage = diskStorage({
   destination: "./uploads/chat-media",
   filename: (req, file, cb) => {
@@ -33,6 +47,13 @@ const chatMediaStorage = diskStorage({
     cb(null, uniqueName);
   },
 });
+
+// Multer options dengan filter
+const chatMediaUpload = {
+  storage: chatMediaStorage,
+  fileFilter,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+};
 
 @Controller("chat")
 export class ChatController {
@@ -85,7 +106,7 @@ export class ChatController {
 
   // 🔥 Fungsi sendMessage HANYA SATU dan sudah dilengkapi Gateway
   @Post("message")
-  @UseInterceptors(FileInterceptor("media", { storage: chatMediaStorage }))
+  @UseInterceptors(FileInterceptor("media", chatMediaUpload))
   async sendMessage(
     @Body() dto: CreateMessageDto,
     @UploadedFile() file?: Express.Multer.File
