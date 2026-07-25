@@ -81,8 +81,17 @@ export class ChatService {
       throw new NotFoundException("Chat room not found");
     }
 
-    // 🔥 PERBAIKAN DI SINI: Gunakan || "" agar dipaksa menjadi string murni
-    const finalContent = mediaUrl || dto.content || "";
+    // 🔥 Untuk IMAGE type: simpan caption di content + image URL menggunakan separator khusus
+    let finalContent: string;
+    const isImageMsg = dto.message_type === ChatMessageType.IMAGE;
+    
+    if (isImageMsg && mediaUrl) {
+      // Format: image_url\n---\ncaption (caption optional)
+      const caption = dto.content || '';
+      finalContent = caption ? `${mediaUrl}\n---\n${caption}` : mediaUrl;
+    } else {
+      finalContent = mediaUrl || dto.content || "";
+    }
     
     // Opsional: Validasi untuk mencegah pesan kosong masuk ke database
     if (!finalContent) {
