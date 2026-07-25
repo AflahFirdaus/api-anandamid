@@ -970,6 +970,9 @@ export class OrderService {
           order.refund_response = { info: 'Transaction not found in Midtrans, cancelled directly' } as any;
           await queryRunner.manager.save(Order, order);
 
+          // Restore stock
+          await this.restockItemsAndRecordHistory(queryRunner, order.id, operationId);
+
           await this.saveOrderHistory(
             queryRunner,
             order.id,
@@ -1330,12 +1333,19 @@ export class OrderService {
         await this.deductStock(orderId);
       }
       
+      const DEDUCTED_STATUSES = [
+        'LUNAS',
+        'DIKEMAS',
+        'SIAP',
+        'DIKIRIM',
+        'SELESAI',
+        'CANCEL_REQUESTED',
+        'REFUNDING',
+        'REFUND_FAILED',
+      ];
       if (
-        (order.status === 'LUNAS' && dto.status === 'BATAL') ||
-        (['REFUNDING', 'REFUND_FAILED', 'CANCEL_REQUESTED', 'LUNAS'].includes(
-          order.status,
-        ) &&
-          ((dto.status as string) === 'CANCELLED' || dto.status === 'BATAL'))
+        DEDUCTED_STATUSES.includes(order.status) &&
+        ((dto.status as string) === 'BATAL' || (dto.status as string) === 'CANCELLED')
       ) {
         await this.restoreStock(orderId);
       }

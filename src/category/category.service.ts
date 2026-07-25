@@ -54,14 +54,14 @@ export class CategoryService {
         'category.image_url AS image_url',
         'grouping.id AS grouping_id',
         'grouping.name AS grouping_name',
-        'COUNT(product.id) AS total_products'
+        'COUNT(product.id) AS total_products',
       ])
       .groupBy('category.id')
       .addGroupBy('grouping.id')
       .orderBy('category.name', 'ASC')
       .getRawMany();
 
-    return categories.map(cat => ({
+    return categories.map((cat) => ({
       id: cat.id,
       name: cat.name,
       code: cat.code,
@@ -75,8 +75,7 @@ export class CategoryService {
   async findOneCategory(id: string) {
     const category = await this.categoryRepository.findOne({
       where: { id },
-      // 🔥 Tambahkan relasi products.variants agar harganya terbaca
-      relations: ['products', 'products.variants', 'grouping'], 
+      relations: ['products', 'products.variants', 'grouping'],
     });
 
     if (!category) throw new NotFoundException('Category not found');
@@ -93,22 +92,21 @@ export class CategoryService {
           }
         : null,
       total_products: category.products?.length || 0,
-      products: category.products?.map((p) => {
-        // 🔥 Ambil variasi default (index 0) untuk perhitungan harga
-        const defaultVariant = p.variants && p.variants.length > 0 
-          ? p.variants[0] 
-          : null;
+      products:
+        category.products?.map((p) => {
+          const defaultVariant =
+            p.variants && p.variants.length > 0 ? p.variants[0] : null;
 
-        const finalPrice =
-          Number(defaultVariant?.price_normal || 0) -
-          Number(defaultVariant?.price_discount || 0);
+          const finalPrice =
+            Number(defaultVariant?.price_normal || 0) -
+            Number(defaultVariant?.price_discount || 0);
 
-        return {
-          id: p.id,
-          name: p.name,
-          final_price: finalPrice, 
-        };
-      }) || [],
+          return {
+            id: p.id,
+            name: p.name,
+            final_price: finalPrice,
+          };
+        }) || [],
     };
   }
 
@@ -131,6 +129,7 @@ export class CategoryService {
 
   async deleteCategory(id: string): Promise<void> {
     const result = await this.categoryRepository.delete(id);
-    if (result.affected === 0) throw new NotFoundException('Category not found');
+    if (result.affected === 0)
+      throw new NotFoundException('Category not found');
   }
 }
