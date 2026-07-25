@@ -57,6 +57,21 @@ export class ProductImportService {
     };
   }
 
+  // Helper untuk membaca nilai numerik fisik (berat/dimensi) dari row Excel dengan support alias key
+  private extractNumber(row: any, keys: string[]): number | null {
+    if (!row) return null;
+    for (const key of keys) {
+      if (row[key] !== undefined && row[key] !== null && row[key] !== '') {
+        const valStr = String(row[key]).trim();
+        if (valStr !== '' && valStr.toLowerCase() !== 'nan') {
+          const num = Number(valStr);
+          if (!isNaN(num)) return num;
+        }
+      }
+    }
+    return null;
+  }
+
   // ==========================
   // GENERATE TEMPLATE UPLOAD
   // ==========================
@@ -342,16 +357,27 @@ export class ProductImportService {
         if (productBrand) product.brand = productBrand;
 
         // 🔥 Set product-level weight/dimensions dari mainRow (diambil dari baris pertama)
-        product.weight = Number(mainRow.weight_gram) || 0;
-        product.length = Number(mainRow.panjang_cm) || 0;
-        product.width = Number(mainRow.lebar_cm) || 0;
-        product.height = Number(mainRow.tinggi_cm) || 0;
+        const mainWeight = this.extractNumber(mainRow, ['weight_gram', 'weight', 'berat', 'berat_gram']) || 0;
+        const mainLength = this.extractNumber(mainRow, ['panjang_cm', 'panjang', 'length']) || 0;
+        const mainWidth = this.extractNumber(mainRow, ['lebar_cm', 'lebar', 'width']) || 0;
+        const mainHeight = this.extractNumber(mainRow, ['tinggi_cm', 'tinggi', 'height']) || 0;
+
+        product.weight = mainWeight;
+        product.length = mainLength;
+        product.width = mainWidth;
+        product.height = mainHeight;
 
         product.variants = variantsRows.map((vRow, vIndex) => {
           if (!vRow.sku_seller)
             throw new BadRequestException(
               `SKU seller wajib diisi (Baris Variasi ke-${vIndex + 1})`,
             );
+
+          const vWeight = this.extractNumber(vRow, ['weight_gram', 'weight', 'berat', 'berat_gram']);
+          const vLength = this.extractNumber(vRow, ['panjang_cm', 'panjang', 'length']);
+          const vWidth = this.extractNumber(vRow, ['lebar_cm', 'lebar', 'width']);
+          const vHeight = this.extractNumber(vRow, ['tinggi_cm', 'tinggi', 'height']);
+
           return Object.assign(new ProductVariant(), {
             variant_name: vRow.variant_name
               ? String(vRow.variant_name).trim()
@@ -360,10 +386,10 @@ export class ProductImportService {
             price_discount: Number(vRow.price_discount) || 0,
             stock: Number(vRow.stock) || 0,
             sku_seller: String(vRow.sku_seller).trim(),
-            weight: Number(vRow.weight_gram) || 0,
-            length: Number(vRow.panjang_cm) || 0,
-            width: Number(vRow.lebar_cm) || 0,
-            height: Number(vRow.tinggi_cm) || 0,
+            weight: (vWeight !== null && vWeight > 0) ? vWeight : mainWeight,
+            length: (vLength !== null && vLength > 0) ? vLength : mainLength,
+            width: (vWidth !== null && vWidth > 0) ? vWidth : mainWidth,
+            height: (vHeight !== null && vHeight > 0) ? vHeight : mainHeight,
           });
         });
 
@@ -563,6 +589,11 @@ export class ProductImportService {
 
       variants.forEach((variant, index) => {
         const isFirst = index === 0;
+        const vWeight = (variant.weight || 0) > 0 ? variant.weight : (product.weight || 0);
+        const vLength = (variant.length || 0) > 0 ? variant.length : (product.length || 0);
+        const vWidth = (variant.width || 0) > 0 ? variant.width : (product.width || 0);
+        const vHeight = (variant.height || 0) > 0 ? variant.height : (product.height || 0);
+
         const rowData = [
           product.id,
           variant.id || '',
@@ -578,10 +609,10 @@ export class ProductImportService {
           isFirst ? product.brand?.name || '' : '',
           isFirst ? product.category?.name : '',
           isFirst ? product.category?.code : '',
-          (variant.weight || 0) > 0 ? variant.weight || 0 : '',
-          (variant.length || 0) > 0 ? variant.length || 0 : '',
-          (variant.width || 0) > 0 ? variant.width || 0 : '',
-          (variant.height || 0) > 0 ? variant.height || 0 : '',
+          vWeight > 0 ? vWeight : '',
+          vLength > 0 ? vLength : '',
+          vWidth > 0 ? vWidth : '',
+          vHeight > 0 ? vHeight : '',
         ];
 
         if (includeHardwareCols)
@@ -793,13 +824,15 @@ export class ProductImportService {
             mainRow.is_popular === true || mainRow.is_popular === 'true';
 
         // 🔥 Update product-level weight/dimensions dari baris pertama (mainRow)
-        if (mainRow.weight_gram !== '')
-          product.weight = Number(mainRow.weight_gram);
-        if (mainRow.panjang_cm !== '')
-          product.length = Number(mainRow.panjang_cm);
-        if (mainRow.lebar_cm !== '') product.width = Number(mainRow.lebar_cm);
-        if (mainRow.tinggi_cm !== '')
-          product.height = Number(mainRow.tinggi_cm);
+        const pWeight = this.extractNumber(mainRow, ['weight_gram', 'weight', 'berat', 'berat_gram']);
+        const pLength = this.extractNumber(mainRow, ['panjang_cm', 'panjang', 'length']);
+        const pWidth = this.extractNumber(mainRow, ['lebar_cm', 'lebar', 'width']);
+        const pHeight = this.extractNumber(mainRow, ['tinggi_cm', 'tinggi', 'height']);
+
+        if (pWeight !== null && pWeight > 0) product.weight = pWeight;
+        if (pLength !== null && pLength > 0) product.length = pLength;
+        if (pWidth !== null && pWidth > 0) product.width = pWidth;
+        if (pHeight !== null && pHeight > 0) product.height = pHeight;
 
         const currentVariantsMap = new Map(
           product.variants.map((v) => [v.id, v]),
@@ -822,13 +855,16 @@ export class ProductImportService {
           if (vRow.stock !== '') variantData.stock = Number(vRow.stock);
           if (vRow.sku_seller !== '')
             variantData.sku_seller = String(vRow.sku_seller).trim();
-          if (vRow.weight_gram !== '')
-            variantData.weight = Number(vRow.weight_gram);
-          if (vRow.panjang_cm !== '')
-            variantData.length = Number(vRow.panjang_cm);
-          if (vRow.lebar_cm !== '') variantData.width = Number(vRow.lebar_cm);
-          if (vRow.tinggi_cm !== '')
-            variantData.height = Number(vRow.tinggi_cm);
+
+          const vWeight = this.extractNumber(vRow, ['weight_gram', 'weight', 'berat', 'berat_gram']);
+          const vLength = this.extractNumber(vRow, ['panjang_cm', 'panjang', 'length']);
+          const vWidth = this.extractNumber(vRow, ['lebar_cm', 'lebar', 'width']);
+          const vHeight = this.extractNumber(vRow, ['tinggi_cm', 'tinggi', 'height']);
+
+          variantData.weight = (vWeight !== null && vWeight > 0) ? vWeight : product.weight;
+          variantData.length = (vLength !== null && vLength > 0) ? vLength : product.length;
+          variantData.width = (vWidth !== null && vWidth > 0) ? vWidth : product.width;
+          variantData.height = (vHeight !== null && vHeight > 0) ? vHeight : product.height;
 
           updatedVariants.push(variantData);
         }
