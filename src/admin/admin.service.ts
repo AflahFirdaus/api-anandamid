@@ -19,9 +19,13 @@ export class AdminService implements OnModuleInit {
 
   // 1. Tambahkan Method untuk simpan hash Refresh Token
   async updateRefreshToken(id: string, hashedRT: string | null) {
-    await this.repo.update(id, {
-      hashed_refresh_token: hashedRT,
-    });
+    try {
+      await this.repo.update(id, {
+        hashed_refresh_token: hashedRT,
+      });
+    } catch (err) {
+      this.logger.error('Gagal update refresh token di database:', err);
+    }
   }
 
   async findByIdWithRT(id: string): Promise<Admin | null> {

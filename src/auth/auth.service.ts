@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException, Logger } from '@nestjs/common';
+import { Injectable, UnauthorizedException, InternalServerErrorException, Logger } from '@nestjs/common';
 import { AdminService } from '../admin/admin.service';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
@@ -15,41 +15,51 @@ export class AuthService {
   ) {}
 
   async login(username: string, password: string, ip?: string, userAgent?: string) {
-    const admin = await this.adminService.findByUsername(username);
-
-    if (!admin || !(await bcrypt.compare(password, admin.password))) {
-      throw new UnauthorizedException('Invalid credentials');
-    }
-
-    const payload = { sub: admin.id, username: admin.username, role: 'ADMIN' };
-
-    const accessToken = this.jwtService.sign(payload, {
-      expiresIn: '15m', 
-    });
-
-    const refreshToken = this.jwtService.sign(payload, {
-      expiresIn: '7d',
-    });
-
-    const hashedRT = await bcrypt.hash(refreshToken, 10);
-    await this.adminService.updateRefreshToken(admin.id, hashedRT);
-
     try {
-      await this.adminLogService.logLogin(admin.id, ip, userAgent);
-    } catch (error) {
-      this.logger.error(`Gagal mencatat log login untuk admin ${admin.id}`, error);
-    }
+      const admin = await this.adminService.findByUsername(username);
 
-    return {
-      access_token: accessToken,
-      refresh_token: refreshToken,
-      expires_in: 900,
-      user: {
-        id: admin.id,
-        username: admin.username,
-        role: 'admin',
-      },
-    };
+      if (!admin || !admin.password || !(await bcrypt.compare(password, admin.password))) {
+        throw new UnauthorizedException('Invalid credentials');
+      }
+
+      const payload = { sub: admin.id, username: admin.username, role: 'ADMIN' };
+
+      const accessToken = this.jwtService.sign(payload, {
+        expiresIn: '15m', 
+      });
+
+      const refreshToken = this.jwtService.sign(payload, {
+        expiresIn: '7d',
+      });
+
+      const hashedRT = await bcrypt.hash(refreshToken, 10);
+      await this.adminService.updateRefreshToken(admin.id, hashedRT);
+
+      try {
+        await this.adminLogService.logLogin(admin.id, ip, userAgent);
+      } catch (error) {
+        this.logger.error(`Gagal mencatat log login untuk admin ${admin.id}`, error);
+      }
+
+      return {
+        access_token: accessToken,
+        refresh_token: refreshToken,
+        expires_in: 900,
+        user: {
+          id: admin.id,
+          username: admin.username,
+          role: 'admin',
+        },
+      };
+    } catch (err: any) {
+      if (err instanceof UnauthorizedException) {
+        throw err;
+      }
+      this.logger.error('ERROR SAAT LOGIN ADMIN:', err);
+      throw new InternalServerErrorException(
+        err.message || 'Terjadi kesalahan internal server saat login'
+      );
+    }
   }
 
   async refresh(refreshToken: string) {
