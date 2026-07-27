@@ -11,7 +11,7 @@ export class AuthController {
   private readonly COOKIE_OPTIONS = {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
-    sameSite: 'strict' as const,
+    sameSite: (process.env.NODE_ENV === 'production' ? 'none' : 'lax') as const,
     path: '/',
   };
 
@@ -40,7 +40,7 @@ export class AuthController {
     res.cookie('refresh_token', result.refresh_token, {
       ...this.COOKIE_OPTIONS,
       maxAge: this.REFRESH_TOKEN_MAX_AGE,
-      path: '/api/v1/auth/refresh',
+      path: '/',
     });
 
     return {
@@ -72,7 +72,7 @@ export class AuthController {
     res.cookie('refresh_token', result.refresh_token, {
       ...this.COOKIE_OPTIONS,
       maxAge: this.REFRESH_TOKEN_MAX_AGE,
-      path: '/api/v1/auth/refresh',
+      path: '/',
     });
 
     return {
@@ -96,7 +96,7 @@ export class AuthController {
     });
     res.clearCookie('refresh_token', {
       ...this.COOKIE_OPTIONS,
-      path: '/api/v1/auth/refresh',
+      path: '/',
     });
 
     return { message: 'Logged out successfully' };

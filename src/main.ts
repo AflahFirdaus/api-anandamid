@@ -34,20 +34,31 @@ async function bootstrap() {
   app.use(cookieParser());
 
   // CORS
+  const allowedOrigins = [
+    'http://localhost:5173',
+    'http://localhost:5174',
+    'http://192.168.1.178:5173',
+    'http://192.168.1.178:5174',
+    'https://staging.anandam.id',
+    'https://admin.anandam.id',
+    'https://admin-staging.anandam.id',
+    'https://anandam.id',
+    'https://fe-ecommerce-anandam-id.pages.dev',
+  ];
+
   app.enableCors({
-    origin: isProduction
-      ? [
-          'https://staging.anandam.id',
-          'https://anandam.id',
-          'https://fe-ecommerce-anandam-id.pages.dev',
-        ]
-      : [
-          'http://localhost:5173',
-          'http://192.168.1.178:5173',
-          'https://staging.anandam.id',
-          'https://anandam.id',
-          'https://fe-ecommerce-anandam-id.pages.dev',
-        ],
+    origin: (origin, callback) => {
+      if (
+        !origin ||
+        allowedOrigins.includes(origin) ||
+        origin.endsWith('.anandam.id') ||
+        origin.endsWith('.anandamcomputer.com')
+      ) {
+        callback(null, true);
+      } else {
+        callback(null, true); // Fallback allow for development flexibility
+      }
+    },
     credentials: true,
   });
 
