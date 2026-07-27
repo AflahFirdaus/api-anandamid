@@ -12,7 +12,7 @@ export class AuthController {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'strict' as const,
-    path: '/api/v1/auth',
+    path: '/',
   };
 
   private readonly ACCESS_TOKEN_MAX_AGE = 15 * 60 * 1000; // 15 menit
@@ -44,6 +44,8 @@ export class AuthController {
     });
 
     return {
+      access_token: result.access_token,
+      refresh_token: result.refresh_token,
       expires_in: result.expires_in,
       user: result.user,
     };
@@ -73,7 +75,11 @@ export class AuthController {
       path: '/api/v1/auth/refresh',
     });
 
-    return { expires_in: result.expires_in };
+    return {
+      access_token: result.access_token,
+      refresh_token: result.refresh_token,
+      expires_in: result.expires_in,
+    };
   }
 
   @UseGuards(JwtAuthGuard)
