@@ -8,10 +8,15 @@ import { ThrottleFeature, ThrottlerFeature } from '../common/throttler';
 export class AuthController {
   constructor(private authService: AuthService) {}
 
-  private readonly COOKIE_OPTIONS = {
+  private readonly COOKIE_OPTIONS: {
+    httpOnly: boolean;
+    secure: boolean;
+    sameSite: 'none' | 'lax';
+    path: string;
+  } = {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
-    sameSite: (process.env.NODE_ENV === 'production' ? 'none' : 'lax') as const,
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
     path: '/',
   };
 
