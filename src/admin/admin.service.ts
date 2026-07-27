@@ -1,4 +1,4 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Admin } from './admin.entity/admin.entity';
 import { Repository } from 'typeorm';
@@ -6,6 +6,8 @@ import * as bcrypt from 'bcrypt';
 
 @Injectable()
 export class AdminService implements OnModuleInit {
+  private readonly logger = new Logger(AdminService.name);
+
   constructor(
     @InjectRepository(Admin)
     private repo: Repository<Admin>,
@@ -31,8 +33,15 @@ export class AdminService implements OnModuleInit {
 
   // AUTO SEED
   async onModuleInit() {
-    const username = 'admin';
-    const password = '4nandam1D!';
+    const username = process.env.ADMIN_SEED_USERNAME || 'admin';
+    const password = process.env.ADMIN_SEED_PASSWORD;
+
+    if (!password) {
+      this.logger.warn(
+        'ADMIN_SEED_PASSWORD belum diset di .env — auto-seed admin dilewati.',
+      );
+      return;
+    }
 
     const existingAdmin = await this.findByUsername(username);
 
@@ -43,6 +52,10 @@ export class AdminService implements OnModuleInit {
         username,
         password: hash,
       });
+
+      this.logger.log(
+        `Admin default "${username}" berhasil di-seed.`,
+      );
     }
   }
 }

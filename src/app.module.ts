@@ -5,6 +5,7 @@ import { ProductModule } from './product/product.module';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { TypeOrmConfig } from './config/database.config';
+import { CacheModule } from '@nestjs/cache-manager';
 import { CategoryModule } from './category/category.module';
 import { ProductImageModule } from './product-image/product-image.module';
 import { AuthModule } from './auth/auth.module';
@@ -15,12 +16,9 @@ import { BannerImageModule } from './banner/banner.module';
 import { CertificateModule } from './certificate/certificate.module';
 import { GroupingModule } from './grouping/grouping.module';
 import { BrandModule } from './brand/brand.module';
-import { ImageDownloadController } from './image-download/image-download.controller';
-import { ImageDownloadService } from './image-download/image-download.service';
 import { ImageDownloadModule } from './image-download/image-download.module';
 import { ContactModule } from './contact/contact.module';
 import { TiktokModule } from './tiktok/tiktok.module';
-import { UserService } from './user/user.service';
 import { UserModule } from './user/user.module';
 import { CartModule } from './cart/cart.module';
 import { OrderModule } from './order/order.module';
@@ -42,6 +40,8 @@ import { TaxInvoiceModule } from './tax-invoice/tax-invoice.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    // ⚡ In-memory cache — upgrade ke Redis untuk production multi-instance
+    CacheModule.register({ isGlobal: true, ttl: 300_000 }), // default TTL 5 menit
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

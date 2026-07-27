@@ -3,6 +3,7 @@ import {
   ConflictException,
   UnauthorizedException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -21,6 +22,7 @@ import { GoogleRegisterPhoneDto } from './dto/google-register-phone.dto';
 
 @Injectable()
 export class UserService {
+  private readonly logger = new Logger(UserService.name);
   private googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
   constructor(
@@ -590,7 +592,7 @@ export class UserService {
         addresses: user.addresses || [],
       };
     } catch (error) {
-      console.error('Error Detail di Profile:', error);
+      this.logger.error('Error Detail di Profile:', error);
       throw error;
     }
   }
@@ -621,7 +623,7 @@ export class UserService {
         gender: user.gender,
       };
     } catch (error) {
-      console.error('Gagal Update Profile:', error);
+      this.logger.error('Gagal Update Profile:', error);
       throw error;
     }
   }

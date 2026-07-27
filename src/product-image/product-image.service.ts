@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ProductImage } from './entities/product-image.entity';
@@ -11,6 +11,8 @@ import sharp from 'sharp';
 
 @Injectable()
 export class ProductImageService {
+  private readonly logger = new Logger(ProductImageService.name);
+
   constructor(
     @InjectRepository(ProductImage)
     private readonly repo: Repository<ProductImage>,
@@ -43,7 +45,7 @@ export class ProductImageService {
         fs.unlinkSync(fullPath);
       }
     } catch (err) {
-      console.error("Failed deleting file:", filePath);
+      this.logger.error("Failed deleting file:", filePath);
     }
   }
 
