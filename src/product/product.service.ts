@@ -929,6 +929,14 @@ export class ProductService {
       }
     }
 
+    // Hapus inventory histories terlebih dahulu untuk menghindari FK constraint violation
+    if (products.length > 0) {
+      await this.productRepository.manager.query(
+        `DELETE FROM inventory_histories WHERE product_id = ANY($1)`,
+        [ids],
+      );
+    }
+
     await this.productRepository.delete(ids);
   }
 
