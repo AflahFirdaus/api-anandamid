@@ -129,6 +129,10 @@ export class UpdateProductDto {
   ram_type?: string;
 
   @IsOptional()
+  @IsString()
+  download_url?: string;
+
+  @IsOptional()
   brand_id?: string;
 
   @IsOptional()

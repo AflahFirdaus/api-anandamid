@@ -9,7 +9,7 @@ import {
   Min,
   IsArray,
   ValidateNested,
-} from "class-validator";
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
 class CreateVariantItemDto {
@@ -56,7 +56,6 @@ class CreateVariantItemDto {
 }
 
 export class CreateProductDto {
-
   @IsNotEmpty()
   @IsUUID()
   category_id: string;
@@ -76,7 +75,7 @@ export class CreateProductDto {
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
-  price_normal?: number;  // ← jadi Optional karena kalau pakai variasi tidak perlu ini
+  price_normal?: number; // ← jadi Optional karena kalau pakai variasi tidak perlu ini
 
   @IsOptional()
   @Type(() => Number)
@@ -96,6 +95,10 @@ export class CreateProductDto {
   @IsOptional()
   @IsString()
   warranty?: string;
+
+  @IsOptional()
+  @IsString()
+  download_url?: string;
 
   @IsOptional()
   @IsBoolean()
