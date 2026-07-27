@@ -323,20 +323,23 @@ export class ProductService {
     const safePage = Number(page) < 1 ? 1 : Number(page);
 
     const duplicateTotalRaw = await this.productRepository.query(`
-      SELECT COUNT(DISTINCT product_id)
-      FROM product_variants
-      WHERE sku_seller IS NOT NULL
-      AND sku_seller <> ''
-      AND sku_seller <> 'NaN'
-      AND sku_seller IN (
-        SELECT sku_seller
-        FROM product_variants
-        WHERE sku_seller IS NOT NULL
-        AND sku_seller <> ''
-        AND sku_seller <> 'NaN'
-        GROUP BY sku_seller
-        HAVING COUNT(*) > 1
-      );
+      SELECT COUNT(DISTINCT p.id)
+      FROM products p
+      WHERE EXISTS (
+        SELECT 1
+        FROM product_variants pv
+        WHERE pv.product_id = p.id
+        AND pv.sku_seller IS NOT NULL
+        AND pv.sku_seller <> ''
+        AND pv.sku_seller <> 'NaN'
+        AND EXISTS (
+          SELECT 1
+          FROM product_variants pv2
+          WHERE pv2.sku_seller = pv.sku_seller
+          AND pv2.product_id != pv.product_id
+          LIMIT 1
+        )
+      )
     `);
 
     const duplicateTotal = Number(duplicateTotalRaw[0]?.count || 0);
@@ -510,20 +513,20 @@ export class ProductService {
     );
 
     // 🔥 Cek duplicate dari tabel product_variants
+    // Hanya flag sebagai duplicate jika SKU yang sama ada di PRODUK yang berbeda
+    // (bukan dalam variant produk yang sama)
     qb.addSelect(
       `
       CASE 
         WHEN variant.sku_seller IS NOT NULL
         AND variant.sku_seller <> ''
         AND variant.sku_seller <> 'NaN'
-        AND variant.sku_seller IN (
-          SELECT sku_seller
-          FROM product_variants
-          WHERE sku_seller IS NOT NULL
-          AND sku_seller <> ''
-          AND sku_seller <> 'NaN'
-          GROUP BY sku_seller
-          HAVING COUNT(*) > 1
+        AND EXISTS (
+          SELECT 1
+          FROM product_variants pv2
+          WHERE pv2.sku_seller = variant.sku_seller
+          AND pv2.product_id != product.id
+          LIMIT 1
         )
         THEN true
         ELSE false
@@ -554,18 +557,17 @@ export class ProductService {
 
     if (only_duplicate === 'true') {
       // 🔥 Filter duplicate cek dari variant
+      // Hanya flag sebagai duplicate jika SKU yang sama ada di PRODUK yang berbeda
       qb.andWhere(`
         variant.sku_seller IS NOT NULL
         AND variant.sku_seller <> ''
         AND variant.sku_seller <> 'NaN'
-        AND variant.sku_seller IN (
-          SELECT sku_seller
-          FROM product_variants
-          WHERE sku_seller IS NOT NULL
-          AND sku_seller <> ''
-          AND sku_seller <> 'NaN'
-          GROUP BY sku_seller
-          HAVING COUNT(*) > 1
+        AND EXISTS (
+          SELECT 1
+          FROM product_variants pv2
+          WHERE pv2.sku_seller = variant.sku_seller
+          AND pv2.product_id != product.id
+          LIMIT 1
         )
       `);
 
