@@ -8,17 +8,25 @@ import { ThrottleFeature, ThrottlerFeature } from '../common/throttler';
 export class AuthController {
   constructor(private authService: AuthService) {}
 
-  private readonly COOKIE_OPTIONS: {
+  private getCookieOptions(req?: Request): {
     httpOnly: boolean;
     secure: boolean;
     sameSite: 'none' | 'lax';
     path: string;
-  } = {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-    path: '/',
-  };
+  } {
+    const isHttpsOrProd =
+      process.env.NODE_ENV === 'production' ||
+      process.env.NODE_ENV === 'staging' ||
+      req?.secure ||
+      req?.headers['x-forwarded-proto'] === 'https';
+
+    return {
+      httpOnly: true,
+      secure: isHttpsOrProd,
+      sameSite: isHttpsOrProd ? 'none' : 'lax',
+      path: '/',
+    };
+  }
 
   private readonly ACCESS_TOKEN_MAX_AGE = 15 * 60 * 1000; // 15 menit
   private readonly REFRESH_TOKEN_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 hari
@@ -37,15 +45,16 @@ export class AuthController {
       req.headers['user-agent'],
     );
 
+    const cookieOpts = this.getCookieOptions(req);
+
     // Set httpOnly cookies
     res.cookie('access_token', result.access_token, {
-      ...this.COOKIE_OPTIONS,
+      ...cookieOpts,
       maxAge: this.ACCESS_TOKEN_MAX_AGE,
     });
     res.cookie('refresh_token', result.refresh_token, {
-      ...this.COOKIE_OPTIONS,
+      ...cookieOpts,
       maxAge: this.REFRESH_TOKEN_MAX_AGE,
-      path: '/',
     });
 
     return {
@@ -67,17 +76,18 @@ export class AuthController {
 
     const result = await this.authService.refresh(refreshToken);
 
+    const cookieOpts = this.getCookieOptions(req);
+
     // Update access_token cookie
     res.cookie('access_token', result.access_token, {
-      ...this.COOKIE_OPTIONS,
+      ...cookieOpts,
       maxAge: this.ACCESS_TOKEN_MAX_AGE,
     });
 
     // Kirim refresh_token baru
     res.cookie('refresh_token', result.refresh_token, {
-      ...this.COOKIE_OPTIONS,
+      ...cookieOpts,
       maxAge: this.REFRESH_TOKEN_MAX_AGE,
-      path: '/',
     });
 
     return {
@@ -95,14 +105,11 @@ export class AuthController {
   ) {
     await this.authService.logout(req.user!.id);
 
+    const cookieOpts = this.getCookieOptions(req);
+
     // Clear cookies
-    res.clearCookie('access_token', {
-      ...this.COOKIE_OPTIONS,
-    });
-    res.clearCookie('refresh_token', {
-      ...this.COOKIE_OPTIONS,
-      path: '/',
-    });
+    res.clearCookie('access_token', cookieOpts);
+    res.clearCookie('refresh_token', cookieOpts);
 
     return { message: 'Logged out successfully' };
   }
