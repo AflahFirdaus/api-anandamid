@@ -940,6 +940,51 @@ export class ProductService {
     await this.productRepository.delete(ids);
   }
 
+  async bulkDeleteOldDuplicates(): Promise<{ deletedCount: number }> {
+    // Cari semua variant yang memiliki sku_seller duplikat
+    const duplicateSkus = await this.productVariantRepository
+      .createQueryBuilder('variant')
+      .select('variant.sku_seller')
+      .where('variant.sku_seller IS NOT NULL')
+      .andWhere("variant.sku_seller != ''")
+      .andWhere("variant.sku_seller != 'NaN'")
+      .groupBy('variant.sku_seller')
+      .having('COUNT(*) > 1')
+      .getRawMany();
+
+    if (!duplicateSkus.length) {
+      return { deletedCount: 0 };
+    }
+
+    const skus = duplicateSkus.map((r) => r.variant_sku_seller);
+
+    // Untuk setiap SKU, ambil semua produk yang memiliki variant dengan SKU tersebut
+    // Urutkan berdasarkan updated_at DESC, simpan yang terbaru, hapus sisanya
+    const allIdsToDelete: string[] = [];
+
+    for (const sku of skus) {
+      const productsWithSku = await this.productRepository
+        .createQueryBuilder('product')
+        .innerJoin('product.variants', 'variant')
+        .where('variant.sku_seller = :sku', { sku })
+        .orderBy('product.updated_at', 'DESC')
+        .addOrderBy('product.created_at', 'DESC')
+        .getMany();
+
+      // Simpan produk pertama (paling baru), hapus sisanya
+      const idsToDelete = productsWithSku.slice(1).map((p) => p.id);
+      allIdsToDelete.push(...idsToDelete);
+    }
+
+    if (allIdsToDelete.length === 0) {
+      return { deletedCount: 0 };
+    }
+
+    await this.bulkDelete(allIdsToDelete);
+
+    return { deletedCount: allIdsToDelete.length };
+  }
+
   async processSingleImage(imageUrl: string, sortOrder: number = 0) {
     if (!imageUrl) return null;
 

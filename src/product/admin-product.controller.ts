@@ -64,6 +64,12 @@ export class AdminProductController {
     await this.productService.bulkDelete(body.ids);
   }
 
+  @Delete('bulk/old-duplicates')
+  @HttpCode(HttpStatus.OK)
+  async bulkDeleteOldDuplicates() {
+    return this.productService.bulkDeleteOldDuplicates();
+  }
+
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async delete(@Param() params: findOneParams): Promise<void> {
