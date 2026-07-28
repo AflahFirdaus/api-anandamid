@@ -315,6 +315,12 @@ export class ProductImportService {
       this.progressService.sendProgress(
         `Memproses upload produk: ${processedCount} dari ${groupedProducts.size}`,
         Math.round((processedCount / groupedProducts.size) * 100),
+        {
+          status: 'PROGRESS',
+          current: processedCount,
+          total: groupedProducts.size,
+          percent: Math.round((processedCount / groupedProducts.size) * 100),
+        },
       );
 
       try {
@@ -816,6 +822,12 @@ export class ProductImportService {
       this.progressService.sendProgress(
         `Memproses update produk: ${processedCount} dari ${groupedProducts.size}`,
         Math.round((processedCount / groupedProducts.size) * 100),
+        {
+          status: 'PROGRESS',
+          current: processedCount,
+          total: groupedProducts.size,
+          percent: Math.round((processedCount / groupedProducts.size) * 100),
+        },
       );
 
       try {
