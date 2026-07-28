@@ -17,9 +17,7 @@ import { ProductService } from './product.service';
 import { CreateProductDto } from './dto/create.product.dto';
 import { UpdateProductDto } from './dto/update.product.dto';
 import { findOneParams } from './dto/find-one.params';
-// import { Product } from './entities/product.entity'; // <-- Boleh dihapus kalau tidak dipakai lagi di file ini
 import { JwtAuthGuard } from '../auth/guards/jwt.guards';
-// import { CreateProductResponse } from '../../src/product/interface/product.interface'; 
 import { GoogleMerchantService } from './google-merchant.service';
 
 @Controller('admin/products') 
@@ -35,14 +33,25 @@ export class AdminProductController {
     return this.productService.findAllProduct(query);
   }
 
+  @Get('analytics/top-viewed')
+  async getTopViewed(
+    @Query('period') period: 'today' | 'week' | 'month' = 'week',
+    @Query('limit') limit = 10
+  ) {
+    return this.productService.getTopViewedProducts(period, Number(limit));
+  }
+
+  @Get('analytics/:id/stats')
+  async getProductStats(@Param('id') id: string) {
+    return this.productService.getProductViewStats(id);
+  }
+
   @Get(':id')
-  // 🔥 Ubah tipe kembalian dari Promise<Product> menjadi Promise<any>
   async findOne(@Param() params: findOneParams): Promise<any> {
     return this.productService.findOneByParams(params.id, false);
   }
 
   @Post()
-  // 🔥 Ubah tipe kembalian menjadi Promise<any>
   async create(
     @Body() dto: CreateProductDto,
   ): Promise<any> {
@@ -50,12 +59,22 @@ export class AdminProductController {
   }
 
   @Put(':id')
-  // 🔥 Ubah tipe kembalian dari Promise<Product> menjadi Promise<any>
   async update(
     @Param() params: findOneParams,
     @Body() dto: UpdateProductDto,
   ): Promise<any> {
     return this.productService.updateProductByParams(params.id, dto);
+  }
+
+  @Patch(":id/remove-brand")
+  removeBrand(@Param("id") id: string) {
+    return this.productService.removeBrand(id);
+  }
+
+  @Delete('image/:imageId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async deleteImage(@Param('imageId') imageId: string): Promise<void> {
+    await this.productService.deleteProductImage(imageId);
   }
 
   @Delete('bulk')
@@ -74,30 +93,6 @@ export class AdminProductController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async delete(@Param() params: findOneParams): Promise<void> {
     await this.productService.deleteProductByParams(params.id);
-  }
-
-  @Patch(":id/remove-brand")
-  removeBrand(@Param("id") id: string) {
-    return this.productService.removeBrand(id);
-  }
-
-  @Get('analytics/top-viewed')
-  async getTopViewed(
-    @Query('period') period: 'today' | 'week' | 'month' = 'week',
-    @Query('limit') limit = 10
-  ) {
-    return this.productService.getTopViewedProducts(period, Number(limit));
-  }
-
-  @Get('analytics/:id/stats')
-  async getProductStats(@Param('id') id: string) {
-    return this.productService.getProductViewStats(id);
-  }
-
-  @Delete('image/:imageId')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  async deleteImage(@Param('imageId') imageId: string): Promise<void> {
-    await this.productService.deleteProductImage(imageId);
   }
 
   // ============================================================

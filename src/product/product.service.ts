@@ -351,11 +351,9 @@ export class ProductService {
       .leftJoinAndSelect('product.brand', 'brand')
       .leftJoinAndSelect('product.variants', 'variant'); // 🔥 JOIN KE VARIANT
 
-    qb.leftJoin('product.images', 'thumbnail', 'thumbnail.sort_order = 0');
+    qb.leftJoinAndSelect('product.images', 'images');
 
-    qb.addSelect(['thumbnail.image_url', 'thumbnail.thumbnail_url']);
-
-    qb.addOrderBy('thumbnail.sort_order', 'ASC');
+    qb.addOrderBy('images.sort_order', 'ASC');
 
     // ======================
     // DEFAULT LANDING FILTER
@@ -1019,7 +1017,8 @@ export class ProductService {
       .createQueryBuilder('product')
       .leftJoinAndSelect('product.category', 'category')
       .leftJoinAndSelect('product.brand', 'brand')
-      .leftJoinAndSelect('product.variants', 'variant'); // 🔥 Supaya harganya tetap terbaca
+      .leftJoinAndSelect('product.variants', 'variant') // 🔥 Supaya harganya tetap terbaca
+      .leftJoinAndSelect('product.images', 'images');
 
     qb.where('product.id != :id', { id: productId });
 
@@ -1077,6 +1076,7 @@ export class ProductService {
 
     qb.orderBy('final_score', 'DESC');
     qb.setParameter('seed', seed);
+    qb.setParameter('name', `%${currentProduct.name}%`);
     qb.take(limit);
 
     const { entities } = await qb.getRawAndEntities();
