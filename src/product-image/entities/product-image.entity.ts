@@ -6,7 +6,7 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { Product } from '../../product/entities/product.entity';
-import { ProductVariant } from 'src/product/entities/product-variant.entity';
+import { ProductVariant } from '../../product/entities/product-variant.entity';
 
 @Entity('product_images')
 export class ProductImage {

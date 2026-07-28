@@ -4,8 +4,8 @@ import { CreateProductDto } from './dto/create.product.dto';
 import { UpdateProductDto } from './dto/update.product.dto';
 import { Product } from './entities/product.entity';
 import { Category } from '../category/entities/category.entity';
-import { Brand } from 'src/brand/entities/brand.entity';
-import { ProductImage } from 'src/product-image/entities/product-image.entity';
+import { Brand } from '../brand/entities/brand.entity';
+import { ProductImage } from '../product-image/entities/product-image.entity';
 import { ProductVariant } from './entities/product-variant.entity';
 import { ProductView } from './entities/product-view.entity';
 import { GoogleMerchantService } from './google-merchant.service';
@@ -614,6 +614,10 @@ export class ProductService {
       const parsed = this.parseDescription(product.description);
       const rawRow = raw.find((r) => r.product_id === product.id);
 
+      const sortedImages = (product.images || [])
+        .slice()
+        .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+
       // 🔥 Ambil dari variant default
       const defaultVariant =
         product.variants && product.variants.length > 0
@@ -628,6 +632,7 @@ export class ProductService {
 
       return {
         ...product,
+        images: sortedImages,
 
         final_price: finalPrice,
         is_promo: isPromo,
