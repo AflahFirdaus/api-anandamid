@@ -226,7 +226,13 @@ export class PaymentService {
           method: 'GET',
           headers: { Authorization: `Basic ${auth}` },
         });
-        const statusData = await statusRes.json();
+        const statusText = await statusRes.text();
+        let statusData: any = null;
+        try {
+          statusData = JSON.parse(statusText);
+        } catch {
+          // Response is non-JSON (e.g. 502/503 "no healthy upstream")
+        }
         transactionStatus = statusData?.transaction_status || null;
         this.logger.log(
           `[REFUND] Resolved order ID: ${resolvedOrderId}, transaction_status: ${transactionStatus}`,

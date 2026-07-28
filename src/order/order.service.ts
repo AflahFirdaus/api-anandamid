@@ -486,13 +486,21 @@ export class OrderService {
     let res: Response;
     let data: any;
     try {
+      const safeJson = async (r: Response) => {
+        const text = await r.text();
+        try {
+          return JSON.parse(text);
+        } catch {
+          return { error_messages: [text || `HTTP ${r.status}`] };
+        }
+      };
       res = await fetch(`${base}/${order.invoice_number}/status`, {
         headers: {
           Authorization: `Basic ${auth}`,
           'Content-Type': 'application/json',
         },
       });
-      data = await res.json();
+      data = await safeJson(res);
       if (!res.ok || res.status === 404) {
         const retryId = `${order.invoice_number}-R${order.id.slice(0, 8)}`;
         res = await fetch(`${base}/${retryId}/status`, {
@@ -501,10 +509,10 @@ export class OrderService {
             'Content-Type': 'application/json',
           },
         });
-        data = await res.json();
+        data = await safeJson(res);
       }
       if (!res.ok)
-        throw new BadRequestException(data.error_messages?.[0] || 'Failed');
+        throw new BadRequestException(data.error_messages?.[0] || `Midtrans error HTTP ${res.status}`);
     } catch (fetchErr: any) {
       if (fetchErr instanceof BadRequestException) {
         throw fetchErr;
