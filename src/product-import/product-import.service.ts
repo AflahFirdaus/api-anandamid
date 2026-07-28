@@ -268,9 +268,13 @@ export class ProductImportService {
   // UPLOAD PRODUCT BARU
   // ==========================
   async uploadProducts(buffer: Buffer) {
+    this.logger.log(`🚀 [UPLOAD] Mulai proses upload produk dari Excel...`);
+
     const workbook = XLSX.read(buffer, { type: 'buffer' });
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const rows: any[] = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+
+    this.logger.log(`📋 [UPLOAD] Total baris data di Excel: ${rows.length}`);
 
     const dbBrands = await this.brandRepo.find();
     const brandMap = new Map(
@@ -296,11 +300,17 @@ export class ProductImportService {
       groupedProducts.get(currentGroupId)!.variantsRows.push(row);
     }
 
+    this.logger.log(`📦 [UPLOAD] Total produk dikelompokkan: ${groupedProducts.size} produk`);
+
     let processedCount = 0;
 
     for (const [key, group] of groupedProducts.entries()) {
       const { mainRow, variantsRows } = group;
       processedCount++;
+
+      this.logger.log(
+        `⏳ [UPLOAD] Memproses produk ${processedCount}/${groupedProducts.size}: "${mainRow.name}" (${variantsRows.length} variasi)`,
+      );
 
       this.progressService.sendProgress(
         `Memproses upload produk: ${processedCount} dari ${groupedProducts.size}`,
@@ -450,10 +460,25 @@ export class ProductImportService {
         }
 
         totalCreated++;
+        this.logger.log(`✅ [UPLOAD] Produk berhasil dibuat: "${mainRow.name}"`);
       } catch (err: any) {
-        errors.push(`[${mainRow.name || 'Unknown'}]: ${err.message}`);
+        const errMsg = `[${mainRow.name || 'Unknown'}]: ${err.message}`;
+        errors.push(errMsg);
+        this.logger.warn(`⚠️  [UPLOAD] Gagal buat produk "${mainRow.name}": ${err.message}`);
       }
     }
+
+    // ==================== SUMMARY AKHIR ====================
+    this.logger.log(`\n${'='.repeat(60)}`);
+    this.logger.log(`📊 [UPLOAD MASSAL] SUMMARY SELESAI`);
+    this.logger.log(`   Total Produk diproses : ${groupedProducts.size}`);
+    this.logger.log(`   ✅ Berhasil dibuat     : ${totalCreated}`);
+    this.logger.log(`   ❌ Gagal              : ${errors.length}`);
+    if (errors.length > 0) {
+      this.logger.warn(`   Detail error:`);
+      errors.forEach((e, i) => this.logger.warn(`     [${i + 1}] ${e}`));
+    }
+    this.logger.log(`${'='.repeat(60)}\n`);
 
     if (errors.length > 0) {
       this.progressService.sendProgress(
@@ -463,14 +488,18 @@ export class ProductImportService {
           status: 'ERROR',
           action: 'upload',
           errors: errors,
-          total_created: totalCreated,
+          total: groupedProducts.size,
+          success_count: totalCreated,
+          failed_count: errors.length,
         },
       );
     } else {
       this.progressService.sendProgress('Upload selesai!', 100, {
         status: 'SUCCESS',
         action: 'upload',
-        total_processed: totalCreated,
+        total: groupedProducts.size,
+        success_count: totalCreated,
+        failed_count: 0,
       });
     }
   }
@@ -724,9 +753,13 @@ export class ProductImportService {
   // UPDATE PRODUCTS
   // ==========================
   async updateProducts(buffer: Buffer) {
+    this.logger.log(`🚀 [UPDATE] Mulai proses update produk dari Excel...`);
+
     const workbook = XLSX.read(buffer, { type: 'buffer' });
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const rows: any[] = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+
+    this.logger.log(`📋 [UPDATE] Total baris data di Excel: ${rows.length}`);
 
     const categories = await this.categoryRepo.find();
     const categoryMap = new Map(
@@ -750,12 +783,22 @@ export class ProductImportService {
       groupedProducts.get(row.id)!.variantsRows.push(row);
     }
 
+    this.logger.log(`📦 [UPDATE] Total produk unik ditemukan: ${groupedProducts.size} produk`);
+
     const ids = Array.from(groupedProducts.keys());
     const products = await this.productRepo.find({
       where: { id: In(ids) },
       relations: ['images', 'category', 'brand', 'variants'],
     });
     const productMap = new Map(products.map((p) => [p.id, p]));
+
+    this.logger.log(`🗄️  [UPDATE] Produk ditemukan di DB: ${products.length}/${groupedProducts.size}`);
+    if (products.length < groupedProducts.size) {
+      const foundIds = new Set(products.map((p) => p.id));
+      const missingIds = ids.filter((id) => !foundIds.has(id));
+      this.logger.warn(`⚠️  [UPDATE] ID tidak ditemukan di DB: ${missingIds.slice(0, 5).join(', ')}${missingIds.length > 5 ? ` ... (+${missingIds.length - 5} lagi)` : ''}`);
+    }
+
     const normalize = (val: any) => String(val ?? '').trim();
 
     let totalUpdated = 0;
@@ -765,6 +808,10 @@ export class ProductImportService {
     for (const [productId, group] of groupedProducts.entries()) {
       const { mainRow, variantsRows } = group;
       processedCount++;
+
+      this.logger.log(
+        `⏳ [UPDATE] Memproses produk ${processedCount}/${groupedProducts.size}: "${mainRow.name || productId}" (ID: ${productId}, ${variantsRows.length} variasi)`,
+      );
 
       this.progressService.sendProgress(
         `Memproses update produk: ${processedCount} dari ${groupedProducts.size}`,
@@ -1065,21 +1112,44 @@ export class ProductImportService {
           }
         }
       } catch (err: any) {
-        errors.push(`[ID: ${productId}]: ${err.message}`);
+        const errMsg = `[ID: ${productId} - "${mainRow.name || 'Unknown'}"]  : ${err.message}`;
+        errors.push(errMsg);
+        this.logger.warn(`⚠️  [UPDATE] Gagal update produk "${mainRow.name || productId}": ${err.message}`);
       }
     }
+
+    // ==================== SUMMARY AKHIR ====================
+    this.logger.log(`\n${'='.repeat(60)}`);
+    this.logger.log(`📊 [UPDATE MASSAL] SUMMARY SELESAI`);
+    this.logger.log(`   Total Produk diproses : ${groupedProducts.size}`);
+    this.logger.log(`   ✅ Berhasil diupdate  : ${totalUpdated}`);
+    this.logger.log(`   ❌ Gagal             : ${errors.length}`);
+    if (errors.length > 0) {
+      this.logger.warn(`   Detail error:`);
+      errors.forEach((e, i) => this.logger.warn(`     [${i + 1}] ${e}`));
+    }
+    this.logger.log(`${'='.repeat(60)}\n`);
 
     if (errors.length > 0) {
       this.progressService.sendProgress(
         'Update selesai dengan beberapa error',
         100,
-        { status: 'ERROR', action: 'update', errors: errors },
+        {
+          status: 'ERROR',
+          action: 'update',
+          errors: errors,
+          total: groupedProducts.size,
+          success_count: totalUpdated,
+          failed_count: errors.length,
+        },
       );
     } else {
       this.progressService.sendProgress('Update selesai!', 100, {
         status: 'SUCCESS',
         action: 'update',
-        total_processed: totalUpdated,
+        total: groupedProducts.size,
+        success_count: totalUpdated,
+        failed_count: 0,
       });
     }
   }

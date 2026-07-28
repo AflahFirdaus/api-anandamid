@@ -9,6 +9,7 @@ import {
   Query,
   Sse,
   MessageEvent,
+  Logger,
 } from '@nestjs/common';
 import { Observable, map } from 'rxjs';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -20,6 +21,8 @@ import { ProductImportProgressService } from './product-import-progress.service'
 
 @Controller('product-import')
 export class ProductImportController {
+  private readonly logger = new Logger(ProductImportController.name);
+
   constructor(
     private readonly productImportService: ProductImportService,
     private readonly templateCacheService: TemplateCacheService,
@@ -150,10 +153,15 @@ export class ProductImportController {
   @UseGuards(JwtAuthGuard)
   @UseInterceptors(FileInterceptor('file'))
   async uploadProducts(@UploadedFile() file: Express.Multer.File) {
+    const fileSizeKB = (file.size / 1024).toFixed(1);
+    this.logger.log(`📥 [UPLOAD MASSAL] File diterima: "${file.originalname}" (${fileSizeKB} KB)`);
+    this.logger.log(`⚙️  [UPLOAD MASSAL] Memulai proses background upload...`);
+
     this.productImportService.uploadProducts(file.buffer).catch((err) => {
-      console.error('Background upload error:', err);
+      this.logger.error(`❌ [UPLOAD MASSAL] Background upload error: ${err.message}`, err.stack);
     });
 
+    this.logger.log(`✅ [UPLOAD MASSAL] File diterima, background job dimulai. Balasan dikirim ke client.`);
     return {
       message: 'File diterima. Proses upload sedang berjalan di background.',
     };
@@ -163,10 +171,15 @@ export class ProductImportController {
   @UseGuards(JwtAuthGuard)
   @UseInterceptors(FileInterceptor('file'))
   async updateProducts(@UploadedFile() file: Express.Multer.File) {
+    const fileSizeKB = (file.size / 1024).toFixed(1);
+    this.logger.log(`📥 [UPDATE MASSAL] File diterima: "${file.originalname}" (${fileSizeKB} KB)`);
+    this.logger.log(`⚙️  [UPDATE MASSAL] Memulai proses background update...`);
+
     this.productImportService.updateProducts(file.buffer).catch((err) => {
-      console.error('Background update error:', err);
+      this.logger.error(`❌ [UPDATE MASSAL] Background update error: ${err.message}`, err.stack);
     });
 
+    this.logger.log(`✅ [UPDATE MASSAL] File diterima, background job dimulai. Balasan dikirim ke client.`);
     return {
       message: 'File diterima. Proses update sedang berjalan di background.',
     };
