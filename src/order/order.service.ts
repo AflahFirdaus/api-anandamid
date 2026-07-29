@@ -35,6 +35,7 @@ import {
 import { FulfillmentStatus } from './enums/fulfillment-status.enum';
 import { NotificationService } from '../notification/notification.service';
 import { InvoiceService } from '../invoice/invoice.service';
+import { ChatGateway } from '../chat/chat.gateway';
 
 function normalizeCourierCode(courier: string): string {
   const c = courier.toLowerCase().trim();
@@ -124,7 +125,39 @@ export class OrderService {
     private readonly dataSource: DataSource,
     private readonly notificationService: NotificationService,
     private readonly invoiceService: InvoiceService,
+    private readonly chatGateway: ChatGateway,
   ) {}
+
+  /**
+   * Emit realtime notification to all connected admins when a new order is created.
+   * Fire-and-forget — never blocks the checkout flow.
+   */
+  private notifyAdminsNewOrder(order: any, customerName: string): void {
+    try {
+      const totalFormatted = order.total_price
+        ? `Rp ${Number(order.total_price).toLocaleString("id-ID")}`
+        : "";
+
+      this.chatGateway.server.to("admin-global").emit("order:new", {
+        order_id: order.id,
+        invoice_number: order.invoice_number,
+        customer_name: customerName,
+        total_price: order.total_price,
+      });
+
+      this.chatGateway.server.to("admin-global").emit("new_message_notification", {
+        type: "order",
+        title: "🛒 Pesanan Baru!",
+        body: `${customerName} baru saja memesan${totalFormatted ? " — " + totalFormatted : ""}`,
+        order_id: order.id,
+        invoice_number: order.invoice_number,
+      });
+
+      this.logger.log(`[ORDER-NOTIF] Admin notified: order=${order.invoice_number} customer="${customerName}"`);
+    } catch (err: any) {
+      this.logger.warn(`[ORDER-NOTIF] Failed to notify admins: ${err.message}`);
+    }
+  }
 
   private generateInvoiceNumber(): string {
     const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');

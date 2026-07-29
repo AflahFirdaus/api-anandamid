@@ -29,6 +29,6 @@ import { User } from "../user/entities/user.entity";
   ],
   controllers: [ChatController],
   providers: [ChatService, ChatGateway],
-  exports: [ChatService],
+  exports: [ChatService, ChatGateway],
 })
 export class ChatModule {}
