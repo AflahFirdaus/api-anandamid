@@ -1,12 +1,15 @@
-import { Injectable, NotFoundException, BadRequestException } from "@nestjs/common";
-import { InjectRepository } from "@nestjs/typeorm";
-import { Repository, LessThan, In, Not, IsNull } from "typeorm";
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, LessThan, In, Not, IsNull } from 'typeorm';
 
-
-import { ChatRoom } from "./entities/chat-room.entity";
-import { ChatMessage, ChatMessageType } from "./entities/chat-message.entity";
-import { CreateMessageDto } from "./dto/create-message.dto";
-import { User } from "../user/entities/user.entity";
+import { ChatRoom } from './entities/chat-room.entity';
+import { ChatMessage, ChatMessageType } from './entities/chat-message.entity';
+import { CreateMessageDto } from './dto/create-message.dto';
+import { User } from '../user/entities/user.entity';
 
 @Injectable()
 export class ChatService {
@@ -38,21 +41,27 @@ export class ChatService {
   async findAllRooms(userPayload: any) {
     // Admin payload: { sub, username }
     // User payload: { sub, email, role: 'USER' }
-    const isAdmin = userPayload?.username !== undefined || userPayload?.role === 'admin' || (userPayload?.role !== 'USER' && !userPayload?.email);
+    const isAdmin =
+      userPayload?.username !== undefined ||
+      userPayload?.role === 'admin' ||
+      (userPayload?.role !== 'USER' && !userPayload?.email);
 
     if (isAdmin) {
       // Admin: ambil semua room yang sudah memiliki pesan beserta nama pembeli
       const rooms = await this.roomRepository.find({
         where: { last_message_at: Not(IsNull()) },
-        order: { last_message_at: "DESC" },
+        order: { last_message_at: 'DESC' },
       });
 
       // Ambil data user untuk setiap room
-      const buyerIds = rooms.map(room => room.buyer_id);
-      const users = buyerIds.length > 0 ? await this.userRepository.findBy({ id: In(buyerIds) }) : [];
-      const userMap = new Map(users.map(u => [u.id, u.full_name]));
+      const buyerIds = rooms.map((room) => room.buyer_id);
+      const users =
+        buyerIds.length > 0
+          ? await this.userRepository.findBy({ id: In(buyerIds) })
+          : [];
+      const userMap = new Map(users.map((u) => [u.id, u.full_name]));
 
-      return rooms.map(room => ({
+      return rooms.map((room) => ({
         ...room,
         buyer_name: userMap.get(room.buyer_id) || null,
       }));
@@ -61,10 +70,10 @@ export class ChatService {
       const userId = userPayload?.sub || userPayload?.id;
       const rooms = await this.roomRepository.find({
         where: { buyer_id: userId },
-        order: { last_message_at: "DESC" },
+        order: { last_message_at: 'DESC' },
       });
 
-      return rooms.map(room => ({
+      return rooms.map((room) => ({
         ...room,
         buyer_name: null,
       }));
@@ -78,24 +87,25 @@ export class ChatService {
     });
 
     if (!room) {
-      throw new NotFoundException("Chat room not found");
+      throw new NotFoundException('Chat room not found');
     }
 
     // 🔥 Untuk IMAGE type: simpan caption di content + image URL menggunakan separator khusus
     let finalContent: string;
     const isImageMsg = dto.message_type === ChatMessageType.IMAGE;
-    
+
     if (isImageMsg && mediaUrl) {
       // Format: image_url\n---\ncaption (caption optional)
       const caption = dto.content || '';
       finalContent = caption ? `${mediaUrl}\n---\n${caption}` : mediaUrl;
     } else {
-      finalContent = mediaUrl || dto.content || "";
+      finalContent = mediaUrl || dto.content || '';
     }
-    
+
     // Opsional: Validasi untuk mencegah pesan kosong masuk ke database
-    if (!finalContent) {
-      throw new BadRequestException("Message content cannot be empty");
+    // ⭐ Izinkan pesan dengan HANYA produk (tanpa text) selama product_id ada
+    if (!finalContent && !dto.product_id) {
+      throw new BadRequestException('Message content cannot be empty');
     }
 
     const messageType = dto.message_type || ChatMessageType.TEXT;
@@ -126,7 +136,7 @@ export class ChatService {
 
     const fullyLoadedMessage = await this.messageRepository.findOne({
       where: { id: savedMessage.id },
-      relations: ['room', 'product', 'product.images']
+      relations: ['room', 'product', 'product.images'],
     });
 
     return fullyLoadedMessage;
@@ -142,24 +152,24 @@ export class ChatService {
 
     const messages = await this.messageRepository.find({
       where: whereCondition,
-      order: { id: "DESC" }, // Urutkan dari terbaru
+      order: { id: 'DESC' }, // Urutkan dari terbaru
       take: limit,
       relations: ['product', 'product.images'],
     });
 
     // Balik urutan untuk frontend agar yang terlama di atas
-    return messages.reverse(); 
+    return messages.reverse();
   }
 
   // 5. Reset unread count saat admin membuka chat
   async markRoomAsReadAdmin(roomId: string) {
     await this.roomRepository.update(roomId, { unread_count_admin: 0 });
-    return { message: "Room marked as read by admin" };
+    return { message: 'Room marked as read by admin' };
   }
 
   // 6. Reset unread count saat buyer membuka chat
   async markRoomAsReadBuyer(roomId: string) {
     await this.roomRepository.update(roomId, { unread_count_buyer: 0 });
-    return { message: "Room marked as read by buyer" };
+    return { message: 'Room marked as read by buyer' };
   }
 }
