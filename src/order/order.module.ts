@@ -20,6 +20,7 @@ import { VoucherModule } from '../voucher/voucher.module';
 import { ShipmentModule } from '../shipment/shipment.module';
 import { NotificationModule } from '../notification/notification.module';
 import { InvoiceModule } from '../invoice/invoice.module';
+import { ChatModule } from '../chat/chat.module';
 
 @Module({
   imports: [
@@ -39,9 +40,22 @@ import { InvoiceModule } from '../invoice/invoice.module';
     forwardRef(() => ShipmentModule),
     NotificationModule,
     InvoiceModule,
+    ChatModule,
   ],
   controllers: [OrderController],
-  providers: [OrderService, OrderCronService, ShippingLabelService, FulfillmentService, FulfillmentWorkflowService],
-  exports: [OrderService, OrderCronService, ShippingLabelService, FulfillmentService, FulfillmentWorkflowService],
+  providers: [
+    OrderService,
+    OrderCronService,
+    ShippingLabelService,
+    FulfillmentService,
+    FulfillmentWorkflowService,
+  ],
+  exports: [
+    OrderService,
+    OrderCronService,
+    ShippingLabelService,
+    FulfillmentService,
+    FulfillmentWorkflowService,
+  ],
 })
 export class OrderModule {}
