@@ -506,11 +506,14 @@ export class OrderController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: 'Auto-complete delivered orders',
-    description: 'Complete orders delivered > 2x24 hours ago. Run as cron job.',
+    description:
+      'Menyelesaikan pesanan berstatus DIKIRIM yang tidak dikonfirmasi pelanggan dalam 2x24 jam. ' +
+      'Cron job ini juga berjalan otomatis setiap 1 jam di server. ' +
+      'Endpoint ini untuk trigger manual oleh admin.',
   })
   @ApiResponse({ status: 200, description: 'Number of orders auto-completed' })
   async autoComplete() {
-    const count = await this.orderService.autoCompleteOrders();
+    const count = await this.orderCronService.autoCompleteDeliveredOrders();
     return { message: `${count} pesanan diselesaikan otomatis.`, count };
   }
 

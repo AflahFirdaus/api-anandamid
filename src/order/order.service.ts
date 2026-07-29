@@ -2013,6 +2013,30 @@ export class OrderService {
       }
     }
 
+    // ⭐ Jika pesanan DIKIRIM dan sudah >2x24 jam belum dikonfirmasi, otomatis selesaikan
+    if (order.status === 'DIKIRIM' && order.delivered_at) {
+      const autoCompleteMs = 2 * 24 * 60 * 60 * 1000;
+      const deliveredAge = Date.now() - new Date(order.delivered_at).getTime();
+      if (deliveredAge > autoCompleteMs) {
+        order.status = 'SELESAI';
+        order.completed_at = new Date();
+        await this.orderRepo.save(order);
+        await this.orderHistoryRepo.save({
+          order_id: order.id,
+          actor: 'SYSTEM',
+          action: 'AUTO_COMPLETED',
+          description: 'Pesanan diselesaikan otomatis karena tidak dikonfirmasi dalam 2x24 jam sejak dikirim',
+          metadata: { before_status: 'DIKIRIM', after_status: 'SELESAI' },
+        });
+        // Generate invoice async
+        this.generateInvoiceForOrder(order.id).catch((err) => {
+          this.logger.error(
+            `[AUTO-COMPLETE] Failed to generate invoice on-access for order ${order.id}: ${err.message}`,
+          );
+        });
+      }
+    }
+
     return order;
   }
 
@@ -2346,13 +2370,8 @@ export class OrderService {
     });
     if (!order) throw new NotFoundException('Pesanan tidak ditemukan');
     if (order.status !== 'DIKIRIM')
-      throw new BadRequestException('Hanya pesanan DIKIRIM.');
-    const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
-    if (order.delivered_at && order.delivered_at > twoDaysAgo) {
-      throw new BadRequestException(
-        'Pesanan dapat dikonfirmasi setelah 2x24 jam dari pengiriman, atau hubungi admin.',
-      );
-    }
+      throw new BadRequestException('Hanya pesanan berstatus DIKIRIM yang dapat dikonfirmasi.');
+
     order.status = 'SELESAI';
     order.completed_at = new Date();
     await this.orderRepo.save(order);
@@ -2369,14 +2388,41 @@ export class OrderService {
 
   async autoCompleteOrders(): Promise<number> {
     const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+
+    // Fetch orders yang perlu di-auto-complete untuk generate invoice setelahnya
+    const ordersToComplete = await this.orderRepo.find({
+      where: {
+        status: 'DIKIRIM',
+        delivered_at: LessThan(twoDaysAgo),
+      } as any,
+      select: ['id'],
+    });
+
+    if (ordersToComplete.length === 0) return 0;
+
+    const completedAt = new Date();
     const result = await this.orderRepo.update(
       {
         status: 'DIKIRIM',
         delivered_at: LessThan(twoDaysAgo),
       } as any,
-      { status: 'SELESAI', completed_at: new Date() },
+      { status: 'SELESAI', completed_at: completedAt },
     );
-    return result.affected || 0;
+
+    const affected = result.affected || 0;
+
+    // Generate invoice untuk setiap pesanan yang otomatis diselesaikan
+    if (affected > 0) {
+      for (const order of ordersToComplete) {
+        this.generateInvoiceForOrder(order.id).catch((err) => {
+          this.logger.error(
+            `[AUTO-COMPLETE] Failed to generate invoice for order ${order.id}: ${err.message}`,
+          );
+        });
+      }
+    }
+
+    return affected;
   }
 
   async createCheckout(userId: string, dto: any) {
