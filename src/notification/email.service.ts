@@ -21,38 +21,57 @@ export interface SendEmailResult {
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
-  private transporter: nodemailer.Transporter;
   private readonly defaultFrom: string;
+
+  // Konfigurasi SMTP disimpan agar bisa dibuat transporter baru setiap kirim
+  private readonly smtpConfig: {
+    host: string;
+    port: number;
+    secure: boolean;
+    user: string;
+    pass: string;
+  };
 
   constructor(private readonly configService: ConfigService) {
     const host = this.configService.get<string>('SMTP_HOST') ?? 'mail.anandam.id';
-    const port = this.configService.get<number>('SMTP_PORT') ?? 465;
+    const port = this.configService.get<number>('SMTP_PORT') ?? 587;
     const user = this.configService.get<string>('SMTP_USER') ?? 'noreply@anandam.id';
     const pass = this.configService.get<string>('SMTP_PASS') ?? '';
     this.defaultFrom =
       this.configService.get<string>('SMTP_FROM_EMAIL') ?? 'noreply@anandam.id';
 
+    // Port 465 → SMTPS (TLS dari awal, handshake lambat dari VPS)
+    // Port 587 → STARTTLS (greeting dulu, TLS belakangan, jauh lebih cepat)
     const secure = port === 465;
 
-    this.transporter = nodemailer.createTransport({
-      host,
-      port,
-      secure,
-      auth: {
-        user,
-        pass,
-      },
-      // Timeout dinaikkan: TLS handshake ke mail.anandam.id bisa makan ~15 detik
-      // greetingTimeout dihitung sejak TCP connect (sebelum TLS selesai),
-      // sehingga 30 detik tidak cukup → "Greeting never received"
-      connectionTimeout: 60000,  // 60 detik untuk TCP + TLS connect
-      greetingTimeout: 60000,  // 60 detik tunggu banner 220 setelah connect
-      socketTimeout: 120000,   // 120 detik untuk proses kirim email
-    });
+    this.smtpConfig = { host, port, secure, user, pass };
 
     this.logger.log(
       `[EMAIL] SMTP configured → host=${host} port=${port} secure=${secure} user=${user} from=${this.defaultFrom}`,
     );
+  }
+
+  /**
+   * Buat transporter baru setiap kali kirim email.
+   * Menghindari masalah stale connection yang menyebabkan "Greeting never received".
+   */
+  private createTransporter(): nodemailer.Transporter {
+    const { host, port, secure, user, pass } = this.smtpConfig;
+    return nodemailer.createTransport({
+      host,
+      port,
+      secure,
+      auth: { user, pass },
+      tls: {
+        // Izinkan self-signed / cert tidak sempurna di server hosting
+        rejectUnauthorized: false,
+      },
+      // Port 587 (STARTTLS): greeting datang SEBELUM TLS → timeout ini cukup
+      // Port 465 (SMTPS): TLS dulu baru greeting → timeout lebih longgar
+      connectionTimeout: 30000,
+      greetingTimeout: 30000,
+      socketTimeout: 60000,
+    });
   }
 
   /**
@@ -62,8 +81,11 @@ export class EmailService {
   async send(options: SendEmailOptions): Promise<{ data: SendEmailResult | null; error: string | null }> {
     const { to, subject, html, text, from } = options;
 
+    // Buat koneksi SMTP baru setiap kirim → tidak ada masalah stale connection
+    const transporter = this.createTransporter();
+
     try {
-      const info = await this.transporter.sendMail({
+      const info = await transporter.sendMail({
         from: `Anandam <${from ?? this.defaultFrom}>`,
         to,
         subject,
@@ -90,6 +112,9 @@ export class EmailService {
         `[EMAIL] Gagal kirim ke ${to} | subject="${subject}" | error=${errorMsg}`,
       );
       return { data: null, error: errorMsg };
+    } finally {
+      // Tutup koneksi setelah selesai untuk membebaskan resource
+      transporter.close();
     }
   }
 
@@ -97,13 +122,16 @@ export class EmailService {
    * Verifikasi koneksi SMTP (untuk testing/health check).
    */
   async verifyConnection(): Promise<boolean> {
+    const transporter = this.createTransporter();
     try {
-      await this.transporter.verify();
+      await transporter.verify();
       this.logger.log('[EMAIL] SMTP connection verified successfully');
       return true;
     } catch (err: any) {
       this.logger.error(`[EMAIL] SMTP connection failed: ${err.message}`);
       return false;
+    } finally {
+      transporter.close();
     }
   }
 }
