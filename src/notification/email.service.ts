@@ -42,10 +42,12 @@ export class EmailService {
         user,
         pass,
       },
-      // Timeout 30 detik untuk koneksi (server mail kadang lambat)
-      connectionTimeout: 30000,
-      greetingTimeout: 30000,
-      socketTimeout: 45000,
+      // Timeout dinaikkan: TLS handshake ke mail.anandam.id bisa makan ~15 detik
+      // greetingTimeout dihitung sejak TCP connect (sebelum TLS selesai),
+      // sehingga 30 detik tidak cukup → "Greeting never received"
+      connectionTimeout: 60000,  // 60 detik untuk TCP + TLS connect
+      greetingTimeout: 60000,  // 60 detik tunggu banner 220 setelah connect
+      socketTimeout: 120000,   // 120 detik untuk proses kirim email
     });
 
     this.logger.log(
