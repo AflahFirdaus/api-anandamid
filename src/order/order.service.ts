@@ -2046,9 +2046,9 @@ export class OrderService {
       }
     }
 
-    // ⭐ Jika pesanan DIKIRIM dan sudah >2x24 jam belum dikonfirmasi, otomatis selesaikan
+    // ⭐ Jika pesanan DIKIRIM dan sudah >7x24 jam belum dikonfirmasi, otomatis selesaikan
     if (order.status === 'DIKIRIM' && order.delivered_at) {
-      const autoCompleteMs = 2 * 24 * 60 * 60 * 1000;
+      const autoCompleteMs = 7 * 24 * 60 * 60 * 1000;
       const deliveredAge = Date.now() - new Date(order.delivered_at).getTime();
       if (deliveredAge > autoCompleteMs) {
         order.status = 'SELESAI';
@@ -2420,13 +2420,13 @@ export class OrderService {
   }
 
   async autoCompleteOrders(): Promise<number> {
-    const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
     // Fetch orders yang perlu di-auto-complete untuk generate invoice setelahnya
     const ordersToComplete = await this.orderRepo.find({
       where: {
         status: 'DIKIRIM',
-        delivered_at: LessThan(twoDaysAgo),
+        delivered_at: LessThan(sevenDaysAgo),
       } as any,
       select: ['id'],
     });
@@ -2437,7 +2437,7 @@ export class OrderService {
     const result = await this.orderRepo.update(
       {
         status: 'DIKIRIM',
-        delivered_at: LessThan(twoDaysAgo),
+        delivered_at: LessThan(sevenDaysAgo),
       } as any,
       { status: 'SELESAI', completed_at: completedAt },
     );
