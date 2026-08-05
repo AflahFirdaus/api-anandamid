@@ -79,6 +79,10 @@ export class ProductImageService {
     const fileName = `${uuidv4()}.jpg`;
     const saved = await this.saveImage(file.buffer, fileName);
 
+    this.logger.log(
+      `📤 [UPLOAD GAMBAR] Product: ${productId}, Variant: ${variantId || '-'}, Sort: ${sortOrder ?? 'auto'}, File: ${file.originalname} (${(file.size / 1024).toFixed(1)} KB) -> ${saved.original}`,
+    );
+
     // 🔥 Ambil gambar sesuai konteks (per variant atau per produk tanpa variant)
     let contextImages: ProductImage[];
     if (variantId) {
@@ -177,6 +181,10 @@ export class ProductImageService {
 
     image.image_url = saved.original;
 
+    this.logger.log(
+      `♻️ [UPDATE GAMBAR] Image ID: ${id}, File: ${file.originalname} (${(file.size / 1024).toFixed(1)} KB) -> ${saved.original}`,
+    );
+
     return this.repo.save(image);
   }
 
@@ -191,6 +199,10 @@ export class ProductImageService {
 
     this.deleteFileIfExists(image.image_url);
     this.deleteFileIfExists(image.thumbnail_url);
+
+    this.logger.log(
+      `🗑️ [HAPUS GAMBAR] Image ID: ${id}, Product: ${image.product?.id || '-'}, URL: ${image.image_url}`,
+    );
 
     return this.repo.remove(image);
   }

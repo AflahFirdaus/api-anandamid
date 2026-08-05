@@ -595,7 +595,8 @@ export class ProductImportService {
 
     products.forEach((product) => {
       const generalImages = Array(10).fill('');
-      const variantImagesMap = new Map<string, string[]>();
+      // 🔥 FIX: Simpan sort_order agar gambar variasi bisa diurutkan dengan benar
+      const variantImagesMap = new Map<string, { url: string; sort: number }[]>();
 
       if (product.images?.length) {
         product.images.forEach((img) => {
@@ -604,7 +605,10 @@ export class ProductImportService {
           } else if (img.variant_id) {
             if (!variantImagesMap.has(img.variant_id))
               variantImagesMap.set(img.variant_id, []);
-            variantImagesMap.get(img.variant_id)!.push(img.image_url);
+            variantImagesMap.get(img.variant_id)!.push({
+              url: img.image_url,
+              sort: img.sort_order,
+            });
           }
         });
       }
@@ -657,14 +661,21 @@ export class ProductImportService {
           );
 
         const rowImages = Array(10).fill('');
-        if (!hasVariants && isFirst) {
+        // 🔥 FIX: Selalu isi general images di baris pertama (produk utama),
+        // termasuk untuk produk yang punya variasi — agar gambar utama tidak hilang
+        if (isFirst) {
           for (let i = 0; i < 10; i++) rowImages[i] = generalImages[i];
-        } else if (
+        }
+        // 🔥 FIX: Gambar variasi diurutkan berdasarkan sort_order
+        if (
           hasVariants &&
           variant.id &&
           variantImagesMap.has(variant.id)
         ) {
-          const vImgs = variantImagesMap.get(variant.id)!;
+          const vImgs = variantImagesMap
+            .get(variant.id)!
+            .sort((a, b) => a.sort - b.sort)
+            .map((v) => v.url);
           for (let i = 0; i < Math.min(vImgs.length, 10); i++)
             rowImages[i] = vImgs[i];
         }
