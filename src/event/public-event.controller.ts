@@ -45,6 +45,22 @@ export class PublicEventController {
   constructor(private readonly eventService: EventService) {}
 
   // ──────────────────────────────────────────────
+  //  GET /public/events — Daftar semua event published
+  // ──────────────────────────────────────────────
+  @Get()
+  @ApiOperation({ summary: 'Daftar event publik (hanya published)' })
+  @ApiResponse({ status: 200, description: 'Daftar event berhasil diambil' })
+  async findAllPublished(): Promise<ApiResponseWrapper> {
+    const events = await this.eventService.findAllPublishedEvents();
+    return {
+      statusCode: HttpStatus.OK,
+      message: `${events.length} event ditemukan`,
+      data: events,
+    };
+  }
+
+
+  // ──────────────────────────────────────────────
   //  GET /public/events/:slug — Detail event (hanya published)
   // ──────────────────────────────────────────────
   @Get(':slug')

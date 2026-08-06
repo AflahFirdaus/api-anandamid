@@ -37,6 +37,7 @@ async function bootstrap() {
   const allowedOrigins = [
     'http://localhost:5173',
     'http://localhost:5174',
+    'http://localhost:5175',
     'http://192.168.1.178:5173',
     'http://192.168.1.178:5174',
     'https://staging.anandam.id',

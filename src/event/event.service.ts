@@ -68,6 +68,15 @@ export class EventService {
     });
   }
 
+// ──────────────────────────────────────────────
+  //  PUBLIC: Daftar semua event yang sudah published
+  // ──────────────────────────────────────────────
+  findAllPublishedEvents(): Promise<Event[]> {
+    return this.eventRepository.find({
+      where: { status: EventStatus.PUBLISHED },
+      order: { event_date: 'ASC' },
+    });
+  }
   // ──────────────────────────────────────────────
   //  ADMIN: Detail satu event
   // ──────────────────────────────────────────────
@@ -108,6 +117,18 @@ export class EventService {
 
     response.status = status;
     return this.responseRepository.save(response);
+  }
+
+  // ──────────────────────────────────────────────
+  //  ADMIN: Ubah status event (draft ↔ published)
+  // ──────────────────────────────────────────────
+  async updateEventStatus(
+    id: string,
+    status: EventStatus,
+  ): Promise<Event> {
+    const event = await this.findEventById(id);
+    event.status = status;
+    return this.eventRepository.save(event);
   }
 
   // ──────────────────────────────────────────────

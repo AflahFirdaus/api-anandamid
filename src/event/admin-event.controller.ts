@@ -19,8 +19,10 @@ import {
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt.guards';
 import { EventService } from './event.service';
+import { EventStatus } from './entities/event.entity';
 import { CreateEventDto } from './dto/create-event.dto';
 import { UpdateResponseStatusDto } from './dto/update-response-status.dto';
+import { UpdateEventStatusDto } from './dto/update-event-status.dto';
 
 interface ApiResponseWrapper<T = any> {
   statusCode: number;
@@ -140,6 +142,35 @@ export class AdminEventController {
       statusCode: HttpStatus.OK,
       message: `Status pendaftar "${response.name}" diubah menjadi ${response.status}`,
       data: response,
+    };
+  }
+
+  // ──────────────────────────────────────────────
+  //  PATCH /admin/events/:id/status
+  //  Ubah status event (draft ↔ published)
+  // ──────────────────────────────────────────────
+  @Patch(':id/status')
+  @ApiOperation({
+    summary: 'Ubah status event (publish / unpublish)',
+    description:
+      'Mengubah status event antara draft dan published. Event published akan tampil di halaman publik.',
+  })
+  @ApiParam({ name: 'id', type: 'string', description: 'UUID event' })
+  @ApiBody({ type: UpdateEventStatusDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Status event berhasil diubah',
+  })
+  @ApiResponse({ status: 404, description: 'Event tidak ditemukan' })
+  async updateEventStatus(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateEventStatusDto,
+  ): Promise<ApiResponseWrapper> {
+    const event = await this.eventService.updateEventStatus(id, dto.status);
+    return {
+      statusCode: HttpStatus.OK,
+      message: `Event "${event.title}" kini ${event.status === EventStatus.PUBLISHED ? 'published' : 'draft'}`,
+      data: event,
     };
   }
 }
