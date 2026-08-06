@@ -36,6 +36,7 @@ import { ShipmentModule } from './shipment/shipment.module';
 import { NotificationModule } from './notification/notification.module';
 import { InvoiceModule } from './invoice/invoice.module';
 import { TaxInvoiceModule } from './tax-invoice/tax-invoice.module';
+import { EventModule } from './event/event.module';
 
 @Module({
   imports: [
@@ -78,6 +79,7 @@ import { TaxInvoiceModule } from './tax-invoice/tax-invoice.module';
     NotificationModule,
     InvoiceModule,
     TaxInvoiceModule,
+    EventModule,
   ],
   controllers: [AppController],
   providers: [AppService],
