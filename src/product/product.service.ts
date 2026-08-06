@@ -139,8 +139,8 @@ export class ProductService {
     // CASE 2: external image
     if (!image.image_url?.startsWith('http')) {
       // URL tidak valid / file lokal tidak ditemukan → tandai gagal agar tidak
-      // menyisakan URL mati (gambar pecah).
-      image.image_url = null;
+      // menyisakan URL mati (gambar pecah). Kolom image_url NOT NULL, jadi pakai ''.
+      image.image_url = '';
       image.thumbnail_url = null;
       return false;
     }
@@ -160,8 +160,8 @@ export class ProductService {
       });
 
       if (!response.data || response.data.length < 100) {
-        // Bukan data gambar yang valid → jangan sisakan URL mati
-        image.image_url = null;
+        // Bukan data gambar yang valid → jangan sisakan URL mati. image_url NOT NULL → ''
+        image.image_url = '';
         image.thumbnail_url = null;
         return false;
       }
@@ -203,8 +203,9 @@ export class ProductService {
       return true;
     } catch (err: any) {
       console.error('Download gagal:', image.image_url);
-      // Jangan biarkan URL mati tersimpan → kosongkan agar tidak tampil gambar pecah
-      image.image_url = null;
+      // Jangan biarkan URL mati tersimpan → kosongkan agar tidak tampil gambar pecah.
+      // image_url kolom NOT NULL → pakai ''.
+      image.image_url = '';
       image.thumbnail_url = null;
       return false;
     }
@@ -221,9 +222,10 @@ export class ProductService {
 
       const ok = await this.downloadAndReplace(img, isMainImage);
 
-      // Tidak bisa memuat gambar → kosongkan agar tidak tampil gambar pecah
+      // Tidak bisa memuat gambar → kosongkan agar tidak tampil gambar pecah.
+      // Kolom image_url NOT NULL → pakai string kosong.
       if (!ok) {
-        img.image_url = null;
+        img.image_url = '';
         img.thumbnail_url = null;
       }
 
