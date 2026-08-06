@@ -48,6 +48,7 @@
     "google-auth-library": "^10.6.2",
     "googleapis": "^171.4.0",
     "helmet": "^8.3.0",
+    "ioredis": "^5.11.1",
     "midtrans-client": "^1.4.3",
     "mysql2": "^3.16.3",
     "nodemailer": "^8.0.5",
