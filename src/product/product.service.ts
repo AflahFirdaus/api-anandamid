@@ -112,7 +112,7 @@ export class ProductService {
     };
   }
 
-  private async downloadAndReplace(image: any, createThumb = false) {
+  private async downloadAndReplace(image: any, createThumb = false): Promise<boolean> {
     const fileName = path.basename(image.image_url || '');
     const originalFile = path.join(this.originalPath, fileName);
     const thumbFile = path.join(this.thumbPath, fileName);
@@ -133,12 +133,16 @@ export class ProductService {
       }
       // 🔥 FIX: Jangan null-kan thumbnail_url yang sudah ada untuk gambar non-utama
       // Biarkan nilai existing thumbnail_url tidak berubah
-      return;
+      return true;
     }
 
     // CASE 2: external image
     if (!image.image_url?.startsWith('http')) {
-      return;
+      // URL tidak valid / file lokal tidak ditemukan → tandai gagal agar tidak
+      // menyisakan URL mati (gambar pecah).
+      image.image_url = null;
+      image.thumbnail_url = null;
+      return false;
     }
 
     this.ensureDirectories();
@@ -156,7 +160,10 @@ export class ProductService {
       });
 
       if (!response.data || response.data.length < 100) {
-        return;
+        // Bukan data gambar yang valid → jangan sisakan URL mati
+        image.image_url = null;
+        image.thumbnail_url = null;
+        return false;
       }
 
       const ext = '.jpg';
@@ -174,7 +181,7 @@ export class ProductService {
       if (fs.existsSync(originalFile) && fs.existsSync(thumbFile)) {
         image.image_url = `/uploads/products/original/${fileName}`;
         image.thumbnail_url = `/uploads/products/thumbnails/${fileName}`;
-        return;
+        return true;
       }
 
       await sharp(response.data).jpeg({ quality: 90 }).toFile(originalFile);
@@ -193,8 +200,13 @@ export class ProductService {
       } else {
         image.thumbnail_url = null;
       }
+      return true;
     } catch (err: any) {
       console.error('Download gagal:', image.image_url);
+      // Jangan biarkan URL mati tersimpan → kosongkan agar tidak tampil gambar pecah
+      image.image_url = null;
+      image.thumbnail_url = null;
+      return false;
     }
   }
 
@@ -207,9 +219,15 @@ export class ProductService {
       const before = img.thumbnail_url;
       const isMainImage = img.sort_order === 0;
 
-      await this.downloadAndReplace(img, isMainImage);
+      const ok = await this.downloadAndReplace(img, isMainImage);
 
-      if (before !== img.thumbnail_url) {
+      // Tidak bisa memuat gambar → kosongkan agar tidak tampil gambar pecah
+      if (!ok) {
+        img.image_url = null;
+        img.thumbnail_url = null;
+      }
+
+      if (!ok || before !== img.thumbnail_url) {
         updated = true;
       }
     }
@@ -998,7 +1016,11 @@ export class ProductService {
       sort_order: sortOrder,
     };
 
-    await this.downloadAndReplace(image, sortOrder === 0);
+    const ok = await this.downloadAndReplace(image, sortOrder === 0);
+    // Gagal memuat gambar (URL mati / diblokir) → jangan kembalikan URL.
+    // Pemanggil (mis. saat update/upload massal) akan melewati gambar ini,
+    // sehingga tidak tersimpan URL mati / gambar pecah.
+    if (!ok) return null;
 
     return {
       image_url: image.image_url,

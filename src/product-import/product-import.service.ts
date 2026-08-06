@@ -1122,16 +1122,82 @@ export class ProductImportService {
             }
           }
 
-          const oldGeneralImages = existingImages.filter(
-            (img) => !img.variant_id,
-          );
-          for (const oldImg of oldGeneralImages) {
-            await this.productService.deletePhysicalImage(oldImg.image_url);
-            if (oldImg.thumbnail_url)
+          // 🔧 FIX: Untuk produk ber-variasi, gambar UTAMA (general) sebelumnya
+          // dihapus membabi buta di sini. Sekarang disinkronkan dengan kolom
+          // image_1..image_10 pada baris produk utama (mainRow), mengikuti pola
+          // yang sama seperti produk tanpa variasi. Gambar utama yang masih ada
+          // di template dipertahankan; hanya yang benar-benar sudah tidak ada
+          // yang dihapus.
+          let generalImages = existingImages.filter((img) => !img.variant_id);
+          const generalUrls: string[] = [];
+          for (let i = 1; i <= 10; i++) {
+            const url = mainRow[`image_${i}`];
+            if (url && String(url).trim() !== '')
+              generalUrls.push(String(url).trim());
+          }
+
+          let gSortOrder = 0;
+          for (const newUrl of generalUrls) {
+            const matchedIdx = generalImages.findIndex(
+              (img) => img.image_url === newUrl,
+            );
+
+            if (matchedIdx !== -1) {
+              // Gambar utama sudah ada di DB (bisa /uploads/ atau http://)
+              const matchedImg = generalImages[matchedIdx];
+              matchedImg.sort_order = gSortOrder++;
+              await this.productImageRepo.save(matchedImg);
+              generalImages.splice(matchedIdx, 1);
+            } else if (newUrl.startsWith('http')) {
+              // Gambar utama benar-benar baru dari URL luar
+              try {
+                const processed = await this.productService.processSingleImage(
+                  newUrl,
+                  gSortOrder,
+                );
+                if (processed) {
+                  if (generalImages.length > 0) {
+                    const toReplace = generalImages.shift()!;
+                    if (toReplace.image_url !== processed.image_url)
+                      await this.productService.deletePhysicalImage(
+                        toReplace.image_url,
+                      );
+                    if (toReplace.thumbnail_url !== processed.thumbnail_url)
+                      await this.productService.deletePhysicalImage(
+                        toReplace.thumbnail_url,
+                      );
+
+                    toReplace.image_url = processed.image_url;
+                    toReplace.thumbnail_url = processed.thumbnail_url;
+                    toReplace.sort_order = gSortOrder++;
+                    await this.productImageRepo.save(toReplace);
+                  } else {
+                    await this.productImageRepo.save({
+                      product,
+                      variant_id: null,
+                      image_url: processed.image_url,
+                      thumbnail_url: processed.thumbnail_url,
+                      sort_order: gSortOrder++,
+                    });
+                  }
+                }
+              } catch (err) {
+                this.logger.error(
+                  `Gagal memproses gambar utama baru ${newUrl}`,
+                  err,
+                );
+              }
+            }
+          }
+
+          // Hanya hapus gambar utama yang benar-benar TIDAK ada lagi di baris utama template.
+          for (const leftOver of generalImages) {
+            await this.productService.deletePhysicalImage(leftOver.image_url);
+            if (leftOver.thumbnail_url)
               await this.productService.deletePhysicalImage(
-                oldImg.thumbnail_url,
+                leftOver.thumbnail_url,
               );
-            await this.productImageRepo.delete(oldImg.id);
+            await this.productImageRepo.delete(leftOver.id);
           }
         }
       } catch (err: any) {
