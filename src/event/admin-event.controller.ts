@@ -23,6 +23,7 @@ import { EventStatus } from './entities/event.entity';
 import { CreateEventDto } from './dto/create-event.dto';
 import { UpdateResponseStatusDto } from './dto/update-response-status.dto';
 import { UpdateEventStatusDto } from './dto/update-event-status.dto';
+import { UpdateEventDto } from './dto/update-event.dto';
 
 interface ApiResponseWrapper<T = any> {
   statusCode: number;
@@ -149,6 +150,28 @@ export class AdminEventController {
   //  PATCH /admin/events/:id/status
   //  Ubah status event (draft ↔ published)
   // ──────────────────────────────────────────────
+  @Patch(':id')
+  @ApiOperation({
+    summary: 'Update event',
+    description:
+      'Mengubah data event. Semua field opsional — hanya field yang dikirim yang diperbarui.',
+  })
+  @ApiParam({ name: 'id', type: 'string', description: 'UUID event' })
+  @ApiBody({ type: UpdateEventDto })
+  @ApiResponse({ status: 200, description: 'Event berhasil diperbarui' })
+  @ApiResponse({ status: 404, description: 'Event tidak ditemukan' })
+  async updateEvent(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateEventDto,
+  ): Promise<ApiResponseWrapper> {
+    const event = await this.eventService.updateEvent(id, dto);
+    return {
+      statusCode: HttpStatus.OK,
+      message: `Event "${event.title}" berhasil diperbarui`,
+      data: event,
+    };
+  }
+
   @Patch(':id/status')
   @ApiOperation({
     summary: 'Ubah status event (publish / unpublish)',

@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ConflictException,
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -128,6 +129,50 @@ export class EventService {
   ): Promise<Event> {
     const event = await this.findEventById(id);
     event.status = status;
+    return this.eventRepository.save(event);
+  }
+
+  // ──────────────────────────────────────────────
+  //  ADMIN: Update data event
+  // ──────────────────────────────────────────────
+  async updateEvent(
+    id: string,
+    dto: Partial<CreateEventDto>,
+  ): Promise<Event> {
+    const event = await this.findEventById(id);
+
+    if (dto.slug !== undefined) {
+      const slug = dto.slug.trim().toLowerCase();
+      if (!slug) {
+        throw new BadRequestException('Slug tidak valid.');
+      }
+      const existing = await this.eventRepository.findOne({
+        where: { slug },
+      });
+      if (existing && existing.id !== id) {
+        throw new ConflictException('Slug sudah digunakan oleh event lain.');
+      }
+      event.slug = slug;
+    }
+
+    if (dto.title !== undefined) event.title = dto.title;
+    if (dto.description !== undefined) event.description = dto.description;
+    if (dto.rules !== undefined) event.rules = dto.rules;
+    if (dto.registration_start !== undefined)
+      event.registration_start = new Date(dto.registration_start);
+    if (dto.registration_end !== undefined)
+      event.registration_end = new Date(dto.registration_end);
+    if (dto.event_date !== undefined)
+      event.event_date = new Date(dto.event_date);
+    if (dto.location_name !== undefined) event.location_name = dto.location_name;
+    if (dto.location_url !== undefined)
+      event.location_url = dto.location_url || null;
+    if (dto.max_quota !== undefined)
+      event.max_quota = dto.max_quota ?? null;
+    if (dto.additional_notes_label !== undefined)
+      event.additional_notes_label = dto.additional_notes_label || null;
+    if (dto.status !== undefined) event.status = dto.status;
+
     return this.eventRepository.save(event);
   }
 
