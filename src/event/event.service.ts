@@ -133,6 +133,15 @@ export class EventService {
   }
 
   // ──────────────────────────────────────────────
+  //  ADMIN: Simpan/update poster event
+  // ──────────────────────────────────────────────
+  async setEventPoster(id: string, posterUrl: string): Promise<Event> {
+    const event = await this.findEventById(id);
+    event.poster_url = posterUrl;
+    return this.eventRepository.save(event);
+  }
+
+  // ──────────────────────────────────────────────
   //  ADMIN: Update data event
   // ──────────────────────────────────────────────
   async updateEvent(

@@ -8,7 +8,15 @@ import {
   UseGuards,
   ParseUUIDPipe,
   HttpStatus,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
+import { extname, join } from 'path';
+import { randomUUID } from 'crypto';
+import * as fs from 'fs';
 import {
   ApiTags,
   ApiOperation,
@@ -16,6 +24,7 @@ import {
   ApiBearerAuth,
   ApiParam,
   ApiBody,
+  ApiConsumes,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt.guards';
 import { EventService } from './event.service';
@@ -54,6 +63,64 @@ export class AdminEventController {
       data: event,
     };
   }
+
+  // ──────────────────────────────────────────────
+  //  POST /admin/events/:id/poster — Upload poster acara (gambar)
+  // ──────────────────────────────────────────────
+  @Post(':id/poster')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: diskStorage({
+        destination: (_req, _file, cb) => {
+          const dest = join(process.cwd(), 'uploads', 'events', 'posters');
+          fs.mkdirSync(dest, { recursive: true });
+          cb(null, dest);
+        },
+        filename: (_req, file, cb) => {
+          const ext = extname(file.originalname).toLowerCase();
+          cb(null, `poster-${randomUUID()}${ext}`);
+        },
+      }),
+      limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+      fileFilter: (_req, file, cb) => {
+        const allowed = ['image/jpeg', 'image/png', 'image/webp'];
+        if (allowed.includes(file.mimetype)) {
+          cb(null, true);
+        } else {
+          cb(
+            new BadRequestException(
+              'Hanya file gambar (JPG, PNG, WebP) yang diperbolehkan untuk poster.',
+            ),
+            false,
+          );
+        }
+      },
+    }),
+  )
+  @ApiOperation({
+    summary: 'Upload / ganti poster acara',
+    description:
+      'Upload gambar poster event (disarankan rasio 3:2, mis. 1200x800 px). File: multipart field "file".',
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiParam({ name: 'id', type: 'string', description: 'UUID event' })
+  @ApiResponse({ status: 200, description: 'Poster berhasil disimpan' })
+  async uploadPoster(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UploadedFile() file: Express.Multer.File,
+  ): Promise<ApiResponseWrapper> {
+    if (!file) {
+      throw new BadRequestException('File poster wajib diunggah.');
+    }
+    const posterUrl = `/uploads/events/posters/${file.filename}`;
+    const event = await this.eventService.setEventPoster(id, posterUrl);
+    return {
+      statusCode: HttpStatus.OK,
+      message: `Poster event "${event.title}" berhasil disimpan`,
+      data: event,
+    };
+  }
+
 
   // ──────────────────────────────────────────────
   //  GET /admin/events — Daftar semua event

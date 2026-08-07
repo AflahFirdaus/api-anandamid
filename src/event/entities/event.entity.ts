@@ -53,6 +53,10 @@ export class Event {
   @Column({ type: 'varchar', length: 255, nullable: true })
   additional_notes_label: string | null;
 
+  /** URL/path poster event (rasio 3:2, mis. 1200x800) di local storage */
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  poster_url: string | null;
+
   @Column({ type: 'enum', enum: EventStatus, default: EventStatus.DRAFT })
   status: EventStatus;
 
