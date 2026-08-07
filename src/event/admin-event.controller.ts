@@ -11,7 +11,9 @@ import {
   UseInterceptors,
   UploadedFile,
   BadRequestException,
+  Res,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname, join } from 'path';
@@ -176,6 +178,27 @@ export class AdminEventController {
       message: `${responses.length} pendaftar ditemukan`,
       data: responses,
     };
+  }
+
+  // ──────────────────────────────────────────────
+  //  GET /admin/events/:id/responses/export
+  //  Download pendaftar dalam format Excel (.xlsx)
+  // ──────────────────────────────────────────────
+  @Get(':id/responses/export')
+  @ApiOperation({ summary: 'Export pendaftar event ke Excel (.xlsx)' })
+  @ApiParam({ name: 'id', type: 'string', description: 'UUID event' })
+  async exportResponsesExcel(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    const { buffer, filename } =
+      await this.eventService.exportResponsesExcel(id);
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(buffer);
   }
 
   // ──────────────────────────────────────────────

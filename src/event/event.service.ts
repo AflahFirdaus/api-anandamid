@@ -314,16 +314,18 @@ export class EventService {
           }
         }
 
-        // Normalisasi nomor HP (08xx → 628xx, hapus non-digit) supaya pengecekan
-        // duplikat & pengiriman WA konsisten.
+        // Normalisasi nomor HP (08xx → 628xx, hapus non-digit) & email
+        // (lowercase + trim) supaya pengecekan keunikan & pengiriman WA konsisten
+        // (0812... = 62812..., Budi@Mail.com = budi@mail.com).
         const normalizedPhone =
           dto.phone.replace(/\D/g, '').replace(/^0/, '62') || dto.phone;
+        const normalizedEmail = dto.email.trim().toLowerCase();
 
         const response = manager.create(EventResponse, {
           event_id: lockedEvent.id,
           name: dto.name,
           phone: normalizedPhone,
-          email: dto.email,
+          email: normalizedEmail,
           ig_account: dto.ig_account,
           address: dto.address,
           additional_notes_answer: dto.additional_notes_answer ?? null,
@@ -335,14 +337,93 @@ export class EventService {
         return manager.save(EventResponse, response);
       });
     } catch (error: any) {
-      // 23505 = unique_violation: (event_id, phone) aktif sudah ada → duplikat.
+      // 23505 = unique_violation: (event_id, kontak) aktif sudah ada → duplikat.
       if (error?.code === '23505') {
         throw new BadRequestException(
-          'Kamu sudah terdaftar pada event ini',
+          'Kamu sudah terdaftar pada event ini — nomor WhatsApp atau email sudah pernah digunakan.',
         );
       }
       throw error;
     }
+  }
+
+  // ──────────────────────────────────────────────
+  //  ADMIN: Export pendaftar ke Excel (.xlsx)
+  // ──────────────────────────────────────────────
+  async exportResponsesExcel(
+    eventId: string,
+  ): Promise<{ buffer: Buffer; filename: string }> {
+    const event = await this.findEventById(eventId);
+    const responses = await this.responseRepository.find({
+      where: { event_id: eventId },
+      order: { created_at: 'ASC' },
+    });
+
+    // xlsx-js-style di-load dinamis agar tidak bermasalah dengan typing/ESM.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const XLSX = require('xlsx-js-style');
+
+    const headers = [
+      'No',
+      'Nama',
+      'No WhatsApp',
+      'Email',
+      'Instagram',
+      'Alamat',
+      'Catatan Tambahan',
+      'Status',
+      'Alasan Penolakan',
+      'Waktu Pendaftaran',
+      'Bukti Follow',
+      'Bukti Review',
+    ];
+
+    const aoa: (string | number)[][] = [headers];
+    responses.forEach((r, i) => {
+      aoa.push([
+        i + 1,
+        r.name,
+        r.phone,
+        r.email,
+        r.ig_account,
+        r.address,
+        r.additional_notes_answer ?? '',
+        r.status,
+        r.rejection_reason ?? '',
+        r.created_at ? new Date(r.created_at).toLocaleString('id-ID') : '',
+        r.proof_of_follow_url,
+        r.proof_of_review_url,
+      ]);
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = [
+      { wch: 5 },
+      { wch: 30 },
+      { wch: 18 },
+      { wch: 32 },
+      { wch: 22 },
+      { wch: 45 },
+      { wch: 30 },
+      { wch: 12 },
+      { wch: 40 },
+      { wch: 22 },
+      { wch: 55 },
+      { wch: 55 },
+    ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Pendaftar');
+    const buffer = XLSX.write(wb, {
+      bookType: 'xlsx',
+      type: 'buffer',
+    }) as Buffer;
+
+    const slug = event.slug || 'event';
+    const date = new Date().toISOString().slice(0, 10);
+    const filename = `pendaftar-${slug}-${date}.xlsx`;
+
+    return { buffer, filename };
   }
 
   // ──────────────────────────────────────────────
