@@ -5,13 +5,10 @@ import { ConfigService } from '@nestjs/config';
 export class WhatsappService {
   private readonly logger = new Logger(WhatsappService.name);
   private readonly apiKey: string;
-  private readonly senderName: string;
   private readonly apiUrl: string;
 
   constructor(private readonly configService: ConfigService) {
     this.apiKey = this.configService.get<string>('FONTE_API_KEY') ?? '';
-    this.senderName =
-      this.configService.get<string>('FONTE_SENDER_NAME') ?? 'Anandam Computer';
     this.apiUrl =
       this.configService.get<string>('FONTE_API_URL') ??
       'https://api.fonnte.com/send';
@@ -51,7 +48,6 @@ export class WhatsappService {
       target: formattedPhone,
       message,
       countryCode: '62',
-      name: this.senderName,
     };
     try {
       const response = await fetch(this.apiUrl, {
@@ -75,9 +71,28 @@ export class WhatsappService {
         return false;
       }
       if (data.status === true) {
-        this.logger.log(
-          'WA berhasil ke ' + formattedPhone + ' via FONTE. ID: ' + data.id,
-        );
+        const messageId = Array.isArray(data.id) ? data.id[0] : data.id;
+        const process: string = data.process ?? 'unknown';
+        if (process === 'pending') {
+          // 'pending' = device Fonnte belum mengantarkan pesan ke WA.
+          // Bisa jadi device disconnect, rate-limited, atau nomor tidak valid.
+          this.logger.warn(
+            'WA ke ' +
+              formattedPhone +
+              ' via FONTE masuk antrian tapi PENDING (belum terkirim). ID: ' +
+              messageId +
+              '. Cek status device di dashboard Fonnte.',
+          );
+        } else {
+          this.logger.log(
+            'WA berhasil ke ' +
+              formattedPhone +
+              ' via FONTE. Process: ' +
+              process +
+              '. ID: ' +
+              messageId,
+          );
+        }
         return true;
       } else {
         this.logger.error(
