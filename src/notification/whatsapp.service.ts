@@ -24,9 +24,13 @@ export class WhatsappService {
 
   formatPhoneNumber(phone: string): string {
     if (!phone) return '';
+    // Bersihkan non-digit, lalu pastikan dalam format lokal Indonesia (08xx...).
+    // Berdasarkan pengujian akun ini, format "08..." lebih andal terkirim
+    // daripada "628...". Payload tetap menyertakan countryCode '62'
+    // sehingga format lokal tetap diproses benar oleh FONTE.
     let cleaned = phone.replace(/\D/g, '');
-    if (cleaned.startsWith('0')) {
-      cleaned = '62' + cleaned.substring(1);
+    if (cleaned.startsWith('62')) {
+      cleaned = '0' + cleaned.slice(2);
     }
     return cleaned;
   }
