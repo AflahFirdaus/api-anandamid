@@ -21,6 +21,8 @@ export enum ThrottlerFeature {
   CHAT = 'chat',
   /** Upload file */
   UPLOAD = 'upload',
+  /** Pendaftaran event (submit) */
+  EVENT_REGISTER = 'event_register',
   /** Voucher / diskon */
   VOUCHER = 'voucher',
 }

@@ -281,38 +281,68 @@ export class EventService {
       );
     }
 
-    // 4. Cek kuota (hanya jika max_quota diisi). Pendaftar Pending/Approved
-    //    dianggap mengisi slot; yang Rejected tidak.
-    if (event.max_quota != null && event.max_quota > 0) {
-      const confirmedCount = await this.responseRepository.count({
-        where: {
-          event_id: event.id,
-          status: Not(ResponseStatus.REJECTED),
-        },
-      });
+    // 4. Simpan data pendaftar DALAM SATU TRANSAKSI dengan mengunci baris
+    //    event (FOR UPDATE). Ini membuat "cek kuota + insert" menjadi ATOMIK,
+    //    sehingga tidak ada race condition saat banyak orang daftar bersamaan
+    //    (tidak mungkin kelebihan kuota hanya karena dua request yang kompak).
+    try {
+      return await this.eventRepository.manager.transaction(async (manager) => {
+        // Kunci baris event → pendaftaran untuk event yang sama terserialisasi
+        // (request kedua menunggu sampai yang pertama commit).
+        const lockedEvent = await manager.findOne(Event, {
+          where: { id: event.id },
+          lock: { mode: 'pessimistic_write' },
+        });
+        if (!lockedEvent) {
+          throw new NotFoundException('Event tidak ditemukan');
+        }
 
-      if (confirmedCount >= event.max_quota) {
+        // Cek kuota SETELAH mendapatkan lock → angkanya selalu akurat.
+        // Pendaftar Pending/Approved mengisi slot; yang Rejected tidak.
+        if (lockedEvent.max_quota != null && lockedEvent.max_quota > 0) {
+          const confirmedCount = await manager.count(EventResponse, {
+            where: {
+              event_id: lockedEvent.id,
+              status: Not(ResponseStatus.REJECTED),
+            },
+          });
+
+          if (confirmedCount >= lockedEvent.max_quota) {
+            throw new BadRequestException(
+              'Maaf, kuota pendaftaran event ini sudah penuh',
+            );
+          }
+        }
+
+        // Normalisasi nomor HP (08xx → 628xx, hapus non-digit) supaya pengecekan
+        // duplikat & pengiriman WA konsisten.
+        const normalizedPhone =
+          dto.phone.replace(/\D/g, '').replace(/^0/, '62') || dto.phone;
+
+        const response = manager.create(EventResponse, {
+          event_id: lockedEvent.id,
+          name: dto.name,
+          phone: normalizedPhone,
+          email: dto.email,
+          ig_account: dto.ig_account,
+          address: dto.address,
+          additional_notes_answer: dto.additional_notes_answer ?? null,
+          proof_of_follow_url: `/uploads/events/${proofOfFollow.filename}`,
+          proof_of_review_url: `/uploads/events/${proofOfReview.filename}`,
+          status: ResponseStatus.PENDING,
+        });
+
+        return manager.save(EventResponse, response);
+      });
+    } catch (error: any) {
+      // 23505 = unique_violation: (event_id, phone) aktif sudah ada → duplikat.
+      if (error?.code === '23505') {
         throw new BadRequestException(
-          'Maaf, kuota pendaftaran event ini sudah penuh',
+          'Kamu sudah terdaftar pada event ini',
         );
       }
+      throw error;
     }
-
-    // 5. Simpan data pendaftar
-    const response = this.responseRepository.create({
-      event_id: event.id,
-      name: dto.name,
-      phone: dto.phone,
-      email: dto.email,
-      ig_account: dto.ig_account,
-      address: dto.address,
-      additional_notes_answer: dto.additional_notes_answer ?? null,
-      proof_of_follow_url: `/uploads/events/${proofOfFollow.filename}`,
-      proof_of_review_url: `/uploads/events/${proofOfReview.filename}`,
-      status: ResponseStatus.PENDING,
-    });
-
-    return this.responseRepository.save(response);
   }
 
   // ──────────────────────────────────────────────

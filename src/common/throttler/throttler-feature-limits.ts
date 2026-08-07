@@ -69,6 +69,12 @@ export const DEFAULT_FEATURE_LIMITS: FeatureLimitsMap = {
     errorMessage:
       'Terlalu banyak upload file. Silakan coba lagi dalam 1 menit.',
   },
+  [ThrottlerFeature.EVENT_REGISTER]: {
+    ttl: 60_000, // 1 menit
+    limit: 12,
+    errorMessage:
+      'Terlalu banyak percobaan pendaftaran. Silakan coba lagi dalam 1 menit.',
+  },
   [ThrottlerFeature.VOUCHER]: {
     ttl: 60_000, // 1 menit
     limit: 5,

@@ -24,6 +24,7 @@ import { randomUUID } from 'crypto';
 import * as fs from 'fs';
 import { EventService } from './event.service';
 import { SubmitEventResponseDto } from './dto/submit-event-response.dto';
+import { ThrottleFeature, ThrottlerFeature } from '../common/throttler';
 
 interface ApiResponseWrapper<T = any> {
   statusCode: number;
@@ -136,6 +137,7 @@ export class PublicEventController {
     status: 404,
     description: 'Event tidak ditemukan / belum publik',
   })
+  @ThrottleFeature(ThrottlerFeature.EVENT_REGISTER)
   async submit(
     @Param('slug') slug: string,
     @UploadedFiles() files: UploadedEventFiles,
