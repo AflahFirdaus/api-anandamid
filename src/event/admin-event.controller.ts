@@ -205,6 +205,7 @@ export class AdminEventController {
     const response = await this.eventService.updateResponseStatus(
       responseId,
       dto.status,
+      dto.rejection_reason,
     );
     return {
       statusCode: HttpStatus.OK,

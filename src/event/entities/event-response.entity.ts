@@ -15,6 +15,13 @@ export enum ResponseStatus {
   REJECTED = 'Rejected',
 }
 
+/** 3 alasan standar penolakan pendaftaran (dipakai admin & pesan WA). */
+export enum RejectionReason {
+  INVALID_DATA = 'Data yang diinputkan tidak sesuai',
+  QUOTA_FULL = 'Kuota sudah Penuh',
+  BANNED_PLAYER = 'Player Komunitas / player banned turnamen ini',
+}
+
 @Entity('event_responses')
 export class EventResponse {
   @PrimaryGeneratedColumn('uuid')
@@ -55,6 +62,10 @@ export class EventResponse {
     default: ResponseStatus.PENDING,
   })
   status: ResponseStatus;
+
+  /** Alasan penolakan (terisi saat status = Rejected). Gunakan enum RejectionReason. */
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  rejection_reason: string | null;
 
   @CreateDateColumn({ type: 'timestamptz' })
   created_at: Date;

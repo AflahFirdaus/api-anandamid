@@ -31,7 +31,7 @@ export class WhatsappService {
     return cleaned;
   }
 
-  async sendOtp(phone: string, otpCode: string): Promise<boolean> {
+  async sendMessage(phone: string, message: string): Promise<boolean> {
     const formattedPhone = this.formatPhoneNumber(phone);
     if (!formattedPhone) {
       this.logger.error('Format nomor WhatsApp tidak valid!');
@@ -39,17 +39,13 @@ export class WhatsappService {
     }
     if (!this.apiKey) {
       this.logger.error(
-        'Gagal mengirim WhatsApp OTP: API Key FONTE belum dikonfigurasi.',
+        'Gagal mengirim WhatsApp: API Key FONTE belum dikonfigurasi.',
       );
       return false;
     }
-    const otpMsg =
-      '*ANANDAM.ID*\nKode verifikasi (OTP) Anda adalah:\n\n*' +
-      otpCode +
-      '*\n\nKode ini berlaku selama 5 menit.\nJangan bagikan kode ini kepada siapa pun.\n\nTerima kasih telah mempercayai Anandam.ID!\n\n*Anandam.ID*';
     const payload = {
       target: formattedPhone,
-      message: otpMsg,
+      message,
       countryCode: '62',
       name: this.senderName,
     };
@@ -65,7 +61,7 @@ export class WhatsappService {
       const data = await response.json();
       if (!response.ok) {
         this.logger.error(
-          'Gagal kirim WA OTP ' +
+          'Gagal kirim WA ' +
             formattedPhone +
             ' via FONTE. HTTP ' +
             response.status +
@@ -76,12 +72,12 @@ export class WhatsappService {
       }
       if (data.status === true) {
         this.logger.log(
-          'WA OTP berhasil ke ' + formattedPhone + ' via FONTE. ID: ' + data.id,
+          'WA berhasil ke ' + formattedPhone + ' via FONTE. ID: ' + data.id,
         );
         return true;
       } else {
         this.logger.error(
-          'Gagal kirim WA OTP ' +
+          'Gagal kirim WA ' +
             formattedPhone +
             ' via FONTE. ' +
             JSON.stringify(data),
@@ -90,10 +86,18 @@ export class WhatsappService {
       }
     } catch (error) {
       this.logger.error(
-        'Error kirim WA OTP via FONTE ke ' + formattedPhone,
+        'Error kirim WA via FONTE ke ' + formattedPhone,
         error,
       );
       return false;
     }
+  }
+
+  async sendOtp(phone: string, otpCode: string): Promise<boolean> {
+    const otpMsg =
+      '*ANANDAM.ID*\nKode verifikasi (OTP) Anda adalah:\n\n*' +
+      otpCode +
+      '*\n\nKode ini berlaku selama 5 menit.\nJangan bagikan kode ini kepada siapa pun.\n\nTerima kasih telah mempercayai Anandam.ID!\n\n*Anandam.ID*';
+    return this.sendMessage(phone, otpMsg);
   }
 }

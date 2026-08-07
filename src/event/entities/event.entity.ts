@@ -57,6 +57,10 @@ export class Event {
   @Column({ type: 'varchar', length: 500, nullable: true })
   poster_url: string | null;
 
+  /** Link join grup WhatsApp — disertakan di notifikasi WA saat pendaftar diterima. */
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  whatsapp_group_url: string | null;
+
   @Column({ type: 'enum', enum: EventStatus, default: EventStatus.DRAFT })
   status: EventStatus;
 

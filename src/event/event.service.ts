@@ -12,9 +12,11 @@ import { Event, EventStatus } from './entities/event.entity';
 import {
   EventResponse,
   ResponseStatus,
+  RejectionReason,
 } from './entities/event-response.entity';
 import { CreateEventDto } from './dto/create-event.dto';
 import { SubmitEventResponseDto } from './dto/submit-event-response.dto';
+import { WhatsappService } from '../notification/whatsapp.service';
 
 type UploadedEventFiles = {
   proof_of_follow?: Express.Multer.File[];
@@ -30,6 +32,7 @@ export class EventService {
     private readonly eventRepository: Repository<Event>,
     @InjectRepository(EventResponse)
     private readonly responseRepository: Repository<EventResponse>,
+    private readonly whatsappService: WhatsappService,
   ) {}
 
   // ──────────────────────────────────────────────
@@ -108,16 +111,61 @@ export class EventService {
   async updateResponseStatus(
     responseId: string,
     status: ResponseStatus,
+    rejectionReason?: RejectionReason,
   ): Promise<EventResponse> {
     const response = await this.responseRepository.findOne({
       where: { id: responseId },
+      relations: { event: true },
     });
     if (!response) {
       throw new NotFoundException('Pendaftar tidak ditemukan');
     }
 
+    // Jika ditolak, alasan penolakan wajib diisi (3 opsi standar).
+    if (
+      status === ResponseStatus.REJECTED &&
+      !rejectionReason &&
+      !response.rejection_reason
+    ) {
+      throw new BadRequestException(
+        `Alasan penolakan wajib diisi. Pilihan: ${Object.values(
+          RejectionReason,
+        ).join(', ')}`,
+      );
+    }
+
     response.status = status;
-    return this.responseRepository.save(response);
+    if (status === ResponseStatus.REJECTED) {
+      response.rejection_reason =
+        rejectionReason ?? response.rejection_reason ?? null;
+    } else {
+      response.rejection_reason = null;
+    }
+    await this.responseRepository.save(response);
+
+    // Kirim notifikasi WhatsApp ke pendaftar. Gagal kirim tidak memblokir
+    // perubahan status — cukup dicatat di log.
+    try {
+      const event = response.event;
+      if (status === ResponseStatus.APPROVED) {
+        await this.whatsappService.sendMessage(
+          response.phone,
+          this.buildAcceptedMessage(event, response),
+        );
+      } else if (status === ResponseStatus.REJECTED) {
+        await this.whatsappService.sendMessage(
+          response.phone,
+          this.buildRejectedMessage(event, response),
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `Gagal kirim notifikasi WhatsApp untuk pendaftar ${response.id}`,
+        error,
+      );
+    }
+
+    return response;
   }
 
   // ──────────────────────────────────────────────
@@ -180,6 +228,8 @@ export class EventService {
       event.max_quota = dto.max_quota ?? null;
     if (dto.additional_notes_label !== undefined)
       event.additional_notes_label = dto.additional_notes_label || null;
+    if (dto.whatsapp_group_url !== undefined)
+      event.whatsapp_group_url = dto.whatsapp_group_url || null;
     if (dto.status !== undefined) event.status = dto.status;
 
     return this.eventRepository.save(event);
@@ -263,6 +313,56 @@ export class EventService {
     });
 
     return this.responseRepository.save(response);
+  }
+
+  // ──────────────────────────────────────────────
+  //  PRIVATE: Susun pesan WhatsApp (diterima / ditolak)
+  // ──────────────────────────────────────────────
+  private buildAcceptedMessage(
+    event: Event,
+    response: EventResponse,
+  ): string {
+    const groupLink = event.whatsapp_group_url?.trim() ?? '';
+    const linkBlock = groupLink
+      ? `\n\nBergabung ke grup WhatsApp untuk info & teknis acara:\n${groupLink}`
+      : '';
+    return [
+      '*ANANDAM.ID*',
+      '',
+      `Halo *${response.name}*, 🎉`,
+      '',
+      `Selamat! Pendaftaran kamu untuk event *${event.title}* telah *DITERIMA / LOLOS*.`,
+      linkBlock,
+      '',
+      'Pantau info terbaru menjelang acara. Sampai jumpa! 🚀',
+      '',
+      '*Anandam.ID*',
+    ]
+      .join('\n')
+      .trim();
+  }
+
+  private buildRejectedMessage(
+    event: Event,
+    response: EventResponse,
+  ): string {
+    const reason =
+      response.rejection_reason ?? 'Persyaratan pendaftaran tidak terpenuhi.';
+    return [
+      '*ANANDAM.ID*',
+      '',
+      `Halo *${response.name}*,`,
+      '',
+      `Mohon maaf, pendaftaran kamu untuk event *${event.title}* *DITOLAK*.`,
+      '',
+      `Alasan: ${reason}`,
+      '',
+      'Terima kasih sudah mengikuti seleksi. Kamu tetap bisa ikut event Anandam.ID lainnya! 💙',
+      '',
+      '*Anandam.ID*',
+    ]
+      .join('\n')
+      .trim();
   }
 
   // ──────────────────────────────────────────────

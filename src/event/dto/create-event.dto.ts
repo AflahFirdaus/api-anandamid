@@ -105,6 +105,16 @@ export class CreateEventDto {
   additional_notes_label?: string;
 
   @ApiPropertyOptional({
+    description:
+      'Link join grup WhatsApp — disertakan di notifikasi WA saat pendaftar diterima.',
+    example: 'https://chat.whatsapp.com/xxxxxxxx',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  whatsapp_group_url?: string;
+
+  @ApiPropertyOptional({
     description: 'Status event',
     enum: EventStatus,
     example: EventStatus.DRAFT,
