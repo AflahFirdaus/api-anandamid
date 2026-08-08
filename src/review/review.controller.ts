@@ -21,6 +21,10 @@ import { JwtUserGuard } from '../user/guards/jwt-user.guard';
 import { JwtAuthGuard } from '../auth/guards/jwt.guards';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
+import { BadRequestException } from '@nestjs/common';
+
+// 🔒 Hanya file gambar (JPG/PNG/WebP/GIF) yang boleh di-upload sebagai lampiran review.
+const ALLOWED_IMAGE_MIMES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 
 @ApiTags('Reviews')
 @Controller('reviews')
@@ -60,6 +64,22 @@ export class ReviewController {
         },
       }),
       limits: { fileSize: 5 * 1024 * 1024 }, // 5MB per file
+      fileFilter: (
+        _req: any,
+        file: Express.Multer.File,
+        cb: (e: any, ok: boolean) => void,
+      ) => {
+        if (ALLOWED_IMAGE_MIMES.includes(file.mimetype)) {
+          cb(null, true);
+        } else {
+          cb(
+            new BadRequestException(
+              'Hanya file gambar (JPG, PNG, WebP, GIF) yang diizinkan.',
+            ),
+            false,
+          );
+        }
+      },
     }),
   )
   async create(

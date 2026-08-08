@@ -17,6 +17,8 @@ import { UpdateCategoryDto } from './dto/update.category.dto';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
+import { UseGuards } from '@nestjs/common';
+import { JwtAuthGuard } from '../auth/guards/jwt.guards';
 
 const multerConfig = {
   storage: diskStorage({
@@ -49,6 +51,7 @@ export class CategoryController {
 
   // ✅ CREATE CATEGORY
   @Post()
+  @UseGuards(JwtAuthGuard)
   @UseInterceptors(FileInterceptor('image', multerConfig))
   create(
     @Body() dto: CreateCategoryDto,
@@ -63,6 +66,7 @@ export class CategoryController {
 
   // ✅ UPDATE CATEGORY
   @Patch(':id')
+  @UseGuards(JwtAuthGuard)
   @UseInterceptors(FileInterceptor('image', multerConfig))
   update(
     @Param('id') id: string,
@@ -90,6 +94,7 @@ export class CategoryController {
 
   // ✅ DELETE
   @Delete(':id')
+  @UseGuards(JwtAuthGuard)
   delete(@Param('id') id: string) {
     return this.categoryService.deleteCategory(id);
   }

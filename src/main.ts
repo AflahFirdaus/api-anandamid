@@ -57,7 +57,10 @@ async function bootstrap() {
       ) {
         callback(null, true);
       } else {
-        callback(null, true); // Fallback allow for development flexibility
+        // 🔒 TOLAK origin yang tidak dikenal.
+        // Sebelumnya branch ini mengizinkan SEMUA origin (callback null,true),
+        // yang menonaktifkan perlindungan CORS sepenuhnya (berbahaya dgn credentials:true).
+        callback(new Error('Not allowed by CORS'), false);
       }
     },
     credentials: true,
@@ -82,8 +85,16 @@ async function bootstrap() {
     prefix: '/uploads/',
   });
 
-  // Swagger — hanya aktif di non-production
-  if (!isProduction) {
+  // Swagger — aktif di non-production, dan WAJIB nonaktif di production
+  // kecuali ENABLE_SWAGGER=true diset eksplisit (mencegah ekspos docs tak sengaja
+  // jika NODE_ENV tidak terpasang dengan benar di server).
+  const swaggerExplicitlyDisabled =
+    process.env.ENABLE_SWAGGER?.toLowerCase() === 'false';
+  const enableSwagger =
+    !swaggerExplicitlyDisabled &&
+    (process.env.ENABLE_SWAGGER?.toLowerCase() === 'true' || !isProduction);
+
+  if (enableSwagger) {
     const config = new DocumentBuilder()
       .setTitle('AnandamID API')
       .setDescription('API documentation for AnandamID e-commerce backend')

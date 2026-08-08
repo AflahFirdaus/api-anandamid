@@ -13,23 +13,17 @@ import {
 } from "@nestjs/common";
 
 import { FileInterceptor } from "@nestjs/platform-express";
-import { diskStorage } from "multer";
-import { extname } from "path";
-
 import { BrandService } from "./brand.service";
 import { UpdateBrandDto } from "./dto/update-brand.dto";
+import { UseGuards } from "@nestjs/common";
+import { JwtAuthGuard } from "../auth/guards/jwt.guards";
+import { imageUploadOptions } from "../common/multer-image.options";
 
-const brandStorage = diskStorage({
+// 🔒 Hanya gambar (JPG/PNG/WebP/GIF) maks 5MB — nama file acak (UUID).
+const brandStorage = imageUploadOptions({
   destination: "./uploads/brands",
-  filename: (req, file, cb) => {
-    const uniqueName =
-      Date.now() +
-      "-" +
-      Math.round(Math.random() * 1e9) +
-      extname(file.originalname);
-
-    cb(null, uniqueName);
-  },
+  filePrefix: "brand",
+  maxSizeBytes: 5 * 1024 * 1024,
 });
 
 @Controller("brands")
@@ -37,7 +31,8 @@ export class BrandController {
   constructor(private readonly brandService: BrandService) {}
 
   @Post()
-  @UseInterceptors(FileInterceptor("image", { storage: brandStorage }))
+  @UseGuards(JwtAuthGuard)
+  @UseInterceptors(FileInterceptor("image", brandStorage))
   create(
     @Body("name") name: string,
     @Body("is_active") isActiveStr?: string, 
@@ -63,7 +58,8 @@ export class BrandController {
   }
 
   @Put(":id")
-  @UseInterceptors(FileInterceptor("image", { storage: brandStorage }))
+  @UseGuards(JwtAuthGuard)
+  @UseInterceptors(FileInterceptor("image", brandStorage))
   update(
     @Param("id") id: string,
     @Body() dto: UpdateBrandDto & { is_active?: string }, 
@@ -77,11 +73,13 @@ export class BrandController {
   }
 
   @Delete(":id")
+  @UseGuards(JwtAuthGuard)
   remove(@Param("id") id: string) {
     return this.brandService.delete(id);
   }
 
   @Patch(":id/assign-products")
+  @UseGuards(JwtAuthGuard)
   assignProducts(
     @Param("id") id: string,
     @Body("product_ids") productIds: string[],

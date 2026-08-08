@@ -35,8 +35,19 @@ export class AdminService implements OnModuleInit {
     });
   }
 
-  // AUTO SEED
+  // AUTO SEED — hanya berjalan jika diset eksplisit ADMIN_SEED_ENABLED=true.
+  // Ini mencegah akun admin tersembunyi terbentuk di produksi tanpa disengaja,
+  // meskipun ADMIN_SEED_PASSWORD masih terisi di .env.
   async onModuleInit() {
+    const seedEnabled = process.env.ADMIN_SEED_ENABLED === 'true';
+
+    if (!seedEnabled) {
+      this.logger.log(
+        'Auto-seed admin dinonaktifkan (ADMIN_SEED_ENABLED != true).',
+      );
+      return;
+    }
+
     const username = process.env.ADMIN_SEED_USERNAME || 'admin';
     const password = process.env.ADMIN_SEED_PASSWORD;
 

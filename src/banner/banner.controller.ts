@@ -9,12 +9,19 @@ import {
   Body,
   UploadedFile,
   UseInterceptors,
+  UseGuards,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { BannerImageService } from './banner.service';
-import { diskStorage } from 'multer';
-import { extname } from 'path';
-import { randomUUID } from 'crypto';
+import { JwtAuthGuard } from '../auth/guards/jwt.guards';
+import { imageUploadOptions } from '../common/multer-image.options';
+
+// 🔒 Hanya gambar (JPG/PNG/WebP/GIF) maks 5MB — nama file acak (UUID).
+const bannerUpload = imageUploadOptions({
+  destination: './uploads/banner',
+  filePrefix: 'banner',
+  maxSizeBytes: 5 * 1024 * 1024,
+});
 
 @Controller('banner-image')
 export class BannerImageController {
@@ -40,17 +47,8 @@ export class BannerImageController {
   }
 
   @Post('upload')
-  @UseInterceptors(
-    FileInterceptor('file', {
-      storage: diskStorage({
-        destination: './uploads/banner',
-        filename: (req, file, callback) => {
-          const uniqueName = randomUUID() + extname(file.originalname);
-          callback(null, uniqueName);
-        },
-      }),
-    }),
-  )
+  @UseGuards(JwtAuthGuard)
+  @UseInterceptors(FileInterceptor('file', bannerUpload))
   async upload(
     @UploadedFile() file: Express.Multer.File,
     @Body('slot') slot: string,
@@ -79,17 +77,8 @@ export class BannerImageController {
   }
 
   @Put(':id')
-  @UseInterceptors(
-    FileInterceptor('file', {
-      storage: diskStorage({
-        destination: './uploads/banner',
-        filename: (req, file, callback) => {
-          const uniqueName = randomUUID() + extname(file.originalname);
-          callback(null, uniqueName);
-        },
-      }),
-    }),
-  )
+  @UseGuards(JwtAuthGuard)
+  @UseInterceptors(FileInterceptor('file', bannerUpload))
   async update(
     @Param('id') id: string,
     @UploadedFile() file: Express.Multer.File,
@@ -110,12 +99,14 @@ export class BannerImageController {
   }
 
   @Delete(':id')
+  @UseGuards(JwtAuthGuard)
   async remove(@Param('id') id: string) {
     await this.bannerService.remove(id);
     return { message: 'Banner berhasil dihapus' };
   }
 
   @Patch(':id/title')
+  @UseGuards(JwtAuthGuard)
   async updateTitle(
     @Param('id') id: string,
     @Body('title') title: string,
@@ -129,6 +120,7 @@ export class BannerImageController {
   }
 
   @Patch(':id/slot')
+  @UseGuards(JwtAuthGuard)
   async updateSlot(
     @Param('id') id: string,
     @Body('slot') slot: string,
@@ -137,6 +129,7 @@ export class BannerImageController {
   }
 
   @Patch(':id/metadata')
+  @UseGuards(JwtAuthGuard)
   async updateMetadata(
     @Param('id') id: string,
     @Body() body: { slot?: string; promo?: string; categoryIds?: string[]; brandIds?: string[] },

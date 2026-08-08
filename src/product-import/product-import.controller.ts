@@ -10,6 +10,7 @@ import {
   Sse,
   MessageEvent,
   Logger,
+  BadRequestException,
 } from '@nestjs/common';
 import { Observable, map } from 'rxjs';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -18,6 +19,37 @@ import type { Response } from 'express';
 import { JwtAuthGuard } from 'src/auth/guards/jwt.guards';
 import { TemplateCacheService } from './template-cache.service';
 import { ProductImportProgressService } from './product-import-progress.service';
+
+// 🔒 Hanya file Excel (.xlsx / .xls) maks 15MB — mencegah upload file sembarang
+// dan DoS memori (file diproses di memory).
+const ALLOWED_EXCEL_MIMES = [
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+  'application/vnd.ms-excel', // .xls
+];
+const excelUploadOptions = {
+  limits: { fileSize: 15 * 1024 * 1024 }, // 15MB
+  fileFilter: (
+    _req: any,
+    file: Express.Multer.File,
+    cb: (e: any, ok: boolean) => void,
+  ) => {
+    const ext = file.originalname.toLowerCase().split('.').pop();
+    if (
+      ALLOWED_EXCEL_MIMES.includes(file.mimetype) ||
+      ext === 'xlsx' ||
+      ext === 'xls'
+    ) {
+      cb(null, true);
+    } else {
+      cb(
+        new BadRequestException(
+          'Hanya file Excel (.xlsx / .xls) yang diizinkan untuk import.',
+        ),
+        false,
+      );
+    }
+  },
+};
 
 @Controller('product-import')
 export class ProductImportController {
@@ -151,7 +183,7 @@ export class ProductImportController {
 
   @Post('upload')
   @UseGuards(JwtAuthGuard)
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', excelUploadOptions))
   async uploadProducts(@UploadedFile() file: Express.Multer.File) {
     const fileSizeKB = (file.size / 1024).toFixed(1);
     this.logger.log(`📥 [UPLOAD MASSAL] File diterima: "${file.originalname}" (${fileSizeKB} KB)`);
@@ -169,7 +201,7 @@ export class ProductImportController {
 
   @Post('update')
   @UseGuards(JwtAuthGuard)
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', excelUploadOptions))
   async updateProducts(@UploadedFile() file: Express.Multer.File) {
     const fileSizeKB = (file.size / 1024).toFixed(1);
     this.logger.log(`📥 [UPDATE MASSAL] File diterima: "${file.originalname}" (${fileSizeKB} KB)`);
