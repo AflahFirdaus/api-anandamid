@@ -153,6 +153,16 @@ export class CreateCheckoutDto {
   direct_item?: CheckoutDirectDto;
 
   @ApiPropertyOptional({
+    description: 'PC builder component items (multi-item checkout)',
+    type: [BuilderItemDto],
+  })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => BuilderItemDto)
+  builder_items?: BuilderItemDto[];
+
+  @ApiPropertyOptional({
     description: 'Shipping cost in IDR (added to total)',
     example: 15000,
     default: 0,

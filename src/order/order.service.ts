@@ -2462,6 +2462,7 @@ export class OrderService {
     // Handle both flat format and nested direct_item format from frontend
     const cart_ids = dto.cart_ids;
     const direct_item = dto.direct_item || null;
+    const builder_items = dto.builder_items || null;
     const product_id = dto.product_id || direct_item?.product_id;
     const variasi = dto.variasi || direct_item?.variasi;
     const quantity = dto.quantity || direct_item?.quantity;
@@ -2571,8 +2572,47 @@ export class OrderService {
         quantity,
         price: fp,
       });
+    } else if (builder_items && builder_items.length > 0) {
+      // PC Builder multi-item checkout
+      for (const item of builder_items) {
+        const product = await this.productRepo.findOne({
+          where: { id: item.product_id },
+          relations: ['variants'],
+        });
+        if (!product)
+          throw new NotFoundException(
+            `Produk ${item.product_id} tidak ditemukan`,
+          );
+        let mv = product.variants?.find(
+          (v: any) => v.variant_name === item.variasi,
+        );
+        if (!mv && product.variants?.length > 0) mv = product.variants[0];
+        if (!mv)
+          throw new BadRequestException(
+            `Variasi ${product.name} tidak valid`,
+          );
+        const qty = item.quantity || 1;
+        if (mv.stock < qty)
+          throw new BadRequestException(
+            `Stok ${product.name} tidak mencukupi.`,
+          );
+        const fp =
+          Number(mv.price_discount || 0) > 0
+            ? Number(mv.price_normal || 0) - Number(mv.price_discount || 0)
+            : Number(mv.price_normal || 0);
+        subtotal += fp * qty;
+        items.push({
+          product: { id: product.id },
+          product_name: product.name,
+          variasi: mv.variant_name,
+          quantity: qty,
+          price: fp,
+        });
+      }
     } else {
-      throw new BadRequestException('cart_ids atau product_id wajib diisi.');
+      throw new BadRequestException(
+        'cart_ids, product_id, atau builder_items wajib diisi.',
+      );
     }
 
     let discount = 0;
