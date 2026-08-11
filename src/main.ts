@@ -45,6 +45,7 @@ async function bootstrap() {
     'https://admin-staging.anandam.id',
     'https://anandam.id',
     'https://fe-ecommerce-anandam-id.pages.dev',
+    'https://admin-panel-anandam-id.pages.dev',
   ];
 
   app.enableCors({
@@ -53,13 +54,12 @@ async function bootstrap() {
         !origin ||
         allowedOrigins.includes(origin) ||
         origin.endsWith('.anandam.id') ||
-        origin.endsWith('.anandamcomputer.com')
+        origin.endsWith('.anandamcomputer.com') ||
+        origin.endsWith('.pages.dev')
       ) {
         callback(null, true);
       } else {
         // 🔒 TOLAK origin yang tidak dikenal.
-        // Sebelumnya branch ini mengizinkan SEMUA origin (callback null,true),
-        // yang menonaktifkan perlindungan CORS sepenuhnya (berbahaya dgn credentials:true).
         callback(new Error('Not allowed by CORS'), false);
       }
     },
