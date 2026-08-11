@@ -53,12 +53,11 @@ export class WhatsappService {
   formatPhoneNumber(phone: string): string {
     if (!phone) return '';
     // Bersihkan non-digit, lalu pastikan dalam format lokal Indonesia (08xx...).
-    // Berdasarkan pengujian akun ini, format "08..." lebih andal terkirim
-    // daripada "628...". Payload tetap menyertakan countryCode '62'
-    // sehingga format lokal tetap diproses benar oleh FONTE.
     let cleaned = phone.replace(/\D/g, '');
     if (cleaned.startsWith('62')) {
       cleaned = '0' + cleaned.slice(2);
+    } else if (!cleaned.startsWith('0')) {
+      cleaned = '0' + cleaned;
     }
     return cleaned;
   }
@@ -88,13 +87,15 @@ export class WhatsappService {
     if (this.processing) return;
     this.processing = true;
     try {
+      let isFirst = true;
       while (this.queue.length > 0) {
         const item = this.queue.shift();
         if (!item) break;
-        // Beri jeda sebelum setiap pengiriman (kecuali pesan pertama)
-        if (this.sendDelayMs > 0) {
+        // Beri jeda sebelum pengiriman (kecuali pesan pertama dalam antrean)
+        if (!isFirst && this.sendDelayMs > 0) {
           await this.delay(this.sendDelayMs);
         }
+        isFirst = false;
         const sent = await this.sendWithRetry(item.phone, item.message);
         item.resolve(sent);
       }
@@ -103,7 +104,7 @@ export class WhatsappService {
     }
   }
 
-  /** Coba kirim, dan retry otomatis jika Fonnte membalas 'pending'. */
+  /** Coba kirim, dan retry jika gagal koneksi/HTTP error. */
   private async sendWithRetry(
     phone: string,
     message: string,
@@ -113,7 +114,7 @@ export class WhatsappService {
       if (result.delivered) return true;
       if (result.retryable && attempt <= this.maxRetries) {
         this.logger.warn(
-          `WA ke ${phone} masih PENDING (percobaan ${attempt}). Akan dicoba lagi dalam ${Math.round(
+          `Gagal kirim WA ke ${phone} (percobaan ${attempt}). Akan dicoba lagi dalam ${Math.round(
             this.retryDelayMs / 1000,
           )}s.`,
         );
@@ -152,31 +153,25 @@ export class WhatsappService {
             data,
           )}`,
         );
-        return { delivered: false, retryable: false };
+        return { delivered: false, retryable: true };
       }
       if (data.status === true) {
         const messageId = Array.isArray(data.id) ? data.id[0] : data.id;
         const process: string = data.process ?? 'unknown';
-        if (process === 'pending') {
-          // 'pending' = device Fonnte belum mengantarkan pesan ke WA.
-          // Bisa jadi device disconnect, rate-limited, atau nomor tidak valid.
-          this.logger.warn(
-            `WA ke ${phone} via FONTE masuk antrian tapi PENDING (percobaan ${attempt}). ID: ${messageId}.`,
-          );
-          return { delivered: false, retryable: true };
-        }
+        // Fonnte mengembalikan status: true saat pesan berhasil masuk ke antrean Fonnte.
+        // 'pending' / 'processing' / 'sent' semuanya menandakan Fonnte menerima pesan.
         this.logger.log(
-          `WA berhasil ke ${phone} via FONTE. Process: ${process}. ID: ${messageId}.`,
+          `WA berhasil dikirim ke antrean FONTE (${phone}). Process: ${process}. ID: ${messageId}.`,
         );
         return { delivered: true, retryable: false };
       }
       this.logger.error(
-        `Gagal kirim WA ${phone} via FONTE. ${JSON.stringify(data)}`,
+        `Gagal kirim WA ${phone} via FONTE (status=false). ${JSON.stringify(data)}`,
       );
       return { delivered: false, retryable: false };
-    } catch (error) {
-      this.logger.error(`Error kirim WA via FONTE ke ${phone}`, error);
-      return { delivered: false, retryable: false };
+    } catch (error: any) {
+      this.logger.error(`Error HTTP kirim WA via FONTE ke ${phone}: ${error?.message}`, error?.stack);
+      return { delivered: false, retryable: true };
     }
   }
 
