@@ -1,17 +1,48 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+interface QueuedMessage {
+  phone: string;
+  message: string;
+  resolve: (result: boolean) => void;
+}
+
+interface SendResult {
+  delivered: boolean;
+  retryable: boolean;
+}
+
 @Injectable()
 export class WhatsappService {
   private readonly logger = new Logger(WhatsappService.name);
   private readonly apiKey: string;
   private readonly apiUrl: string;
 
+  /** Jeda minimum antar pengiriman (ms) untuk menghindari burst yang memicu restrict */
+  private readonly sendDelayMs: number;
+  /** Berapa kali coba ulang saat status pending */
+  private readonly maxRetries: number;
+  /** Jeda sebelum retry (ms) */
+  private readonly retryDelayMs: number;
+
+  /** Antrean pesan in-process: dikirim satu per satu agar tidak menumpuk */
+  private queue: QueuedMessage[] = [];
+  private processing = false;
+
   constructor(private readonly configService: ConfigService) {
     this.apiKey = this.configService.get<string>('FONTE_API_KEY') ?? '';
     this.apiUrl =
       this.configService.get<string>('FONTE_API_URL') ??
       'https://api.fonnte.com/send';
+    this.sendDelayMs = Number(
+      this.configService.get<string>('FONTE_SEND_DELAY_MS') ?? '3000',
+    );
+    this.maxRetries = Number(
+      this.configService.get<string>('FONTE_MAX_RETRIES') ?? '2',
+    );
+    this.retryDelayMs = Number(
+      this.configService.get<string>('FONTE_RETRY_DELAY_MS') ?? '60000',
+    );
     if (!this.apiKey) {
       this.logger.warn(
         'FONTE API Key is missing! Please check FONTE_API_KEY in .env',
@@ -44,8 +75,64 @@ export class WhatsappService {
       );
       return false;
     }
+    // Masukkan ke antrean agar pesan dikirim satu per satu dengan jeda,
+    // sehingga tidak memicu rate-limit / restrict dari WhatsApp.
+    return new Promise<boolean>((resolve) => {
+      this.queue.push({ phone: formattedPhone, message, resolve });
+      void this.drainQueue();
+    });
+  }
+
+  /** Proses antrean: kirim satu per satu dengan jeda antar pesan. */
+  private async drainQueue(): Promise<void> {
+    if (this.processing) return;
+    this.processing = true;
+    try {
+      while (this.queue.length > 0) {
+        const item = this.queue.shift();
+        if (!item) break;
+        // Beri jeda sebelum setiap pengiriman (kecuali pesan pertama)
+        if (this.sendDelayMs > 0) {
+          await this.delay(this.sendDelayMs);
+        }
+        const sent = await this.sendWithRetry(item.phone, item.message);
+        item.resolve(sent);
+      }
+    } finally {
+      this.processing = false;
+    }
+  }
+
+  /** Coba kirim, dan retry otomatis jika Fonnte membalas 'pending'. */
+  private async sendWithRetry(
+    phone: string,
+    message: string,
+  ): Promise<boolean> {
+    for (let attempt = 1; attempt <= this.maxRetries + 1; attempt++) {
+      const result = await this.sendSingle(phone, message, attempt);
+      if (result.delivered) return true;
+      if (result.retryable && attempt <= this.maxRetries) {
+        this.logger.warn(
+          `WA ke ${phone} masih PENDING (percobaan ${attempt}). Akan dicoba lagi dalam ${Math.round(
+            this.retryDelayMs / 1000,
+          )}s.`,
+        );
+        await this.delay(this.retryDelayMs);
+        continue;
+      }
+      return false;
+    }
+    return false;
+  }
+
+  /** Satu kali panggilan ke API Fonnte. */
+  private async sendSingle(
+    phone: string,
+    message: string,
+    attempt: number,
+  ): Promise<SendResult> {
     const payload = {
-      target: formattedPhone,
+      target: phone,
       message,
       countryCode: '62',
     };
@@ -61,14 +148,11 @@ export class WhatsappService {
       const data = await response.json();
       if (!response.ok) {
         this.logger.error(
-          'Gagal kirim WA ' +
-            formattedPhone +
-            ' via FONTE. HTTP ' +
-            response.status +
-            '. ' +
-            JSON.stringify(data),
+          `Gagal kirim WA ${phone} via FONTE. HTTP ${response.status}. ${JSON.stringify(
+            data,
+          )}`,
         );
-        return false;
+        return { delivered: false, retryable: false };
       }
       if (data.status === true) {
         const messageId = Array.isArray(data.id) ? data.id[0] : data.id;
@@ -77,39 +161,27 @@ export class WhatsappService {
           // 'pending' = device Fonnte belum mengantarkan pesan ke WA.
           // Bisa jadi device disconnect, rate-limited, atau nomor tidak valid.
           this.logger.warn(
-            'WA ke ' +
-              formattedPhone +
-              ' via FONTE masuk antrian tapi PENDING (belum terkirim). ID: ' +
-              messageId +
-              '. Cek status device di dashboard Fonnte.',
+            `WA ke ${phone} via FONTE masuk antrian tapi PENDING (percobaan ${attempt}). ID: ${messageId}.`,
           );
-        } else {
-          this.logger.log(
-            'WA berhasil ke ' +
-              formattedPhone +
-              ' via FONTE. Process: ' +
-              process +
-              '. ID: ' +
-              messageId,
-          );
+          return { delivered: false, retryable: true };
         }
-        return true;
-      } else {
-        this.logger.error(
-          'Gagal kirim WA ' +
-            formattedPhone +
-            ' via FONTE. ' +
-            JSON.stringify(data),
+        this.logger.log(
+          `WA berhasil ke ${phone} via FONTE. Process: ${process}. ID: ${messageId}.`,
         );
-        return false;
+        return { delivered: true, retryable: false };
       }
-    } catch (error) {
       this.logger.error(
-        'Error kirim WA via FONTE ke ' + formattedPhone,
-        error,
+        `Gagal kirim WA ${phone} via FONTE. ${JSON.stringify(data)}`,
       );
-      return false;
+      return { delivered: false, retryable: false };
+    } catch (error) {
+      this.logger.error(`Error kirim WA via FONTE ke ${phone}`, error);
+      return { delivered: false, retryable: false };
     }
+  }
+
+  private delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   async sendOtp(phone: string, otpCode: string): Promise<boolean> {
