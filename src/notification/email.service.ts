@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
+import * as dns from 'dns';
 
 export interface SendEmailOptions {
   from?: string;
@@ -65,6 +66,16 @@ export class EmailService {
       tls: {
         // Izinkan self-signed / cert tidak sempurna di server hosting
         rejectUnauthorized: false,
+      },
+      // Paksa koneksi via IPv4. Tanpa ini, Node memilih IPv6 (AAA record) lebih
+      // dulu; jika VPS tidak punya route IPv6 maka muncul ENETUNREACH
+      // ("connect ENETUNREACH 2606:...") dan SMTP gagal total.
+      connectionOptions: {
+        lookup: (
+          hostname: string,
+          options: dns.LookupOptions,
+          callback: (err: NodeJS.ErrnoException | null, address: string, family: number) => void,
+        ) => dns.lookup(hostname, { ...options, family: 4 }, callback),
       },
       // Port 587 (STARTTLS): greeting datang SEBELUM TLS → timeout ini cukup
       // Port 465 (SMTPS): TLS dulu baru greeting → timeout lebih longgar
