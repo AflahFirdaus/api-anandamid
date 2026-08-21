@@ -1,13 +1,14 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsString, Length, Matches } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsString, Length } from 'class-validator';
 
 export class VerifyOtpDto {
-  @ApiProperty({ description: 'Nomor WhatsApp', example: '081234567890' })
-  @IsNotEmpty({ message: 'Nomor WhatsApp wajib diisi' })
-  @Matches(/^(?:\+62|62|0)8[1-9][0-9]{7,11}$/, {
-    message: 'Format nomor WhatsApp tidak valid.',
+  @ApiProperty({
+    description: 'Email terdaftar tempat OTP dikirim',
+    example: 'aflah@example.com',
   })
-  phone_number: string;
+  @IsNotEmpty({ message: 'Email wajib diisi' })
+  @IsEmail({}, { message: 'Format email tidak valid' })
+  email: string;
 
   @ApiProperty({ description: 'Kode OTP 6-digit', example: '123456' })
   @IsNotEmpty({ message: 'Kode OTP wajib diisi' })

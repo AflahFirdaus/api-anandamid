@@ -58,12 +58,25 @@ export class User {
     @Column({ type: 'timestamp', nullable: true })
     reset_token_expires: Date | null;
 
+    // ── OTP via Email ────────────────────────────────────────────
     @Column({ default: false })
-    is_whatsapp_verified: boolean;
+    is_email_verified: boolean;
 
     @Column({ type: 'varchar', length: 10, nullable: true })
-    whatsapp_otp: string | null;
+    email_otp: string | null;
 
     @Column({ type: 'timestamp', nullable: true })
-    whatsapp_otp_expires: Date | null;
+    email_otp_expires: Date | null;
+
+    // ── OTP via WhatsApp (DINONAKTIFKAN sementara) ───────────────
+    // Kolom masih ada di DB (migration AddWhatsAppOtpFields), namun tidak
+    // dipakai lagi karena OTP sekarang dikirim via Email.
+    // @Column({ default: false })
+    // is_whatsapp_verified: boolean;
+
+    // @Column({ type: 'varchar', length: 10, nullable: true })
+    // whatsapp_otp: string | null;
+
+    // @Column({ type: 'timestamp', nullable: true })
+    // whatsapp_otp_expires: Date | null;
 }

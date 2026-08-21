@@ -77,24 +77,32 @@ export class UserService {
       phone_number: formattedPhone,
       birth_date: dto.birth_date ? new Date(dto.birth_date) : null,
       gender: dto.gender,
-      is_whatsapp_verified: false,
-      whatsapp_otp: otpCode,
-      whatsapp_otp_expires: otpExpires,
+      // ── OTP sekarang via Email ──
+      is_email_verified: false,
+      email_otp: otpCode,
+      email_otp_expires: otpExpires,
+      // ── OTP via WhatsApp dinonaktifkan sementara ──
+      // is_whatsapp_verified: false,
+      // whatsapp_otp: otpCode,
+      // whatsapp_otp_expires: otpExpires,
     });
 
     const savedUser = await this.userRepo.save(newUser);
 
-    // Kirim OTP via WhatsApp (non-blocking agar registrasi tetap cepat)
-    this.whatsappService
-      .sendOtp(savedUser.phone_number, otpCode)
-      .catch((err) =>
-        this.whatsappService['logger'].error('Gagal kirim register OTP', err),
-      );
+    // Kirim OTP via Email (non-blocking agar registrasi tetap cepat)
+    this.emailService.sendOtp(savedUser.email, otpCode).catch((err) =>
+      this.logger.error('Gagal kirim register OTP via email', err),
+    );
+    // this.whatsappService
+    //   .sendOtp(savedUser.phone_number, otpCode)
+    //   .catch((err) =>
+    //     this.whatsappService['logger'].error('Gagal kirim register OTP', err),
+    //   );
 
     return {
       status: 'NEED_VERIFICATION',
-      phone_number: savedUser.phone_number,
-      message: 'Registrasi berhasil. Silakan verifikasi OTP WhatsApp Anda.',
+      email: savedUser.email,
+      message: 'Registrasi berhasil. Silakan verifikasi OTP Email Anda.',
     };
   }
 
@@ -173,6 +181,19 @@ export class UserService {
     return null;
   }
 
+  /**
+   * Cari user berdasarkan email (case-insensitive).
+   * OTP kini dikirim & diverifikasi via email.
+   */
+  private async findUserByEmail(email: string): Promise<User | null> {
+    const normalized = email?.toLowerCase().trim();
+    if (!normalized) return null;
+    return this.userRepo.findOne({
+      where: { email: normalized },
+      relations: ['addresses'],
+    });
+  }
+
   // ================= LOGIN =================
   async login(email: string, pass: string) {
     const user = await this.userRepo.findOne({
@@ -186,26 +207,29 @@ export class UserService {
     if (!user.is_active)
       throw new UnauthorizedException('Akun Anda dinonaktifkan');
 
-    // Cek verifikasi WhatsApp
-    if (!user.is_whatsapp_verified) {
+    // Cek verifikasi Email
+    if (!user.is_email_verified) {
       const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
       const otpExpires = new Date(Date.now() + 5 * 60 * 1000); // 5 menit
 
-      user.whatsapp_otp = otpCode;
-      user.whatsapp_otp_expires = otpExpires;
+      user.email_otp = otpCode;
+      user.email_otp_expires = otpExpires;
       await this.userRepo.save(user);
 
-      // Kirim OTP via WhatsApp (non-blocking)
-      this.whatsappService
-        .sendOtp(user.phone_number, otpCode)
-        .catch((err) =>
-          this.whatsappService['logger'].error('Gagal kirim login OTP', err),
-        );
+      // Kirim OTP via Email (non-blocking)
+      this.emailService.sendOtp(user.email, otpCode).catch((err) =>
+        this.logger.error('Gagal kirim login OTP via email', err),
+      );
+      // this.whatsappService
+      //   .sendOtp(user.phone_number, otpCode)
+      //   .catch((err) =>
+      //     this.whatsappService['logger'].error('Gagal kirim login OTP', err),
+      //   );
 
       return {
         status: 'NEED_VERIFICATION',
-        phone_number: user.phone_number,
-        message: 'Nomor WhatsApp belum terverifikasi. OTP baru telah dikirim.',
+        email: user.email,
+        message: 'Email belum terverifikasi. OTP baru telah dikirim.',
       };
     }
 
@@ -234,30 +258,30 @@ export class UserService {
   }
 
   // ================= VERIFY OTP =================
-  async verifyOtp(phone_number: string, otp: string) {
-    if (!phone_number || !otp) {
-      throw new BadRequestException('Nomor WhatsApp dan OTP wajib diisi!');
+  async verifyOtp(email: string, otp: string) {
+    if (!email || !otp) {
+      throw new BadRequestException('Email dan OTP wajib diisi!');
     }
 
-    const user = await this.findUserByPhone(phone_number);
+    const user = await this.findUserByEmail(email);
 
     if (!user) {
       throw new UnauthorizedException(
-        'User dengan nomor WhatsApp tersebut tidak ditemukan!',
+        'User dengan email tersebut tidak ditemukan!',
       );
     }
 
-    if (!user.whatsapp_otp || user.whatsapp_otp !== otp) {
+    if (!user.email_otp || user.email_otp !== otp) {
       throw new UnauthorizedException('Kode OTP salah!');
     }
 
-    if (!user.whatsapp_otp_expires || user.whatsapp_otp_expires < new Date()) {
+    if (!user.email_otp_expires || user.email_otp_expires < new Date()) {
       throw new UnauthorizedException('Kode OTP sudah kadaluarsa!');
     }
 
-    user.is_whatsapp_verified = true;
-    user.whatsapp_otp = null;
-    user.whatsapp_otp_expires = null;
+    user.is_email_verified = true;
+    user.email_otp = null;
+    user.email_otp_expires = null;
     await this.userRepo.save(user);
 
     // Kirim Welcome Voucher (fire-and-forget)
@@ -298,34 +322,34 @@ export class UserService {
   }
 
   // ================= RESEND OTP =================
-  async resendOtp(phone_number: string) {
-    if (!phone_number) {
-      throw new BadRequestException('Nomor WhatsApp wajib diisi!');
+  async resendOtp(email: string) {
+    if (!email) {
+      throw new BadRequestException('Email wajib diisi!');
     }
 
-    const user = await this.findUserByPhone(phone_number);
+    const user = await this.findUserByEmail(email);
     if (!user) {
       throw new UnauthorizedException(
-        'User dengan nomor WhatsApp tersebut tidak ditemukan!',
+        'User dengan email tersebut tidak ditemukan!',
       );
     }
 
     const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
     const otpExpires = new Date(Date.now() + 5 * 60 * 1000); // 5 menit
 
-    user.whatsapp_otp = otpCode;
-    user.whatsapp_otp_expires = otpExpires;
+    user.email_otp = otpCode;
+    user.email_otp_expires = otpExpires;
     await this.userRepo.save(user);
 
-    const sent = await this.whatsappService.sendOtp(user.phone_number, otpCode);
+    const sent = await this.emailService.sendOtp(user.email, otpCode);
     if (!sent) {
       throw new BadRequestException(
-        'Gagal mengirim WhatsApp OTP. Silakan coba lagi.',
+        'Gagal mengirim Email OTP. Silakan coba lagi.',
       );
     }
 
     return {
-      message: 'Kode OTP baru berhasil dikirim ke WhatsApp Anda.',
+      message: 'Kode OTP baru berhasil dikirim ke Email Anda.',
     };
   }
 
@@ -370,28 +394,30 @@ export class UserService {
       }
 
       // If user has a phone_number but hasn't verified via OTP yet, ask them to verify
-      if (!user.is_whatsapp_verified) {
+      if (!user.is_email_verified) {
         // Generate & send OTP
         const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
         const otpExpires = new Date(Date.now() + 5 * 60 * 1000);
-        user.whatsapp_otp = otpCode;
-        user.whatsapp_otp_expires = otpExpires;
+        user.email_otp = otpCode;
+        user.email_otp_expires = otpExpires;
         await this.userRepo.save(user);
-        this.whatsappService
-          .sendOtp(user.phone_number, otpCode)
-          .catch((err) =>
-            this.whatsappService['logger'].error('Gagal kirim Google OTP', err),
-          );
+        this.emailService.sendOtp(user.email, otpCode).catch((err) =>
+          this.logger.error('Gagal kirim Google OTP via email', err),
+        );
+        // this.whatsappService
+        //   .sendOtp(user.phone_number, otpCode)
+        //   .catch((err) =>
+        //     this.whatsappService['logger'].error('Gagal kirim Google OTP', err),
+        //   );
         return {
           status: 'NEED_VERIFICATION',
-          phone_number: user.phone_number,
-          message: 'WhatsApp Anda sudah terdaftar. Silakan verifikasi OTP.',
+          email: user.email,
+          message: 'Akun Anda sudah terdaftar. Silakan verifikasi OTP via email.',
         };
       }
-      // NEW: For users who registered via Email/Google and already verified WA,
-      // we also check if phone_number exists but user might have been flagged as unverified
-      // due to is_whatsapp_verified being false in db. If so, send OTP for verification.
-      // This is handled by the !user.is_whatsapp_verified check above.
+      // NEW: For users who registered via Email/Google and have a WA number but
+      // haven't verified via OTP yet, ask them to verify. OTP dikirim via email.
+      // This is handled by the !user.is_email_verified check above.
 
       if (!user.is_active)
         throw new UnauthorizedException('Akun Anda dinonaktifkan');
@@ -474,27 +500,33 @@ export class UserService {
           phone_number: formattedPhone,
           birth_date: birth_date ? new Date(birth_date) : null,
           gender: gender || null,
-          is_whatsapp_verified: false,
-          whatsapp_otp: otpCode,
-          whatsapp_otp_expires: otpExpires,
+          is_email_verified: false,
+          email_otp: otpCode,
+          email_otp_expires: otpExpires,
+          // is_whatsapp_verified: false,
+          // whatsapp_otp: otpCode,
+          // whatsapp_otp_expires: otpExpires,
         });
 
         await this.userRepo.save(user);
 
-        // Kirim OTP via WhatsApp (non-blocking)
-        this.whatsappService
-          .sendOtp(formattedPhone, otpCode)
-          .catch((err) =>
-            this.whatsappService['logger'].error(
-              'Gagal kirim google register OTP',
-              err,
-            ),
-          );
+        // Kirim OTP via Email (non-blocking)
+        this.emailService.sendOtp(normalizedEmail, otpCode).catch((err) =>
+          this.logger.error('Gagal kirim google register OTP via email', err),
+        );
+        // this.whatsappService
+        //   .sendOtp(formattedPhone, otpCode)
+        //   .catch((err) =>
+        //     this.whatsappService['logger'].error(
+        //       'Gagal kirim google register OTP',
+        //       err,
+        //     ),
+        //   );
 
         return {
           status: 'NEED_VERIFICATION',
-          phone_number: user.phone_number,
-          message: 'OTP berhasil dikirim ke WhatsApp Anda.',
+          email: normalizedEmail,
+          message: 'OTP berhasil dikirim ke Email Anda.',
         };
       }
 
@@ -504,9 +536,9 @@ export class UserService {
       if (gender) user.gender = gender;
       if (full_name) user.full_name = full_name;
 
-      // CRITICAL FIX: If user has already verified WA, jangan reset is_whatsapp_verified
+      // CRITICAL FIX: If user has already verified email, jangan reset is_email_verified
       // dan jangan kirim OTP ulang. Langsung buat token dan login user.
-      if (user.is_whatsapp_verified) {
+      if (user.is_email_verified) {
         await this.userRepo.save(user);
 
         const jwtPayload = { sub: user.id, email: user.email, role: 'USER' };
@@ -537,25 +569,28 @@ export class UserService {
       }
 
       // Existing user but NOT yet verified: send OTP for verification
-      user.is_whatsapp_verified = false;
-      user.whatsapp_otp = otpCode;
-      user.whatsapp_otp_expires = otpExpires;
+      user.is_email_verified = false;
+      user.email_otp = otpCode;
+      user.email_otp_expires = otpExpires;
       await this.userRepo.save(user);
 
-      // Kirim OTP via WhatsApp (non-blocking)
-      this.whatsappService
-        .sendOtp(formattedPhone, otpCode)
-        .catch((err) =>
-          this.whatsappService['logger'].error(
-            'Gagal kirim google register OTP',
-            err,
-          ),
-        );
+      // Kirim OTP via Email (non-blocking)
+      this.emailService.sendOtp(normalizedEmail, otpCode).catch((err) =>
+        this.logger.error('Gagal kirim google register OTP via email', err),
+      );
+      // this.whatsappService
+      //   .sendOtp(formattedPhone, otpCode)
+      //   .catch((err) =>
+      //     this.whatsappService['logger'].error(
+      //       'Gagal kirim google register OTP',
+      //       err,
+      //     ),
+      //   );
 
       return {
         status: 'NEED_VERIFICATION',
-        phone_number: user.phone_number,
-        message: 'OTP berhasil dikirim ke WhatsApp Anda.',
+        email: normalizedEmail,
+        message: 'OTP berhasil dikirim ke Email Anda.',
       };
     } catch (error) {
       if (
@@ -655,22 +690,28 @@ export class UserService {
     const otpExpires = new Date(Date.now() + 5 * 60 * 1000);
 
     user.phone_number = formattedNewPhone;
-    user.is_whatsapp_verified = false;
-    user.whatsapp_otp = otpCode;
-    user.whatsapp_otp_expires = otpExpires;
+    user.is_email_verified = false;
+    user.email_otp = otpCode;
+    user.email_otp_expires = otpExpires;
+    // user.is_whatsapp_verified = false;
+    // user.whatsapp_otp = otpCode;
+    // user.whatsapp_otp_expires = otpExpires;
     await this.userRepo.save(user);
 
-    // Kirim OTP ke nomor baru
-    this.whatsappService
-      .sendOtp(formattedNewPhone, otpCode)
-      .catch((err) =>
-        this.whatsappService['logger'].error('Gagal kirim update-phone OTP', err),
-      );
+    // Kirim OTP ke email terdaftar (bukan ke nomor baru)
+    this.emailService.sendOtp(user.email, otpCode).catch((err) =>
+      this.logger.error('Gagal kirim update-phone OTP via email', err),
+    );
+    // this.whatsappService
+    //   .sendOtp(formattedNewPhone, otpCode)
+    //   .catch((err) =>
+    //     this.whatsappService['logger'].error('Gagal kirim update-phone OTP', err),
+    //   );
 
     return {
       status: 'NEED_VERIFICATION',
-      phone_number: formattedNewPhone,
-      message: 'Nomor WhatsApp berhasil diperbarui. Silakan verifikasi OTP.',
+      email: user.email,
+      message: 'Nomor WhatsApp berhasil diperbarui. Silakan verifikasi OTP via email.',
     };
   }
 
@@ -750,27 +791,27 @@ export class UserService {
     return { message: 'Avatar berhasil diupdate', avatar_url: avatarUrl };
   }
 
-  // ================= FORGOT PASSWORD VIA OTP WHATSAPP =================
-  async forgotPasswordOtp(phone_number: string) {
-    if (!phone_number) {
-      throw new BadRequestException('Nomor WhatsApp wajib diisi!');
+  // ================= FORGOT PASSWORD VIA OTP EMAIL =================
+  async forgotPasswordOtp(email: string) {
+    if (!email) {
+      throw new BadRequestException('Email wajib diisi!');
     }
 
-    const user = await this.findUserByPhone(phone_number);
+    const user = await this.findUserByEmail(email);
     if (!user) {
       throw new UnauthorizedException(
-        'Nomor WhatsApp tidak terdaftar!',
+        'Email tidak terdaftar!',
       );
     }
 
     const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
     const otpExpires = new Date(Date.now() + 5 * 60 * 1000); // 5 menit
 
-    user.whatsapp_otp = otpCode;
-    user.whatsapp_otp_expires = otpExpires;
+    user.email_otp = otpCode;
+    user.email_otp_expires = otpExpires;
     await this.userRepo.save(user);
 
-    const sent = await this.whatsappService.sendOtp(user.phone_number, otpCode);
+    const sent = await this.emailService.sendOtp(user.email, otpCode);
     if (!sent) {
       throw new BadRequestException(
         'Gagal mengirim OTP. Silakan coba lagi.',
@@ -778,36 +819,36 @@ export class UserService {
     }
 
     return {
-      message: 'Kode OTP reset password berhasil dikirim ke WhatsApp Anda.',
-      phone_number: user.phone_number,
+      message: 'Kode OTP reset password berhasil dikirim ke Email Anda.',
+      email: user.email,
     };
   }
 
-  async verifyForgotPasswordOtp(phone_number: string, otp: string, new_password: string) {
-    if (!phone_number || !otp || !new_password) {
-      throw new BadRequestException('Nomor, OTP, dan password baru wajib diisi!');
+  async verifyForgotPasswordOtp(email: string, otp: string, new_password: string) {
+    if (!email || !otp || !new_password) {
+      throw new BadRequestException('Email, OTP, dan password baru wajib diisi!');
     }
 
     if (new_password.length < 8) {
       throw new BadRequestException('Password minimal 8 karakter!');
     }
 
-    const user = await this.findUserByPhone(phone_number);
+    const user = await this.findUserByEmail(email);
     if (!user) {
       throw new UnauthorizedException('User tidak ditemukan!');
     }
 
-    if (!user.whatsapp_otp || user.whatsapp_otp !== otp) {
+    if (!user.email_otp || user.email_otp !== otp) {
       throw new UnauthorizedException('Kode OTP salah!');
     }
 
-    if (!user.whatsapp_otp_expires || user.whatsapp_otp_expires < new Date()) {
+    if (!user.email_otp_expires || user.email_otp_expires < new Date()) {
       throw new UnauthorizedException('Kode OTP sudah kadaluarsa!');
     }
 
     // Reset OTP fields
-    user.whatsapp_otp = null;
-    user.whatsapp_otp_expires = null;
+    user.email_otp = null;
+    user.email_otp_expires = null;
 
     // Hash & update password baru
     const hashedPassword = await bcrypt.hash(new_password, 10);

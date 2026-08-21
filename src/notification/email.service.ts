@@ -119,6 +119,47 @@ export class EmailService {
   }
 
   /**
+   * Kirim kode OTP (6 digit) ke email user.
+   * Mengembalikan boolean sukses — interface-nya disamakan dengan
+   * WhatsappService.sendOtp() agar mudah mengganti saluran pengiriman.
+   */
+  async sendOtp(to: string, otpCode: string): Promise<boolean> {
+    const subject = 'Kode Verifikasi (OTP) Anandam.ID';
+
+    const html = `
+      <div style="font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; background: #f6f8fa;">
+        <div style="background: #ffffff; border-radius: 12px; overflow: hidden; border: 1px solid #eee;">
+          <div style="background: #2563eb; padding: 22px 28px; text-align: center;">
+            <div style="color: #ffffff; font-size: 22px; font-weight: 800; letter-spacing: 0.5px;">ANANDAM.ID</div>
+          </div>
+          <div style="padding: 30px 28px;">
+            <h2 style="margin: 0 0 16px; color: #111827; font-size: 18px;">Kode Verifikasi Anda</h2>
+            <p style="margin: 0 0 20px; color: #4b5563; font-size: 15px; line-height: 1.6;">
+              Gunakan kode berikut untuk verifikasi akun Anandam.ID Anda:
+            </p>
+            <div style="background: #f3f4f6; border-radius: 10px; padding: 18px; text-align: center; letter-spacing: 12px; font-size: 34px; font-weight: 800; color: #111827;">
+              ${otpCode}
+            </div>
+            <p style="margin: 22px 0 0; color: #6b7280; font-size: 13px; line-height: 1.6;">
+              Kode ini berlaku selama <b>5 menit</b> dan hanya untuk satu kali pakai. Jangan bagikan kode ini kepada siapa pun.
+            </p>
+          </div>
+          <div style="border-top: 1px solid #eee; padding: 16px 28px; text-align: center; color: #9ca3af; font-size: 12px;">
+            Jika Anda tidak merasa melakukan permintaan ini, silakan abaikan email ini.
+          </div>
+        </div>
+      </div>
+    `;
+
+    const { error } = await this.send({ to, subject, html });
+    if (error) {
+      this.logger.error(`[EMAIL] Gagal kirim OTP ke ${to} | error=${error}`);
+      return false;
+    }
+    return true;
+  }
+
+  /**
    * Verifikasi koneksi SMTP (untuk testing/health check).
    */
   async verifyConnection(): Promise<boolean> {

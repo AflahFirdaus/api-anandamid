@@ -56,12 +56,12 @@ export class UserController {
 
     @Post('verify-otp')
     async verifyOtp(@Body() body: VerifyOtpDto) {
-        return this.userService.verifyOtp(body.phone_number, body.otp);
+        return this.userService.verifyOtp(body.email, body.otp);
     }
 
     @Post('resend-otp')
     async resendOtp(@Body() body: ResendOtpDto) {
-        return this.userService.resendOtp(body.phone_number);
+        return this.userService.resendOtp(body.email);
     }
 
     @Post('google-register-phone')
@@ -156,13 +156,13 @@ export class UserController {
     }
 
     @Post('forgot-password-otp')
-    async forgotPasswordOtp(@Body('phone_number') phone_number: string) {
-        return this.userService.forgotPasswordOtp(phone_number);
+    async forgotPasswordOtp(@Body('email') email: string) {
+        return this.userService.forgotPasswordOtp(email);
     }
 
     @Post('verify-forgot-password-otp')
     async verifyForgotPasswordOtp(@Body() body: any) {
-        return this.userService.verifyForgotPasswordOtp(body.phone_number, body.otp, body.new_password);
+        return this.userService.verifyForgotPasswordOtp(body.email, body.otp, body.new_password);
     }
 
     @Post('reset-password')
