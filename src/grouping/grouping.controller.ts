@@ -8,6 +8,7 @@ import {
   Delete,
   UseInterceptors,
   UploadedFile,
+  UseGuards,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 
@@ -18,6 +19,7 @@ import { GroupingService } from './grouping.service';
 import { CreateGroupingDto } from './dto/create-grouping.dto';
 import { UpdateGroupingDto } from './dto/update-grouping.dto';
 import { AssignCategoryDto } from './dto/assign-category.dto';
+import { JwtAuthGuard } from '../auth/guards/jwt.guards';
 
 const multerOptions = {
   storage: diskStorage({
@@ -58,6 +60,7 @@ export class GroupingController {
 
   // ================= CREATE =================
   @Post()
+  @UseGuards(JwtAuthGuard)
   @UseInterceptors(FileInterceptor('image', multerOptions)) // Tambahkan multerOptions
   create(
     @Body() body: any,
@@ -75,6 +78,7 @@ export class GroupingController {
 
   // ================= UPDATE =================
   @Patch(':id')
+  @UseGuards(JwtAuthGuard)
   @UseInterceptors(FileInterceptor('image', multerOptions)) // Tambahkan multerOptions
   async update(
     @Param('id') id: string,
@@ -91,16 +95,19 @@ export class GroupingController {
   }
 
   @Patch(':id/assign')
+  @UseGuards(JwtAuthGuard)
   assign(@Param('id') id: string, @Body() dto: AssignCategoryDto) {
     return this.service.assignCategories(id, dto.category_ids);
   }
 
   @Patch('remove-category/:categoryId')
+  @UseGuards(JwtAuthGuard)
   remove(@Param('categoryId') categoryId: string) {
     return this.service.removeCategory(categoryId);
   }
 
   @Delete(':id')
+  @UseGuards(JwtAuthGuard)
   delete(@Param('id') id: string) {
     return this.service.delete(id);
   }

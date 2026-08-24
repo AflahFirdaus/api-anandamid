@@ -1,6 +1,7 @@
-import { Controller, Post, Body, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Body, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
 import { EmailService } from './email.service';
 import { IsEmail, IsString, IsOptional, MinLength } from 'class-validator';
+import { JwtAuthGuard } from '../auth/guards/jwt.guards';
 
 export class SendEmailDto {
   @IsOptional()
@@ -50,6 +51,7 @@ export class EmailController {
    * }
    */
   @Post('send')
+  @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   async sendEmail(@Body() dto: SendEmailDto) {
     const { data, error } = await this.emailService.send({

@@ -37,17 +37,30 @@ export class CertificateService {
     });
   }
 
+  /**
+   * ✂️ Bersihkan input dari tag HTML/JavaScript untuk cegah XSS
+   */
+  private sanitize(input: string): string {
+    if (!input) return input;
+    return input.replace(/<[^>]*>/g, ""); // strip all HTML tags
+  }
+
   async create(dto: CreateCertificateDto) {
     const certificate_number = await this.generateNumber();
 
+    // 🛡️ Sanitasi semua input teks untuk mencegah Stored XSS
+    const sanitizedName = this.sanitize(dto.name);
+    const sanitizedSchool = this.sanitize(dto.school);
+    const sanitizedReason = dto.reason ? this.sanitize(dto.reason) : undefined;
+
     const certificate = this.certificateRepo.create({
-      name: dto.name,
-      school: dto.school,
+      name: sanitizedName,
+      school: sanitizedSchool,
       start_date: dto.start_date,
       end_date: dto.end_date,
       certificate_number,
       status: dto.status,
-      reason: dto.status === "lainnya" ? dto.reason : undefined,
+      reason: dto.status === "lainnya" ? sanitizedReason : undefined,
     });
 
     const saved: Certificate = await this.certificateRepo.save(certificate);
@@ -59,7 +72,7 @@ export class CertificateService {
 
     // ✅ hanya generate kalau bukan gagal, oper tanggal juga ke method generatePdf
     const pdf_url = await this.generatePdf(
-      dto.name,
+      sanitizedName,
       certificate_number,
       saved.id,
       saved.start_date,

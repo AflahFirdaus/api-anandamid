@@ -11,6 +11,7 @@ import {
   Headers,
   UnauthorizedException,
   BadRequestException,
+  UseGuards,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
@@ -20,6 +21,8 @@ import { ChatService } from './chat.service';
 import { CreateMessageDto } from './dto/create-message.dto';
 import { ChatGateway } from './chat.gateway';
 import { JwtService } from '@nestjs/jwt';
+import { JwtAuthGuard } from '../auth/guards/jwt.guards';
+import { JwtUserGuard } from '../user/guards/jwt-user.guard';
 
 // Hanya izinkan JPG, PNG, PDF
 const ALLOWED_MIMETYPES = ['image/jpeg', 'image/png', 'application/pdf'];
@@ -76,6 +79,7 @@ export class ChatController {
   ) {}
 
   @Post('room')
+  @UseGuards(JwtUserGuard)
   getOrCreateRoom(@Body('buyer_id') buyerId: string) {
     return this.chatService.getOrCreateRoom(buyerId);
   }
@@ -97,6 +101,7 @@ export class ChatController {
   }
 
   @Get('room/:roomId/messages')
+  @UseGuards(JwtUserGuard)
   getMessages(
     @Param('roomId') roomId: string,
     @Query('cursor') cursor?: string,
@@ -107,17 +112,20 @@ export class ChatController {
   }
 
   @Patch('room/:roomId/read/admin')
+  @UseGuards(JwtAuthGuard)
   markAsReadAdmin(@Param('roomId') roomId: string) {
     return this.chatService.markRoomAsReadAdmin(roomId);
   }
 
   @Patch('room/:roomId/read/buyer')
+  @UseGuards(JwtUserGuard)
   markAsReadBuyer(@Param('roomId') roomId: string) {
     return this.chatService.markRoomAsReadBuyer(roomId);
   }
 
   // 🔥 Fungsi sendMessage HANYA SATU dan sudah dilengkapi Gateway
   @Post('message')
+  @UseGuards(JwtUserGuard)
   @UseInterceptors(FileInterceptor('media', chatMediaUpload))
   async sendMessage(
     @Body() dto: CreateMessageDto,
