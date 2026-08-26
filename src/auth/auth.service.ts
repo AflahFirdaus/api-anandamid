@@ -1,4 +1,9 @@
-import { Injectable, UnauthorizedException, InternalServerErrorException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  UnauthorizedException,
+  InternalServerErrorException,
+  Logger,
+} from '@nestjs/common';
 import { AdminService } from '../admin/admin.service';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
@@ -14,18 +19,31 @@ export class AuthService {
     private adminLogService: AdminLogService,
   ) {}
 
-  async login(username: string, password: string, ip?: string, userAgent?: string) {
+  async login(
+    username: string,
+    password: string,
+    ip?: string,
+    userAgent?: string,
+  ) {
     try {
       const admin = await this.adminService.findByUsername(username);
 
-      if (!admin || !admin.password || !(await bcrypt.compare(password, admin.password))) {
+      if (
+        !admin ||
+        !admin.password ||
+        !(await bcrypt.compare(password, admin.password))
+      ) {
         throw new UnauthorizedException('Invalid credentials');
       }
 
-      const payload = { sub: admin.id, username: admin.username, role: 'ADMIN' };
+      const payload = {
+        sub: admin.id,
+        username: admin.username,
+        role: 'ADMIN',
+      };
 
       const accessToken = this.jwtService.sign(payload, {
-        expiresIn: '15m', 
+        expiresIn: '1h',
       });
 
       const refreshToken = this.jwtService.sign(payload, {
@@ -38,13 +56,16 @@ export class AuthService {
       try {
         await this.adminLogService.logLogin(admin.id, ip, userAgent);
       } catch (error) {
-        this.logger.error(`Gagal mencatat log login untuk admin ${admin.id}`, error);
+        this.logger.error(
+          `Gagal mencatat log login untuk admin ${admin.id}`,
+          error,
+        );
       }
 
       return {
         access_token: accessToken,
         refresh_token: refreshToken,
-        expires_in: 900,
+        expires_in: 3600,
         user: {
           id: admin.id,
           username: admin.username,
@@ -57,7 +78,7 @@ export class AuthService {
       }
       this.logger.error('ERROR SAAT LOGIN ADMIN:', err);
       throw new InternalServerErrorException(
-        err.message || 'Terjadi kesalahan internal server saat login'
+        err.message || 'Terjadi kesalahan internal server saat login',
       );
     }
   }
@@ -71,21 +92,32 @@ export class AuthService {
         throw new UnauthorizedException('Access denied');
       }
 
-      const match = await bcrypt.compare(refreshToken, admin.hashed_refresh_token);
+      const match = await bcrypt.compare(
+        refreshToken,
+        admin.hashed_refresh_token,
+      );
 
       // ==========================================
       // REUSE DETECTION (ANTI-HIJACK)
       // ==========================================
       if (!match) {
         await this.adminService.updateRefreshToken(admin.id, null);
-        this.logger.warn(`SECURITY ALERT: Reuse detection triggered for admin ${admin.id}`);
-        throw new UnauthorizedException('Security breach detected. Session revoked.');
+        this.logger.warn(
+          `SECURITY ALERT: Reuse detection triggered for admin ${admin.id}`,
+        );
+        throw new UnauthorizedException(
+          'Security breach detected. Session revoked.',
+        );
       }
 
-      const newPayload = { sub: admin.id, username: admin.username, role: 'ADMIN' };
+      const newPayload = {
+        sub: admin.id,
+        username: admin.username,
+        role: 'ADMIN',
+      };
 
       const newAccessToken = this.jwtService.sign(newPayload, {
-        expiresIn: '15m',
+        expiresIn: '1h',
       });
 
       const newRefreshToken = this.jwtService.sign(newPayload, {
@@ -98,9 +130,8 @@ export class AuthService {
       return {
         access_token: newAccessToken,
         refresh_token: newRefreshToken,
-        expires_in: 900,
+        expires_in: 3600,
       };
-
     } catch (error) {
       throw new UnauthorizedException('Invalid refresh token');
     }
